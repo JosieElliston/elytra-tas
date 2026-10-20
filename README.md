@@ -22,6 +22,38 @@ are symlinked into `<profile>/minescript/`; logs go to `minescript/tas_logs/`.
   accepts less than Python (e.g. `S["a"], S["b"] = 1, 2` is rejected: only plain
   names in tuple targets), CPython's `ast` passes those, and in game you see only
   the first error per launch. It catches syntax only, not runtime errors.
+- `mod/`: Fabric client mod, see below. `netlog.py`: reader for its logs; its
+  docstring is the format spec (`python3 netlog.py LOG.tsv.gz --timeline`).
+
+## Network/tick logger (`mod/`)
+
+Logs what Flashback can't: exact client tick poses and keys, every outbound packet,
+inbound packet decode and handle times, socket read/write times, and in singleplayer
+the integrated server's view (move packets processed, player ticks, glide ends). One
+gzipped TSV per connection in `<profile>/elytra-tas/logs/`. It starts on joining a
+server or world (config via Mod Menu, YACL), or with an unbound toggle key. It only
+observes, so it may run on `lqmbda` too.
+
+```
+cd mod && ./gradlew build
+cp build/libs/elytra-tas-0.1.0.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
+```
+
+Rename the previous version's jar in `mods/` to `.disabled`, as with emc-replay, and
+restart Minecraft.
+
+- **"On the wire" means the end of Netty's pipeline, not the network.** `W` is when a
+  packet's final frame (compressed, encrypted) reaches the handler next to the socket;
+  the `F` flush around it ends when the socket write returned, i.e. the bytes are in
+  the kernel's send buffer. `R` is Netty's socket read. Kernel and network delay are
+  not visible.
+- **Mixins use `defaultRequire: 1`, so a broken injection crashes at launch.** why? a
+  missing hook would otherwise give a log with silent holes. To check injections
+  without launching the client, copy `mod/` to a scratch dir, move the mixin list from
+  `client` to `mixins`, set `environment` to `*`, add a `main` entrypoint that calls
+  `MixinEnvironment.getCurrentEnvironment().audit()` and halts, and `./gradlew
+  runServer` (with `run/eula.txt`). `-Dmixin.debug.export=true` writes the mixed
+  classes to `run/.mixin.out/`. This worked for 0.1.0 (2026-10-20 01:19 EDT).
 
 ## Things that will bite
 

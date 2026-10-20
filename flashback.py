@@ -18,7 +18,17 @@ Facts about what gets recorded (Recorder.endTick, Flashback 0.43.6):
   changed, *including the local player*; then a SetEntityMotion game packet for
   the local player (lossy LpVec3 encoding, don't use it for physics); then
   `next_tick`.
-- inbound server packets are recorded as `game_packet` actions as they arrive.
+- inbound server packets are recorded as `game_packet` actions as the client
+  handles them, all before that tick's `move_entities`; Flashback's own packets
+  come after it, ending with a SetEntityMotion for the local player that is written
+  every tick. So any earlier local SetEntityMotion in a tick came from the server
+  (a booster). `move_entities` itself is skipped on ticks where nothing moved.
+- the server's SetEntityData for the local player is dropped; the shared flags
+  (glide, sprint) are the *client's* own, written once per tick when they change.
+  A server-ended glide shows up on the tick the client applies the server's flag.
+- ClientboundPlayerPositionPacket (server teleports) and keep-alives are dropped.
+- `real_time_clock_optional`, at the start of each tick: wall-clock ms as a signed
+  byte delta from (previous + 50), or a 0 byte and an absolute epoch-ms long.
 - keypresses are NOT recorded. Inputs must be reconstructed from the trajectory.
 """
 
@@ -196,6 +206,20 @@ def component_text(c) -> str:
     return str(c)
 
 
+def read_lpvec3(buf: Buf) -> tuple[float, float, float]:
+    """net.minecraft.network.LpVec3.read: 15 bits per axis times a shared integer scale."""
+    lo = buf.u8()
+    if lo == 0:
+        return (0.0, 0.0, 0.0)
+    mid = buf.u8()
+    packed = buf.u32() << 16 | mid << 8 | lo
+    scale = lo & 3
+    if lo & 4:
+        scale |= (buf.varint() & 0xFFFFFFFF) << 2
+    unpack = lambda v: min(v & 32767, 32766.0) * 2.0 / 32766.0 - 1.0
+    return (unpack(packed >> 3) * scale, unpack(packed >> 18) * scale, unpack(packed >> 33) * scale)
+
+
 # --- actions ---------------------------------------------------------------
 
 
@@ -286,6 +310,12 @@ class Replay:
     events: list[Event] = field(default_factory=list)
     packet_counts: dict[str, int] = field(default_factory=dict)
     total_ticks: int = 0
+    # tick -> wall-clock epoch ms at the start of that tick (client side)
+    rtc: dict[int, int] = field(default_factory=dict)
+    # (tick, cache index) of every level_chunk_cached action, in order; see world.py
+    chunk_refs: list[tuple[int, int]] = field(default_factory=list)
+    _motions: list = field(default_factory=list)  # this tick's local SetEntityMotion values
+    _rtc: int | None = None
 
     @classmethod
     def load(cls, path: str | Path, decode_text: bool = True) -> "Replay":
@@ -302,6 +332,9 @@ class Replay:
                 for a in _iter_chunk(z.read(chunk_name)):
                     r._handle(a, tick, decode_text)
                     if a.name == "next_tick" and not a.in_snapshot:
+                        # the last one is Flashback's own, the rest came from the server
+                        r.events.extend(Event(tick, "motion", v) for v in r._motions[:-1])
+                        r._motions = []
                         tick += 1
             r.total_ticks = tick
         return r
@@ -311,6 +344,12 @@ class Replay:
             for e in decode_move_entities(a.payload):
                 if e.id == self.local_id:
                     self.poses[tick] = e
+        elif a.name == "real_time_clock_optional":
+            d = struct.unpack(">b", a.payload.take(1))[0]
+            self._rtc = a.payload.i64() if d == 0 else self._rtc + 50 + d
+            self.rtc[tick] = self._rtc
+        elif a.name == "level_chunk_cached":
+            self.chunk_refs.append((tick, a.payload.varint()))
         elif a.name == "create_local_player":
             self.local_uuid = a.payload.uuid()
         elif a.name == "game_packet":
@@ -337,6 +376,9 @@ class Replay:
             kind = {CB["SYSTEM_CHAT"]: "chat", CB["SET_TITLE_TEXT"]: "title",
                     CB["SET_SUBTITLE_TEXT"]: "subtitle", CB["SET_ACTION_BAR_TEXT"]: "actionbar"}[pid]
             self.events.append(Event(tick, kind, text))
+        elif pid == CB["SET_ENTITY_MOTION"]:
+            if p.varint() == self.local_id:
+                self._motions.append(read_lpvec3(p))
         elif pid == CB["SET_HELD_SLOT"]:
             self.events.append(Event(tick, "held_slot", p.varint()))
         elif pid == CB["SET_ENTITY_DATA"]:

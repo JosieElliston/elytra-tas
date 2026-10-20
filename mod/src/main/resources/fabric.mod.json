@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "elytra-tas",
+  "version": "${version}",
+  "name": "Elytra TAS",
+  "description": "Tools for the elytra TAS project on EMC. Logs client ticks and network packet timing.",
+  "authors": [
+    "josie"
+  ],
+  "license": "CC0-1.0",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "jealoustone.elytratas.ElytraTasClient"
+    ],
+    "modmenu": [
+      "jealoustone.elytratas.ElytraTasModMenu"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "~26.2",
+    "java": ">=25",
+    "fabric-api": "*",
+    "yet_another_config_lib_v3": ">=3.9.6"
+  },
+  "suggests": {
+    "modmenu": "*"
+  },
+  "mixins": [
+    "elytra-tas.mixins.json"
+  ]
+}
