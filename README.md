@@ -116,3 +116,35 @@ restart Minecraft.
   The Burrowed Grove run (2026-10-19 replay) has none.
 - Packet IDs in `flashback.py` are for protocol 776 (MC 26.2), read off `GameProtocols`
   in the client jar; a different protocol is rejected at load.
+
+## EMC course rules (measured)
+
+From the logger, 2026-10-20 01:41–02:06 (EMC, ~80–110 ms RTT). The server acts once
+per tick, and its tick phase against the client's is fixed per connection, so a
+response to a packet arrives in one of two delay bands one tick apart (about 120 and
+170 ms after the send here). Fit regions with that in mind: a fixed-width delay window
+gives false contradictions.
+
+- **Boosters** set velocity to `speed × look`, where look is the rotation the server
+  last received (sent ~165–180 ms before the velocity arrives), and re-send it every
+  tick you are inside, so turning inside a ring steers. Alpine: 1.4 and 2.5 b/t; no
+  axis reached the ±3.9 clamp there. Ring frames are solid blocks. Standing on the second
+  alpine booster's gold blocks without gliding did not kill you for up to 8.7 s, so the
+  kill rule seems to exempt booster volumes (at least one other booster does the same).
+- **Hard wall hits overwrite your velocity, ~3 ticks late (vanilla).** The server runs
+  its own copy of your elytra physics; when it loses > 0.3 b/t of horizontal speed in a
+  collision, `LivingEntity.handleFallFlyingCollisions` deals fly-into-wall damage,
+  `markHurt()` follows, and `ServerEntity` sends the server's velocity to you as if it
+  were knockback. The client applies it on arrival, so with ping it replaces the
+  velocity of a later tick. Alpine log: 24 of 36 such hits echoed (the misses fit the
+  10-tick damage cooldown), 4 of 21 smaller ones. A physics replay has to apply it.
+- **Timer** is wall-clock time between the "Timer started!" and "Course complete!"
+  server ticks, rounded to 0.02 s: five identical 647-tick runs gave 32.34 or 32.36
+  depending on whether that interval was under or over 32.35 s.
+- **Start area** is box-like in bulk (canyon x < −266, 168 ≤ y < 177–178, z ≥ 164;
+  super classic downtown −52 ≤ x < −27, 86 ≤ y < 99, z < −64) but not one box: near
+  canyon's z ≈ 195–199 corner the −x face sits near −265.2, and landing at y = 167
+  started the timer after 300 ms airborne below 168 did not. Leaving it without gliding
+  starts the timer and kills you in the same tick.
+- **Canyon finish** is no single box, sphere or cylinder under any delay; probably a
+  union of boxes.

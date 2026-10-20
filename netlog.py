@@ -152,6 +152,25 @@ class Inbound:
     thread: str | None = None
     details: tuple[str, ...] = ()
 
+    def self_flags(self) -> int | None:
+        """Shared flags (entity data id 0) of a set_entity_data for the local player, else None."""
+        if self.name != "set_entity_data" or self.details[:1] != ("self",):
+            return None
+        for kv in self.details[1].split(";"):
+            k, v = kv.split("=", 1)
+            if k == "0":
+                return int(v, 16)
+        return None
+
+
+@dataclass(frozen=True)
+class Bounce:
+    tick: int  # client tick that landed (onGround while gliding)
+    t_land: int  # wire time of that tick's move packet
+    gap_ms: float  # wire time from it to the next tick's move packet
+    jumped: bool  # airborne again the next tick
+    off_ms: float | None  # landing wire -> server glide-off decoded; None = glide kept ("perfect")
+
 
 @dataclass(frozen=True)
 class Server:
@@ -281,6 +300,36 @@ def load(path: str | Path) -> Log:
     return log
 
 
+def bounces(log: Log, window_ms: float = 600) -> list[Bounce]:
+    """Client landings while gliding, with whether the server ended the glide.
+
+    The server ends a glide in the doTick after it handles a move with onGround=1; the
+    flag change reaches the client about RTT + one tick later (~170 ms on EMC at ~100 ms
+    RTT, 2026-10-20). No glide-off within `window_ms` counts as kept. A server-side
+    landing a tick early (its own physics) shows up as a smaller off_ms, not as a miss.
+    Needs W records, so it is empty for singleplayer (in-memory connection); there the
+    X glide_end records say it directly.
+    """
+    ends = [t for t in log.ticks if t.phase == "e"]
+    moves: dict[int, Outbound] = {}
+    for o in log.outbound:
+        if o.name in MOVE and o.t_wire is not None:
+            moves.setdefault(o.tick, o)
+    offs = [i.t_decode for i in log.inbound if (f := i.self_flags()) is not None and not f & FLAG_GLIDING]
+    out = []
+    for prev, t, nxt in zip(ends, ends[1:], ends[2:]):
+        if not (t.on_ground and t.fall_flying and not prev.on_ground):
+            continue
+        a, b = moves.get(t.tick), moves.get(t.tick + 1)
+        if a is None or b is None:
+            continue
+        k = bisect.bisect(offs, a.t_wire)
+        off = (offs[k] - a.t_wire) / 1e6 if k < len(offs) else None
+        out.append(Bounce(t.tick, a.t_wire, (b.t_wire - a.t_wire) / 1e6, not nxt.on_ground,
+                          off if off is not None and off < window_ms else None))
+    return out
+
+
 def _show(fields: tuple[str, ...]) -> str:
     return " ".join(f.replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n") for f in fields)
 
@@ -331,6 +380,11 @@ def main(argv: list[str]) -> int:
     if hq:
         print(f"  inbound decode->handle (client thread): median {hq[len(hq) // 2] / 1e6:.2f} ms, "
               f"max {hq[-1] / 1e6:.2f} ms")
+    bs = [b for b in bounces(log) if b.jumped]
+    if bs:
+        kept = [b.tick for b in bs if b.off_ms is None]
+        print(f"  ebounces (landed gliding, jumped next tick): {len(bs)}, glide kept {len(kept)}"
+              + (f" at ticks {kept}" if kept else ""))
     for e in log.events:
         print(f"  {e.kind} {log.ms(e.t):.1f}ms {' '.join(e.f)}")
     if args.timeline:
