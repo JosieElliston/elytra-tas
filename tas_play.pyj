@@ -1,0 +1,525 @@
+r"""
+usage: \tas_play NAME [runs=N] [settle=T] [abort=D] [maxfail=K] [smooth=0] [trace]
+
+Plays minescript/tas/NAME.tas (made by extract_run.py from a Flashback replay) in a
+loop: reset with the slot-1 checkpoint item, wait for the course start, replay the
+recorded rotation and keys tick by tick, and reset again after "Course complete!".
+Stops after N completed runs (default: forever), or with \killjob.
+
+  settle=T   extra still ticks at the start before playing (default 10)
+  abort=D    abandon an attempt when off the recorded path by D blocks (default 0.5)
+  maxfail=K  stop after K failed attempts in a row (default 3)
+  smooth=0   turn the camera at 20 Hz instead of smoothing it per frame
+  trace      also log every tick's deviation from the recording
+
+Logs go to minescript/tas_logs/<time>_NAME.csv (one row per attempt) and
+.trace.csv. Deviation 0 means the playback was bit-identical to the recording.
+
+How it drives the player, and why:
+- the "tick" event is Fabric's START_LEVEL_TICK, at the head of
+  ClientLevel.tickEntities: inside Minecraft.tick, right before this tick's player
+  physics. So each handler checks the pose the previous tick produced, then sets
+  the inputs the physics right after it uses.
+- rotation is set with Entity.setYRot/setXRot from the exact float bits in the
+  file. Minescript's player_set_orientation applies % 360, which changes the
+  bits, and elytra physics runs the float yaw through a sine table.
+- the camera is smoothed without touching physics: between ticks the rotation is
+  set every frame to lerp(the line physics just used, the next line, partial
+  tick), as a mouse would move it. The tick handler sets the exact tape rotation
+  right before physics, so physics never depends on the smoothing hooks.
+- keys go through a plain ClientInput that replaces player.input for the whole
+  run, instead of KeyMappings. That way real keypresses, toggle-sprint, and a
+  screen opening (which releases KeyMappings) can't touch the run. The
+  keyboard input is restored at exit.
+While this script runs, the keyboard does not move the player. \killjob gives
+control back.
+
+Fail-safe: a run is abandoned on desync (including an unexpected teleport), an
+external rotation change, or the tape ending without a completion. The script stops (inputs released, keyboard restored) on a
+respawn/dimension change (e.g. getting sent to the hub), death, the wrong
+account, or K failures in a row.
+"""
+
+from system.pyj.minescript import *
+import system.pyj.sys as sys
+import system.pyj.atexit as atexit
+
+ALT = "deftenvy"  # never drive the main account (AGENTS.md)
+
+Minecraft = JavaClass("net.minecraft.client.Minecraft")
+ClientInput = JavaClass("net.minecraft.client.player.ClientInput")
+Input = JavaClass("net.minecraft.world.entity.player.Input")
+Vec2 = JavaClass("net.minecraft.world.phys.Vec2")
+InteractionHand = JavaClass("net.minecraft.world.InteractionHand")
+JFloat = JavaClass("java.lang.Float")
+JDouble = JavaClass("java.lang.Double")
+JInteger = JavaClass("java.lang.Integer")
+JLong = JavaClass("java.lang.Long")
+JMath = JavaClass("java.lang.Math")
+Files = JavaClass("java.nio.file.Files")
+File = JavaClass("java.io.File")
+FileWriter = JavaClass("java.io.FileWriter")
+LocalDateTime = JavaClass("java.time.LocalDateTime")
+DateTimeFormatter = JavaClass("java.time.format.DateTimeFormatter")
+IdentityHashMap = JavaClass("java.util.IdentityHashMap")
+GuiMessageSource = JavaClass("net.minecraft.client.multiplayer.chat.GuiMessageSource")
+ClientTickEvents = JavaClass("net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents")
+StartTick = JavaClass("net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents$StartTick")
+EndTick = JavaClass("net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents$EndTick")
+LevelRenderEvents = JavaClass("net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents")
+EndMain = JavaClass("net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents$EndMain")
+
+mc = Minecraft.getInstance()
+
+
+def now_stamp():
+  return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+
+
+# --- arguments --------------------------------------------------------------
+
+if len(sys.argv) < 2:
+  echo("usage: \\tas_play NAME [runs=N] [settle=T] [abort=D] [maxfail=K] [smooth=0] [trace]")
+  sys.exit(1)
+name = sys.argv[1]
+opts = {"runs": "0", "settle": "10", "abort": "0.5", "maxfail": "3", "smooth": "1"}
+trace_on = False
+for a in sys.argv[2:]:
+  if a == "trace":
+    trace_on = True
+  elif "=" in a and a.split("=")[0] in opts:
+    opts[a.split("=")[0]] = a.split("=")[1]
+  else:
+    echo(f"tas_play: unknown argument {a}")
+    sys.exit(1)
+max_runs = int(opts["runs"])
+settle_ticks = int(opts["settle"])
+abort_dist = float(opts["abort"])
+max_fail = int(opts["maxfail"])
+smooth_on = opts["smooth"] != "0"
+
+if player_name() != ALT:
+  echo(f"tas_play: refusing to run on {player_name()}; this only drives {ALT}")
+  sys.exit(1)
+
+# --- tape -------------------------------------------------------------------
+
+
+def fbits(h):
+  return JFloat.intBitsToFloat(JInteger.parseUnsignedInt(h, 16))
+
+
+def dbits(h):
+  return JDouble.longBitsToDouble(JLong.parseUnsignedLong(h, 16))
+
+
+tape_file = File(mc.gameDirectory, "minescript/tas/" + name + ".tas")
+if not tape_file.exists():
+  echo(f"tas_play: no tape at {tape_file.getPath()}")
+  sys.exit(1)
+header = {}
+# Line t is the tick t after the reset; index 0 is the arrival tick.
+T_YAW, T_PITCH, T_KEYS, T_X, T_Y, T_Z = [None], [None], [None], [None], [None], [None]
+for raw in Files.readAllLines(tape_file.toPath()):
+  line = raw.split("#")[0].strip()
+  if line == "":
+    continue
+  if "=" in line:  # header; data lines never contain "="
+    k = line.split("=")[0]
+    header[k] = line[len(k) + 1:].strip()
+    continue
+  f = line.split()
+  if int(f[0]) != len(T_YAW):
+    echo(f"tas_play: tape line {f[0]} out of order")
+    sys.exit(1)
+  T_YAW.append(fbits(f[1]))
+  T_PITCH.append(fbits(f[2]))
+  T_KEYS.append("" if f[3] == "-" else f[3])
+  T_X.append(dbits(f[4]))
+  T_Y.append(dbits(f[5]))
+  T_Z.append(dbits(f[6]))
+N = len(T_YAW) - 1
+s = header["start"].split()
+START = [dbits(s[0]), dbits(s[1]), dbits(s[2])]
+START_YAW, START_PITCH = fbits(s[3]), fbits(s[4])
+FINISH_TICK = int(header["finish_tick"])
+POST_FINISH = 20  # ticks to keep flying the tape after "Course complete!"
+
+# --- logs -------------------------------------------------------------------
+
+log_dir = File(mc.gameDirectory, "minescript/tas_logs")
+log_dir.mkdirs()
+base = File(log_dir, LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"))
+            + "_" + name).getPath()
+results = FileWriter(base + ".csv")
+results.write("time,attempt,result,reason,ticks,max_dev,first_dev_tick,timer_tick,finish_tick,finish_text\n")
+results.flush()
+trace = FileWriter(base + ".trace.csv") if trace_on else None
+if trace is not None:
+  trace.write("attempt,tick,dx,dy,dz\n")
+
+# --- input ------------------------------------------------------------------
+
+player0 = mc.player
+orig_input = player0.input
+tas_input = ClientInput()
+# Pyjinn can't assign fields of Java objects (`obj.f = v` fails at runtime, even for
+# public fields), so every field write goes through reflection. moveVector is also
+# protected, hence setAccessible.
+input_field = player0.getClass().getField("input")
+keys_field = tas_input.getClass().getField("keyPresses")
+move_field = tas_input.getClass().getDeclaredField("moveVector")
+move_field.setAccessible(True)
+# LocalPlayer.aiStep samples wasJumping from input.keyPresses *before* input.tick(),
+# which in vanilla (KeyboardInput) is what loads this tick's keys. Our ClientInput's
+# tick() does nothing and the keys are already set when aiStep runs, so wasJumping
+# would already be the new value and a jump press would never be an edge: the glide wouldn't start.
+# For a press, leave jump off and set autoJumpTime = 1; aiStep then calls
+# input.makeJump() right after input.tick(), where a real press lands. The glide check
+# ignores wasAutoJump (only the creative-flight toggle reads it), and autoJump is off
+# in options, so nothing else sets this field.
+auto_jump_field = player0.getClass().getDeclaredField("autoJumpTime")
+auto_jump_field.setAccessible(True)
+# The same early sampling applies to hasForwardImpulse, which only feeds the
+# double-tap-W sprint timer; tapes sprint with R, so that difference is harmless.
+
+
+def set_keys(keys, prev_keys=None):
+  press_jump = prev_keys is not None and "J" in keys and "J" not in prev_keys
+  if press_jump:
+    keys = keys.replace("J", "")
+  # Cleared otherwise, so stopping right after a scheduled press can't leave a stray jump.
+  auto_jump_field.set(player0, 1 if press_jump else 0)
+  fwd = ("W" in keys) != ("S" in keys)
+  side = ("A" in keys) != ("D" in keys)
+  keys_field.set(tas_input, Input("W" in keys, "S" in keys, "A" in keys, "D" in keys,
+                                  "J" in keys, False, "R" in keys))
+  # Same as KeyboardInput.tick: Vec2(left impulse, forward impulse).normalized().
+  fi = 0.0 if not fwd else (1.0 if "W" in keys else -1.0)
+  li = 0.0 if not side else (1.0 if "A" in keys else -1.0)
+  # Pyjinn narrows Double to float for method args but not constructor args.
+  move_field.set(tas_input, Vec2(JavaFloat(li), JavaFloat(fi)).normalized())
+
+
+set_keys("")
+input_field.set(player0, tas_input)
+
+# --- camera -----------------------------------------------------------------
+#
+# LocalPlayer's camera reads getYRot()/getXRot() directly, without interpolation;
+# vanilla looks smooth only because the mouse turns the player every frame. So:
+#   k:             the tape line the last physics tick used
+#   exact (ey, ex): its rotation; put back at the start of every tick, so the tick
+#                  handler's checks see what physics saw
+#   shown (ly, lx): what we last set, to spot anything else turning the player
+# Frame order is: ticks, mouse turn, camera setup, level render. A frame with a
+# tick sets the display in END_CLIENT_TICK (after physics) with the frame's exact
+# partial tick. Fabric's render events all fire after camera setup, so a frame
+# without a tick shows what the previous frame set, and that frame has to predict
+# the partial tick (its own plus its duration).
+#
+# Fabric listeners can't be unregistered. After the script exits, Pyjinn turns these
+# calls into no-ops (logging a rate-limited "zombie callback" warning). They run
+# inside Minecraft.tick/render, where an exception would crash the game, so they
+# catch everything and only ever set flags; step() does the stopping.
+
+R = {"on": False, "k": 0, "ey": 0.0, "ex": 0.0, "ly": 0.0, "lx": 0.0,
+     "moved": False, "error": ""}
+
+
+def set_rot(yaw, pitch):
+  player0.setYRot(yaw)
+  player0.setXRot(pitch)
+  R["ly"] = player0.getYRot()
+  R["lx"] = player0.getXRot()
+
+
+def check_moved():
+  if player0.getYRot() != R["ly"] or player0.getXRot() != R["lx"]:
+    R["moved"] = True
+
+
+def show(alpha):
+  if alpha > 1.0:
+    alpha = 1.0
+  k = R["k"]
+  n = k + 1 if k < N else k
+  set_rot(T_YAW[k] + (T_YAW[n] - T_YAW[k]) * alpha, T_PITCH[k] + (T_PITCH[n] - T_PITCH[k]) * alpha)
+
+
+def on_start_tick(client):
+  try:
+    if R["on"] and mc.player is player0:
+      check_moved()
+      set_rot(R["ey"], R["ex"])
+  except Exception as e:
+    R["error"] = f"start-of-tick restore: {e}"
+
+
+def on_end_tick(client):
+  try:
+    if R["on"] and mc.player is player0:
+      check_moved()
+      show(mc.getDeltaTracker().getGameTimeDeltaPartialTick(False))
+  except Exception as e:
+    R["error"] = f"end-of-tick display: {e}"
+
+
+def on_frame(context):
+  try:
+    if R["on"] and mc.player is player0:
+      check_moved()
+      dt = mc.getDeltaTracker()
+      show(dt.getGameTimeDeltaPartialTick(False) + dt.getRealtimeDeltaTicks())
+  except Exception as e:
+    R["error"] = f"frame: {e}"
+
+
+if smooth_on:
+  ClientTickEvents.START_CLIENT_TICK.register(StartTick(on_start_tick))
+  ClientTickEvents.END_CLIENT_TICK.register(EndTick(on_end_tick))
+  LevelRenderEvents.END_MAIN.register(EndMain(on_frame))
+
+# --- state ------------------------------------------------------------------
+
+S = {
+  "phase": "reset", "wait": 0, "uses": 0, "i": 0, "attempt": 0,
+  "done": 0, "fails": 0, "max_dev": 0.0, "first_dev": -1,
+  "timer": -1, "finish": -1, "finish_text": "", "hub": False, "stopped": False,
+}
+
+
+def dist_to(i):
+  p = player0
+  dx, dy, dz = p.getX() - T_X[i], p.getY() - T_Y[i], p.getZ() - T_Z[i]
+  return dx, dy, dz, JMath.sqrt(dx * dx + dy * dy + dz * dz)
+
+
+def at_start():
+  p = player0
+  return p.getX() == START[0] and p.getY() == START[1] and p.getZ() == START[2]
+
+
+def use_reset_item():
+  if S["uses"] >= 4:
+    stop("reset item didn't bring us to the course start")
+    return
+  set_keys("")
+  player0.getInventory().setSelectedSlot(0)
+  mc.gameMode.useItem(player0, InteractionHand.MAIN_HAND)
+  S["uses"] += 1
+
+
+def begin_attempt():
+  S["attempt"] += 1
+  S["phase"] = "reset"
+  S["wait"] = 0
+  S["uses"] = 0
+  S["max_dev"] = 0.0
+  S["first_dev"] = -1
+  S["timer"] = -1
+  S["finish"] = -1
+  S["finish_text"] = ""
+  use_reset_item()
+
+
+def end_attempt(ok, reason):
+  R["on"] = False
+  set_keys("")
+  results.write(",".join([now_stamp(), str(S["attempt"]), "ok" if ok else "fail", reason,
+                          str(S["i"]), str(S["max_dev"]), str(S["first_dev"]), str(S["timer"]),
+                          str(S["finish"]), '"' + S["finish_text"] + '"']) + "\n")
+  results.flush()
+  if trace is not None:
+    trace.flush()
+  if ok:
+    S["done"] += 1
+    S["fails"] = 0
+    echo(f"tas_play: run {S['done']} ok ({S['finish_text']}), max deviation {S['max_dev']:.2e}")
+  else:
+    S["fails"] += 1
+    echo(f"tas_play: attempt {S['attempt']} failed at tick {S['i']}: {reason}")
+  if max_runs > 0 and S["done"] >= max_runs:
+    stop(f"finished {S['done']} runs")
+  elif S["fails"] >= max_fail:
+    stop(f"{S['fails']} failures in a row")
+  else:
+    begin_attempt()
+
+
+def apply_line(i):
+  # Runs right before this tick's physics (see the docstring), so physics gets the
+  # exact tape rotation whatever the smoothing hooks do.
+  set_rot(T_YAW[i], T_PITCH[i])
+  R["k"] = i
+  R["ey"] = T_YAW[i]
+  R["ex"] = T_PITCH[i]
+  # Line 0 is the still arrival tick; nothing is held during settle.
+  set_keys(T_KEYS[i], "" if i == 1 else T_KEYS[i - 1])
+
+
+# --- per tick ---------------------------------------------------------------
+
+
+def on_tick(event):
+  if S["stopped"]:
+    return
+  try:
+    step()
+  except Exception as e:
+    stop(f"error: {e}")
+
+
+def step():
+  # Before advancing S["i"], so a message is stamped with the tick that produced it.
+  poll_chat()
+  p = mc.player
+  if p is None or p is not player0:
+    stop("player changed (respawn, dimension change, or disconnect)")
+    return
+  if p.input is not tas_input:
+    stop("player.input was replaced by something else")
+    return
+  if p.isDeadOrDying():
+    stop("player died")
+    return
+  if S["hub"]:
+    stop("sent to hub")
+    return
+
+  ph = S["phase"]
+  if ph == "reset":
+    if at_start():
+      S["phase"] = "settle"
+      S["wait"] = 0
+      p.getInventory().setSelectedSlot(3)  # as in the recording: keep the reset item out of hand
+      return
+    S["wait"] += 1
+    if S["wait"] % 40 == 0:
+      use_reset_item()
+    return
+
+  if ph == "settle":
+    if not at_start():
+      S["phase"] = "reset"
+      S["wait"] = 0
+      use_reset_item()
+      return
+    S["wait"] += 1
+    if S["wait"] >= settle_ticks:
+      if p.getYRot() != START_YAW or p.getXRot() != START_PITCH:
+        # The tape assumes the teleport's rotation for its first still ticks.
+        p.setYRot(START_YAW)
+        p.setXRot(START_PITCH)
+      S["phase"] = "play"
+      S["i"] = 0
+      apply_line(1)
+      R["moved"] = False
+      R["on"] = smooth_on
+    return
+
+  # ph == "play": the last physics tick ran tape line S["i"] + 1; check its pose.
+  S["i"] += 1
+  i = S["i"]
+  dx, dy, dz, d = dist_to(i)
+  if trace is not None:
+    trace.write(f"{S['attempt']},{i},{dx},{dy},{dz}\n")
+  if d > 0.0 and S["first_dev"] < 0:
+    S["first_dev"] = i
+  if d > S["max_dev"]:
+    S["max_dev"] = d
+  if R["error"] != "":
+    stop(f"camera smoothing failed: {R['error']}")
+    return
+  if p.getYRot() != T_YAW[i] or p.getXRot() != T_PITCH[i] or R["moved"]:
+    end_attempt(False, "rotation changed outside the script (mouse?)")
+    return
+  if d > abort_dist:
+    end_attempt(False, f"off the recorded path by {d:.3f} blocks")
+    return
+  if S["finish"] >= 0 and i >= S["finish"] + POST_FINISH:
+    end_attempt(True, "complete")
+    return
+  if i >= N:
+    if S["finish"] >= 0:
+      end_attempt(True, "complete")
+    else:
+      end_attempt(False, "tape ended without completing")
+    return
+  apply_line(i + 1)
+
+
+# Minescript's "chat" event misses server system messages on 26.2: it hooks
+# ChatComponent.addClientSystemMessage and addPlayerMessage, and the server's
+# "Course complete!" / "Timer started!" arrive through addServerSystemMessage. So
+# poll ChatComponent.allMessages (private; newest first, capped at 100) instead,
+# taking only SYSTEM_SERVER messages, so player chat and our own echoes can't match.
+chat = mc.gui.hud.getChat()
+all_messages_field = chat.getClass().getDeclaredField("allMessages")
+all_messages_field.setAccessible(True)
+seen = IdentityHashMap()
+
+
+def mark_seen(msgs):
+  seen.clear()
+  for m in msgs:
+    seen.put(m, True)
+
+
+mark_seen(all_messages_field.get(chat))
+
+
+def poll_chat():
+  msgs = all_messages_field.get(chat)
+  fresh = []
+  for m in msgs:
+    # Stop at the newest message already handled. Identity, not equality: the same
+    # text can repeat, and deletion swaps in new objects (player messages only).
+    if seen.containsKey(m):
+      break
+    fresh.append(m)
+  if len(fresh) == 0:
+    return
+  mark_seen(msgs)
+  n = len(fresh)
+  for k in range(n):  # oldest first; Pyjinn's range() can't count down
+    m = fresh[n - 1 - k]
+    if m.source() is GuiMessageSource.SYSTEM_SERVER:
+      on_server_message(m.content().getString())
+
+
+def on_server_message(msg):
+  if msg.startswith("Course complete!"):
+    S["finish"] = S["i"]
+    S["finish_text"] = msg.replace('"', "'")
+  elif msg == "Timer started!":
+    S["timer"] = S["i"]
+  elif msg.startswith("Teleported to hub"):
+    S["hub"] = True
+
+
+def restore():
+  R["on"] = False
+  if mc.player is player0 and player0.input is tas_input:
+    input_field.set(player0, orig_input)
+  results.flush()
+  results.close()
+  if trace is not None:
+    trace.flush()
+    trace.close()
+
+
+def stop(reason):
+  if S["stopped"]:
+    return
+  S["stopped"] = True
+  R["on"] = False
+  set_keys("")
+  echo(f"tas_play: stopped: {reason}. {S['done']} runs done in {S['attempt']} attempts. log: {base}.csv")
+  sys.exit(0)
+
+
+atexit.register(restore)
+add_event_listener("tick", on_tick)
+echo(f"tas_play: {name}: {N} ticks, finish at {FINISH_TICK}. Keyboard is disabled; \\killjob to stop.")
+begin_attempt()
