@@ -42,7 +42,8 @@ set_title_text / set_subtitle_text: text; respawn: dimension gameType dataToKeep
 login: dimension gameType playerId.
 X events: tick_start / tick_end (ServerPlayer.doTick), move (handleMovePlayer done;
 extra = packet name, packet onGround, hColl), command (handlePlayerCommand; action),
-glide_end (extra = updateFallFlying or stopFallFlying).
+glide_end (extra = updateFallFlying or stopFallFlying), start_refused (START_FALL_FLYING
+refused while not gliding; builds from c59e227 log these as glide_end stopFallFlying).
 
 Facts that bite:
 - D/H pairs are joined by seq; the reader does it (`Log.inbound`). S/W likewise

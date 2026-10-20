@@ -106,8 +106,13 @@ restart Minecraft.
   tick. A pose Flashback records at tick N used the rotation recorded at N. why? the
   player is open loop, so anything set between the handler and physics is what flies.
 - Gliding is client-side physics, keys are ignored, and only the server ends a glide
-  (`LivingEntity.updateFallFlying` is server-only). Ebounces are ping-dependent, so the
-  extractor refuses runs whose glide ends before the finish. The Burrowed Grove run
-  (2026-10-19 replay) has none.
+  (`LivingEntity.updateFallFlying` is server-only). An ebounce keeps the glide ("perfect")
+  only if the server handles the landing move (onGround=1) and the jump move (onGround=0)
+  with no player `doTick` between them; the server handles packets on arrival and checks
+  onGround once per tick. With steady 50 ms ticks on both ends that almost never happens:
+  on EMC all 5 perfect bounces in 312 landings (logs of 2026-10-20 01:41–02:06) fell in or
+  beside server lag spikes (ticks of 91–725 ms), and the one singleplayer one in a client hitch that sent the two
+  moves 27 ms apart. So the extractor refuses runs whose glide ends before the finish.
+  The Burrowed Grove run (2026-10-19 replay) has none.
 - Packet IDs in `flashback.py` are for protocol 776 (MC 26.2), read off `GameProtocols`
   in the client jar; a different protocol is rejected at load.

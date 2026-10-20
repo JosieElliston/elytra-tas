@@ -28,10 +28,12 @@ public abstract class LivingEntityMixin {
         }
     }
 
+    // handlePlayerCommand calls stopFallFlying when START_FALL_FLYING is refused, also when the
+    // player wasn't gliding, so only a call that clears the flag is a glide end.
     @Inject(method = "stopFallFlying", at = @At("HEAD"))
     private void elytraTas$stopFallFlying(CallbackInfo ci) {
         if ((Object) this instanceof ServerPlayer player && NetLog.serverWanted(player)) {
-            NetLog.server("glide_end", player, "stopFallFlying");
+            NetLog.server(player.isFallFlying() ? "glide_end" : "start_refused", player, "stopFallFlying");
         }
     }
 }
