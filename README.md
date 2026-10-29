@@ -109,6 +109,23 @@ work, and the tick interval. `/etas phase help` explains each row. The figures c
   closer than 50 ms. The tracker reads the grid from the
   timer. why? tick starts trail the grid by up to a frame (0–10 ms at ~100 fps), which
   would otherwise show up as phase noise.
+- **Keep client wait and server wait away from 0/50.** A packet that arrives within a few
+  ms of a tick edge is read on either side of it, so the glide-off reaches the client a
+  tick early or late at random. In the 2026-10-29 17:05 log, at client wait ~0 the
+  client first saw it 3 ticks after landing 112 times and 4 ticks 86 times, decided on
+  the client (handled a median 0.2 ms before a tick, or 9 ms after one). A redeploy press
+  came before the glide-off in 22% of the 3-tick bounces and 44% of the 4-tick ones.
+  At client wait ~32 that split went away, but server wait ~47 then read 29 of 148
+  landings a tick early. Server wait just under 50 is also where perfect bounces happen
+  without lag (see the ebounce entry under "Things that will bite").
+- **A packet-delay mod moves the waits, but only its hold mod 50 helps.** Ping Equalizer
+  held moves ~68 ms and replies ~71 ms (2026-10-29 17:05 and 17:17 logs). The holds sit
+  between the logger's send and wire records and between decode and handle, so net up +
+  down leaves them out, while server wait and client wait include them: they dropped by
+  18 and ~21 ms, as the loop says. The whole ticks of a hold are pure cost: the glide-off
+  reached the client 6–7 ticks after landing instead of 3–4. The phase buttons cost
+  nothing but move the two waits only against each other (client wait +d, server wait
+  −d); their sum mod 50 is set by the round trip, the work on both ends and any hold.
 
 ## Things that will bite
 
@@ -166,8 +183,14 @@ work, and the tick interval. `/etas phase help` explains each row. The figures c
   with no player `doTick` between them; the server handles packets between ticks and checks
   onGround once per tick. But while it is behind schedule it runs a queued packet only once
   the packet is over 3 ticks old (26.2 `MinecraftServer.shouldRun`), so after a long tick
-  the moves pile up and are handled together. With steady 50 ms ticks on both ends a
-  perfect bounce almost never happens:
+  the moves pile up and are handled together. Without lag both moves have to arrive in
+  one tick's gap: the landing just after a tick start (server wait just under 50 ms) and
+  the jump less than that later. Client ticks run at frame starts, so the two moves leave
+  up to a frame less than 50 ms apart. In the 2026-10-29 17:05 log, at server wait
+  ~47 ms (set by a 68 ms outbound hold, see Tick phase), 9 of 148 bounces kept the glide,
+  8 of them with a flat round trip: 7 of the 53 whose moves left 45–48 ms apart, against
+  2 of the 97 at 49 ms or more. At server wait ~29 (17:17 log) none of 246 did. Every other perfect bounce
+  so far came with lag:
   on EMC all 5 perfect bounces in 312 landings (logs of 2026-10-20 01:41–02:06) fell in or
   beside server lag spikes (ticks of 91–725 ms), and the one singleplayer one in a client hitch that sent the two
   moves 27 ms apart. In the 2026-10-29 16:32 log, 6 of 9 kept glides in 132 bounces came
