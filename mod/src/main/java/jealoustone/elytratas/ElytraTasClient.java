@@ -28,7 +28,8 @@ public final class ElytraTasClient implements ClientModInitializer {
         // INIT runs again on the same Connection after a server-driven reconfiguration;
         // that continues the session instead of starting a new file.
         ClientPlayConnectionEvents.INIT.register((handler, client) -> {
-            PhaseTracker.init(handler.getConnection());
+            PhaseTracker.init(handler.getConnection(), client.getUser().getName(),
+                    handler.getServerData() == null ? null : handler.getServerData().ip);
             if (CONFIG.enabled && CONFIG.autoStart && NetLog.connection() != handler.getConnection()) {
                 NetLog.start(handler.getConnection(), handler.getServerData(), client);
             }

@@ -1,6 +1,7 @@
 package jealoustone.elytratas.phase;
 
 import io.netty.channel.Channel;
+import jealoustone.elytratas.ElytraTasClient;
 import jealoustone.elytratas.mixin.ConnectionAccessor;
 import jealoustone.elytratas.mixin.DeltaTrackerTimerAccessor;
 import net.minecraft.client.Minecraft;
@@ -48,6 +49,9 @@ import java.util.concurrent.TimeUnit;
  * pong and probe-reply decodes) give the round trip and the probe delays; the time a packet
  * reaches the listener (after any delaying pipeline handler) gives the client wait.
  *
+ * Pings and probes go out only for user@server pairs on the whitelist (LoggerConfig); elsewhere the
+ * tracker only observes, and the rows that need them stay empty.
+ *
  * Threads: the encode/wire/decode/listener hooks run on the connection's Netty event loop,
  * ticks and the command on the client thread. Samples are guarded by the class lock.
  */
@@ -57,16 +61,24 @@ public final class PhaseTracker {
     private static final int PING_INTERVAL_TICKS = 5;
     /** Delay between probes, uniform, so their send phases cover the tick evenly. 4 a second on average. */
     private static final int PROBE_MIN_MS = 125, PROBE_MAX_MS = 375;
+    /** The least time the probe fit looks back over (unless cut). why? see fitSawtooth. */
+    private static final long PROBE_WINDOW = 20_000_000_000L;
     /**
-     * What a probe asks completions for. why this? an unknown root command parses
-     * instantly to no suggestions, and the vanilla server still replies. A proxy or plugin
-     * that answers completions itself, off the server's main thread, gives replies with no
-     * sawtooth; the fit then reports nothing.
+     * What probes ask completions for: tried in turn until one gets replies, then kept.
+     * why these? each always has suggestions (online players, help topics, the commands you
+     * can run). EMC sent no reply at all to 1113 probes for "/etas", which has none
+     * (2026-10-29 16:02–16:08 logs). The vanilla server replies even when empty, so
+     * presumably EMC's server software or proxy drops empty replies; unconfirmed. A proxy or plugin that answers
+     * completions off the server's main thread gives replies with no sawtooth; the fit then
+     * reports nothing.
      */
-    private static final String PROBE_TEXT = "/etas";
+    private static final String[] PROBE_TEXTS = {"/msg ", "/tell ", "/help ", "/"};
 
     private static volatile Connection connection;
     private static volatile Channel channel;
+    /** The server's address as typed, or null in singleplayer. */
+    private static volatile String server;
+    private static volatile String user;
 
     // guarded by PhaseTracker.class
     private static final Series rtt = new Series();
@@ -89,9 +101,16 @@ public final class PhaseTracker {
     private static long lastMoveWrite = Long.MIN_VALUE;
     /** Ping time field (Util.getMillis) -> socket write time, or 0 while still queued. */
     private static final Map<Long, Long> pings = new HashMap<>();
-    /** Probe id -> socket write time, or 0 while still queued. Ids are negative: the vanilla client's are positive, so it ignores our replies. */
-    private static final Map<Integer, Long> probes = new HashMap<>();
+    /**
+     * Probe id -> {socket write time or 0 while still queued, index into PROBE_TEXTS}. Ids
+     * are negative: the vanilla client's are positive, so it ignores our replies.
+     */
+    private static final Map<Integer, long[]> probes = new HashMap<>();
     private static int nextProbeId = -1;
+    /** The PROBE_TEXTS entry that got a reply, or -1 while still trying them in turn. */
+    private static int probeText = -1;
+    private static int probeTurn;
+    private static int probesSent, probeReplies;
     /** When the latest client tick started. */
     private static long lastTickStart = Long.MIN_VALUE;
     private static final Map<Packet<?>, Long> reached = new IdentityHashMap<>();
@@ -114,7 +133,13 @@ public final class PhaseTracker {
      * ClientPlayConnectionEvents.INIT. It runs again on the same Connection after a
      * server-driven reconfiguration, which is how a proxy switches backends.
      */
-    public static synchronized void init(Connection conn) {
+    public static synchronized void init(Connection conn, String userName, String address) {
+        user = userName;
+        server = address;
+        // A reconfiguration may mean a different backend, which may answer completions differently.
+        probeText = -1;
+        probesSent = 0;
+        probeReplies = 0;
         if (conn == connection) {
             cut(System.nanoTime(), "reconfigured");
             return;
@@ -138,6 +163,19 @@ public final class PhaseTracker {
         cutReason = "connected";
         PhaseCommand.forgetLast();
         scheduleProbe(channel);
+    }
+
+    /** Whether pings and probes go out: connected, with this user and server whitelisted. Read live, so a config change applies at once. */
+    static boolean sending() {
+        return connection != null && ElytraTasClient.CONFIG.whitelisted(user, server);
+    }
+
+    static String server() {
+        return server;
+    }
+
+    static String user() {
+        return user;
     }
 
     public static synchronized void disconnect() {
@@ -176,7 +214,7 @@ public final class PhaseTracker {
     public static void tickEnd(Minecraft client) {
         Connection conn = connection;
         ClientPacketListener listener = client.getConnection();
-        if (conn == null || listener == null || listener.getConnection() != conn) return;
+        if (conn == null || listener == null || listener.getConnection() != conn || !sending()) return;
         if (++ticks % PING_INTERVAL_TICKS != 0) return;
         // Util.getMillis, as vanilla does, so the F3 chart reads our pongs correctly too.
         long time = Util.getMillis();
@@ -205,15 +243,17 @@ public final class PhaseTracker {
         Connection conn = connection;
         if (ch != channel || conn == null || !conn.isConnected()) return;
         // Only while in play: during a reconfiguration the outbound protocol has no such packet.
-        if (conn.getPacketListener() instanceof ClientPacketListener) {
-            int id;
+        if (conn.getPacketListener() instanceof ClientPacketListener && sending()) {
+            int id, text;
             synchronized (PhaseTracker.class) {
                 id = nextProbeId;
                 nextProbeId = nextProbeId <= -1_000_000_000 ? -1 : nextProbeId - 1;
+                text = probeText >= 0 ? probeText : probeTurn++ % PROBE_TEXTS.length;
                 if (probes.size() > 100) probes.clear();
-                probes.put(id, 0L);
+                probes.put(id, new long[]{0, text});
+                probesSent++;
             }
-            conn.send(new ServerboundCommandSuggestionPacket(id, PROBE_TEXT));
+            conn.send(new ServerboundCommandSuggestionPacket(id, PROBE_TEXTS[text]));
         }
         scheduleProbe(ch);
     }
@@ -266,7 +306,8 @@ public final class PhaseTracker {
                     if (pings.containsKey(pendingPing)) pings.put(pendingPing, now);
                 }
                 case PROBE -> {
-                    if (probes.containsKey(pendingProbe)) probes.put(pendingProbe, now);
+                    long[] p = probes.get(pendingProbe);
+                    if (p != null) p[0] = now;
                 }
                 default -> {
                 }
@@ -300,9 +341,12 @@ public final class PhaseTracker {
             }
             case ClientboundCommandSuggestionsPacket p when p.id() < 0 -> {
                 synchronized (PhaseTracker.class) {
-                    Long w = probes.remove(p.id());
+                    long[] sent = probes.remove(p.id());
                     long g = gridPhase;
-                    if (w == null || w == 0L || g < 0) return;
+                    if (sent == null || sent[0] == 0L || g < 0) return;
+                    probeReplies++;
+                    if (probeText < 0) probeText = (int) sent[1];
+                    long w = sent[0];
                     probeSamples.addLast(new long[]{now, Math.floorMod(w - g, TICK), now - w});
                     while (probeSamples.peekFirst()[0] < now - KEEP) probeSamples.removeFirst();
                 }
@@ -336,7 +380,7 @@ public final class PhaseTracker {
      * ticks. clientWaitDerived says client wait came from that identity, not a per-tick packet.
      */
     record Snapshot(long at, long from, String cutReason, int rttSamples, double rtt, double rttSpread,
-                    int probes, double serverWait, double serverWork, boolean perTick, double clientWait,
+                    int probesSent, int probeReplies, String probeText, int probes, double serverWait, double serverWork, boolean perTick, double clientWait,
                     boolean clientWaitDerived, double clientWork, double waitPlusWork, double tickInterval,
                     double longest) {
     }
@@ -351,8 +395,13 @@ public final class PhaseTracker {
         double rttMed = quantile(r, 0.5);
         double spread = (quantile(r, 0.9) - quantile(r, 0.1)) / 2;
 
-        List<long[]> ps = probeSamples.stream().filter(x -> x[0] >= from).toList();
-        double[] fit = Double.isNaN(rttMed) ? null : fitSawtooth(ps, rttMed);
+        // The tick start holds steady, so the probes get at least PROBE_WINDOW whatever the display window.
+        long probeFrom = Math.max(Math.min(from, now - PROBE_WINDOW), cutAt);
+        List<long[]> ps = probeSamples.stream().filter(x -> x[0] >= probeFrom).toList();
+        double[] pr = rtt.values(probeFrom);
+        Arrays.sort(pr);
+        double base = quantile(pr, 0.25);
+        double[] fit = Double.isNaN(base) ? null : fitSawtooth(ps, base);
         double moveAt = circularMean(movePhase.values(from));
         double serverWait = Double.NaN, serverWork = Double.NaN;
         if (fit != null) {
@@ -383,32 +432,37 @@ public final class PhaseTracker {
                 derived = true;
             }
         }
-        return new Snapshot(now, from, reason, r.length, rttMed, spread, ps.size(), serverWait, serverWork, perTick,
+        return new Snapshot(now, from, reason, r.length, rttMed, spread, probesSent, probeReplies,
+                probeText >= 0 ? PROBE_TEXTS[probeText] : null, ps.size(), serverWait, serverWork, perTick,
                 dn, derived, work, waitPlusWork, interval, longest);
     }
 
     /**
-     * Fits the probes' extra delay (reply time minus send time minus the round trip) against
-     * their send phase with a sawtooth: W - x for x = (phase - start) mod TICK below W, else
-     * 0. Returns {start, W}, or null when there's no clear jump. L1 loss, so a lag spike
-     * doesn't drag the fit. why these limits? simulated with ±2–4 ms jitter: with W = 18 ms,
-     * 40 probes put the start within about 1.5 ms (a little early, W a little high), with
-     * the loss at 0.4–0.8 of a flat fit's; with W at 0–5 ms the start was often wrong and
-     * the loss above 0.85.
+     * Fits the probes' extra delay (reply time minus send time minus a low round trip)
+     * against their send phase with a sawtooth: W - x for x = (phase - start) mod TICK below
+     * W, else 0. Returns {start, W}, or null when the fit doesn't look like a sawtooth.
+     *
+     * The loss is pinball at TAU = 0.2, which fits the lower edge. why? EMC sometimes holds
+     * a reply until a later flush: about 30% of pongs and probe replies came 10–90 ms late,
+     * arriving with the next tick's set_health and chunk packets (2026-10-29 16:16 log).
+     * Those only ever add delay, and a symmetric L1 fit was pulled off the edge by them.
+     *
+     * The check looks at the shape: W of at least 8 ms; the 25th percentile of probes in
+     * the first half of the busy part at least W/2; that of probes in the idle part at most
+     * 0.15 W. why these? replayed over that log in sliding 20 s windows (about 80 probes),
+     * 89 of 89 fits passed and 87 had the start within 3 ms of the 25.5 ms the whole log
+     * gives. Simulated with 30% held replies: 1 in 80 passed with no jump at all; W = 10
+     * passed 50 in 80; W = 5 rarely. A loss-ratio check passed fewer than half of the real
+     * windows.
      */
     static double[] fitSawtooth(List<long[]> samples, double rttNanos) {
         int n = samples.size();
-        if (n < 12) return null;
+        if (n < 20) return null;
         double[] phase = new double[n], extra = new double[n];
         for (int i = 0; i < n; i++) {
             phase[i] = samples.get(i)[1] / 1e6;
             extra[i] = (samples.get(i)[2] - rttNanos) / 1e6;
         }
-        double[] sorted = extra.clone();
-        Arrays.sort(sorted);
-        double flat = 0, med = sorted[n / 2];
-        for (double e : extra) flat += Math.abs(e - med);
-
         double tick = TICK / 1e6;
         double bestL = Double.MAX_VALUE, bestS = 0, bestW = 0;
         for (double s = 0; s < tick; s += 1) {
@@ -432,15 +486,32 @@ public final class PhaseTracker {
                 }
             }
         }
-        if (bestW < 4 || bestL > 0.85 * flat) return null;
+        if (bestW < 8 || bestW > 42) return null;
+        List<Double> busy = new ArrayList<>(), idle = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            double x = ((phase[i] - bestS) % tick + tick) % tick;
+            if (x < bestW / 2) busy.add(extra[i]);
+            else if (x >= bestW) idle.add(extra[i]);
+        }
+        if (busy.size() < 4 || idle.size() < 4) return null;
+        if (lowQuartile(busy) < bestW / 2 || lowQuartile(idle) > 0.15 * bestW) return null;
         return new double[]{Math.floorMod(Math.round(bestS * 1e6), TICK), bestW * 1e6};
+    }
+
+    private static final double TAU = 0.2;
+
+    private static double lowQuartile(List<Double> xs) {
+        double[] a = xs.stream().mapToDouble(Double::doubleValue).toArray();
+        Arrays.sort(a);
+        return quantile(a, 0.25);
     }
 
     private static double sawtoothLoss(double[] phase, double[] extra, double start, double work, double tick) {
         double l = 0;
         for (int i = 0; i < phase.length; i++) {
             double x = ((phase[i] - start) % tick + tick) % tick;
-            l += Math.abs(extra[i] - (x < work ? work - x : 0));
+            double r = extra[i] - (x < work ? work - x : 0);
+            l += r >= 0 ? TAU * r : (TAU - 1) * r;
         }
         return l;
     }

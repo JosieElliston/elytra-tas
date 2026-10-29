@@ -11,4 +11,7 @@ public interface DeltaTrackerTimerAccessor {
 
     @Accessor("deltaTickResidual")
     float elytraTas$deltaTickResidual();
+
+    @Accessor("deltaTickResidual")
+    void elytraTas$setDeltaTickResidual(float residual);
 }

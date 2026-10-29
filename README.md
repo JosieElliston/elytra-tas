@@ -33,7 +33,10 @@ inbound packet decode and handle times, socket read/write times, and in singlepl
 the integrated server's view (move packets processed, player ticks, glide ends). One
 gzipped TSV per connection in `<profile>/elytra-tas/logs/`. It starts on joining a
 server or world (config via Mod Menu, YACL), or with an unbound toggle key. It only
-observes, apart from the pings below, so it may run on `lqmbda` too.
+observes, apart from the pings and probes of `/etas phase` below, so it may run on
+`lqmbda` too. Those go out only for whitelisted `user@server` pairs (Mod Menu →
+Whitelist; `deftenvy@elytramc.net` by default, subdomains included, and singleplayer
+always). why? they are packets a vanilla client wouldn't send.
 
 ```
 cd mod && ./gradlew build
@@ -62,18 +65,27 @@ restart Minecraft.
 
 A client command in the same mod, on whether the logger runs or not. It splits the loop
 from a client tick through a move, the server's reply and the next client tick that sees
-it into round trip, server wait, server work (what servers call MSPT), client wait and
-client work, which add up to a whole number of ticks; plus the tick interval. `/etas
-phase help` explains each row. The figures come from `python3 docs/figures.py`.
+it, in the order it happens, into net up + down (the round trip; the client can't split
+it), server wait, server work (MSPT), client wait and client work, which add up to a
+whole number of ticks. A second section has what `set_health` alone gives: server wait +
+work, and the tick interval. `/etas phase help` explains each row. The figures come from
+`python3 docs/figures.py`.
 
 - **Server wait and server work come from probes.** The mod sends a tab-completion
-  request for `/etas` 4 times a second at random times. The vanilla server answers them on
-  its main thread between ticks, so a probe arriving mid-tick waits for the tick to end.
+  request 4 times a second at random times, for `/msg `, `/tell `, `/help ` or `/` in
+  turn until one gets replies, then only that one. why not something with no
+  suggestions? EMC sent no reply to any of 1113 requests for `/etas` (2026-10-29
+  16:02–16:08 logs), though the vanilla server replies even when empty. The vanilla
+  server answers them on its main thread between ticks, so a probe arriving mid-tick
+  waits for the tick to end.
   Against send phase that extra delay is a sawtooth, and fitting it gives the tick start
-  and the work time W. In simulation (±2–4 ms jitter, 40 probes) the fit lands within
-  ~1.5 ms of the tick start and rejects W ≤ 5 ms, so a nearly idle server shows nothing.
-  A proxy or plugin that answers completions off the main thread shows no jump either.
-  Not yet seen on a real server as of 2026-10-29 16:30.
+  and the work time W. The fit takes at least the last 20 s and follows the sawtooth's
+  lower edge. why? on EMC about 30% of replies (pongs too) came 10–90 ms late, in clumps
+  with other downstream packets (`set_health` spacing p10 9 ms, p90 78 ms in the
+  2026-10-29 16:16 log, against ±4 ms on 10-28), and a symmetric fit failed on most 10 s
+  windows of that log. The lower-edge fit found the edge in all 89 sliding 20 s windows
+  (start 24–30 ms, W 17–26 ms). It needs W ≥ 8 ms; a proxy or plugin that answers
+  completions off the main thread shows no jump at all.
 - **Every reply leaves at the end of its tick.** 26.2's `MinecraftServer.tickChildren`
   suspends flushing for every player and flushes once after all levels and players have
   ticked. So `set_health` minus your move's send time minus the round trip is server wait
@@ -85,13 +97,16 @@ phase help` explains each row. The figures come from `python3 docs/figures.py`.
   `ClientboundSetHealthPacket`, which vanilla sends from `ServerPlayer.doTick` only when
   health or food changed. EMC sends it every tick (2026-10-28). Without it, client wait
   is derived from the loop (marked so) and the loop check is skipped.
-- **The mod sends its own pings, 4 a second, while connected.** why? vanilla pings only
+- **The mod sends its own pings, 4 a second, while whitelisted.** why? vanilla pings only
   with the F3 network chart open, and the vanilla server answers
   `ServerboundPingRequestPacket` on the Netty thread, not at a tick, so it gives a clean
   round trip (63–71 ms on EMC, 2026-10-28 20:33).
 - **The client tick grid is fixed for the whole process.** `DeltaTracker.Timer` keeps a
   fractional residual and drops extra catch-up ticks rather than resetting, so a hitch
-  or a relog doesn't move it; a game restart does. The tracker reads the grid from the
+  or a relog doesn't move it; a game restart does, and so do the buttons in Mod Menu →
+  Tick phase. Those work only while not in a world (a server could see the phase move
+  within a session) and only delay ticks (-1 ms is a 49 ms delay), so ticks never come
+  closer than 50 ms. The tracker reads the grid from the
   timer. why? tick starts trail the grid by up to a frame (0–10 ms at ~100 fps), which
   would otherwise show up as phase noise.
 
@@ -148,11 +163,17 @@ phase help` explains each row. The figures come from `python3 docs/figures.py`.
 - Gliding is client-side physics, keys are ignored, and only the server ends a glide
   (`LivingEntity.updateFallFlying` is server-only). An ebounce keeps the glide ("perfect")
   only if the server handles the landing move (onGround=1) and the jump move (onGround=0)
-  with no player `doTick` between them; the server handles packets on arrival and checks
-  onGround once per tick. With steady 50 ms ticks on both ends that almost never happens:
+  with no player `doTick` between them; the server handles packets between ticks and checks
+  onGround once per tick. But while it is behind schedule it runs a queued packet only once
+  the packet is over 3 ticks old (26.2 `MinecraftServer.shouldRun`), so after a long tick
+  the moves pile up and are handled together. With steady 50 ms ticks on both ends a
+  perfect bounce almost never happens:
   on EMC all 5 perfect bounces in 312 landings (logs of 2026-10-20 01:41–02:06) fell in or
   beside server lag spikes (ticks of 91–725 ms), and the one singleplayer one in a client hitch that sent the two
-  moves 27 ms apart. So the extractor refuses runs whose glide ends before the finish.
+  moves 27 ms apart. In the 2026-10-29 16:32 log, 6 of 9 kept glides in 132 bounces came
+  during two freezes of the whole server (3.2 and 2.5 s: no set_health and no pongs), and
+  the other 3 next to `set_health` gaps of 100–140 ms. Their landings' server waits
+  (37–42 ms) were the same as the other bounces'. So the extractor refuses runs whose glide ends before the finish.
   The Burrowed Grove run (2026-10-19 replay) has none.
 
   ![A normal bounce and the two ways a bounce comes out perfect](docs/ebounce.svg)
