@@ -5,6 +5,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPipeline;
 import jealoustone.elytratas.netlog.NetLog;
 import jealoustone.elytratas.netlog.WireTap;
+import jealoustone.elytratas.phase.PhaseTracker;
 import net.minecraft.network.Connection;
 import net.minecraft.network.DisconnectionDetails;
 import net.minecraft.network.PacketListener;
@@ -40,6 +41,7 @@ public abstract class ConnectionMixin {
     @Inject(method = "genericsFtw", at = @At("HEAD"))
     private static void elytraTas$handleStart(Packet<?> packet, PacketListener listener, CallbackInfo ci) {
         NetLog.inlineHandleStart(packet);
+        PhaseTracker.reachedListener(packet, listener);
     }
 
     // Not reached when the handler queued the packet for the client thread: it throws

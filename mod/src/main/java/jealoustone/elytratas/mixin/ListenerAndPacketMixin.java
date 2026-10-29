@@ -1,6 +1,7 @@
 package jealoustone.elytratas.mixin;
 
 import jealoustone.elytratas.netlog.NetLog;
+import jealoustone.elytratas.phase.PhaseTracker;
 import net.minecraft.network.PacketListener;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
@@ -24,6 +25,8 @@ public abstract class ListenerAndPacketMixin {
 
     @Inject(method = "handle", at = @At("HEAD"))
     private void elytraTas$handle(CallbackInfo ci) {
-        if (listener.flow() == PacketFlow.CLIENTBOUND) NetLog.mainHandle(packet);
+        if (listener.flow() != PacketFlow.CLIENTBOUND) return;
+        NetLog.mainHandle(packet);
+        PhaseTracker.mainHandle(listener, packet);
     }
 }

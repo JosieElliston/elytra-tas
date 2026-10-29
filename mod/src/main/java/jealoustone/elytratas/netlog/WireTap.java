@@ -4,12 +4,13 @@ import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelPromise;
+import jealoustone.elytratas.phase.PhaseTracker;
 
 /**
  * First handler in a client connection's pipeline, next to the socket. Outbound, it sees
  * each packet's final frame (encoded, compressed, length-prefixed, encrypted) and the
  * flush that writes it to the socket; inbound, each raw read before frame splitting.
- * It only timestamps and passes messages through unchanged.
+ * It only timestamps and passes messages through unchanged. Also feeds {@link PhaseTracker}.
  */
 public final class WireTap extends ChannelDuplexHandler {
     public static final String NAME = "elytra_tas_wire";
@@ -22,7 +23,10 @@ public final class WireTap extends ChannelDuplexHandler {
 
     @Override
     public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
-        if (msg instanceof ByteBuf buf) NetLog.wireWrite(ctx.channel(), buf.readableBytes());
+        if (msg instanceof ByteBuf buf) {
+            NetLog.wireWrite(ctx.channel(), buf.readableBytes());
+            PhaseTracker.wireWrite(ctx.channel());
+        }
         ctx.write(msg, promise);
     }
 

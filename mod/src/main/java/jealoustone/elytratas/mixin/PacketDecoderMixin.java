@@ -3,6 +3,7 @@ package jealoustone.elytratas.mixin;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import jealoustone.elytratas.netlog.NetLog;
+import jealoustone.elytratas.phase.PhaseTracker;
 import net.minecraft.network.PacketDecoder;
 import net.minecraft.network.ProtocolInfo;
 import net.minecraft.network.protocol.Packet;
@@ -28,6 +29,7 @@ public abstract class PacketDecoderMixin {
     private void elytraTas$decoded(ChannelHandlerContext ctx, ByteBuf input, List<Object> out, CallbackInfo ci) {
         if (protocolInfo.flow() == PacketFlow.CLIENTBOUND && !out.isEmpty() && out.getLast() instanceof Packet<?> packet) {
             NetLog.decoded(ctx.channel(), packet);
+            PhaseTracker.decoded(ctx.channel(), packet);
         }
     }
 }

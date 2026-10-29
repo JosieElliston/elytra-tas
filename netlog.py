@@ -2,7 +2,7 @@ r"""Reader for the elytra-tas mod's network/tick logs (mod/, `NetLog.java`).
 
 One gzipped TSV per server connection, at
 `<gameDir>/elytra-tas/logs/<yyyy-MM-dd_HH-mm-ss>.tsv.gz`. Line 1 is
-`#elytra-tas-netlog<TAB>1`; every other line is one record:
+`#elytra-tas-netlog<TAB>2` (1 for logs before K records); every other line is one record:
 
     type  t  tick  fields...
 
@@ -17,6 +17,11 @@ Booleans are 0/1, a missing value is `-`, text escapes `\\ \t \n \r`.
                                        local player at START/END_CLIENT_TICK; input is
                                        Input bits: 1 fwd 2 back 4 left 8 right 16 jump
                                        32 shift 64 sprint
+    K  name down                       a key mapping went down (1) or up (0), when the
+                                       client handled the key event (once per frame,
+                                       between ticks too); name is the mapping's id, e.g.
+                                       key.jump, key.use, key.hotbar.1. Toggle mappings
+                                       log their toggled state
     S  m|n seq name details...         Connection.send called (thread m=client, n=Netty)
     W  seq bytes                       that packet's final frame reached the socket end
                                        of the pipeline (seq -1: not matched to a packet)
@@ -66,7 +71,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
 
-FORMAT = ("#elytra-tas-netlog", "1")
+MAGIC = "#elytra-tas-netlog"
+VERSIONS = ("1", "2")
 _UNESCAPE = {"\\": "\\", "t": "\t", "n": "\n", "r": "\r"}
 
 MOVE = ("move_player_pos", "move_player_pos_rot", "move_player_rot", "move_player_status_only")
@@ -173,6 +179,14 @@ class Bounce:
 
 
 @dataclass(frozen=True)
+class Key:
+    t: int
+    tick: int
+    name: str  # key mapping id, e.g. key.jump
+    down: bool
+
+
+@dataclass(frozen=True)
 class Server:
     t: int
     tick: int
@@ -195,6 +209,7 @@ class Log:
     outbound: list[Outbound] = field(default_factory=list)
     inbound: list[Inbound] = field(default_factory=list)
     server: list[Server] = field(default_factory=list)
+    keys: list[Key] = field(default_factory=list)
     events: list[Rec] = field(default_factory=list)
     counts: Counter = field(default_factory=Counter)
     truncated: bool = False
@@ -212,8 +227,8 @@ def _records(path: str | Path) -> Iterator[Rec]:
     """Raises EOFError at the end of a file cut off by a crash."""
     with gzip.open(path, "rt", encoding="utf-8", newline="\n") as f:
         header = f.readline().rstrip("\n").split("\t")
-        if tuple(header) != FORMAT:
-            raise ValueError(f"{path}: not an elytra-tas netlog v1 (header {header!r})")
+        if len(header) != 2 or header[0] != MAGIC or header[1] not in VERSIONS:
+            raise ValueError(f"{path}: not an elytra-tas netlog v{'/'.join(VERSIONS)} (header {header!r})")
         for line in f:
             if not line.endswith("\n"):
                 raise EOFError("partial last line")
@@ -268,6 +283,8 @@ def load(path: str | Path) -> Log:
                 log.inbound.append(i)
             elif r.kind == "H":
                 handles.append(r)
+            elif r.kind == "K":
+                log.keys.append(Key(r.t, r.tick, f[0], _b(f[1])))
             elif r.kind == "X":
                 log.server.append(Server(
                     r.t, r.tick, f[0], int(f[1]), (float(f[2]), float(f[3]), float(f[4])),
@@ -297,6 +314,7 @@ def load(path: str | Path) -> Log:
     log.outbound.sort(key=lambda o: o.t_send)
     log.inbound.sort(key=lambda i: i.t_decode)
     log.server.sort(key=lambda x: x.t)
+    log.keys.sort(key=lambda k: k.t)
     return log
 
 
@@ -335,12 +353,14 @@ def _show(fields: tuple[str, ...]) -> str:
 
 
 def timeline(log: Log, everything: bool = False) -> Iterator[tuple[int, str]]:
-    """(t, text) for ticks, outbound packets, described inbound packets, and server events,
+    """(t, text) for ticks, key presses, outbound packets, described inbound packets, and server events,
     in time order. `everything` adds name-only inbound packets."""
     rows: list[tuple[int, str]] = []
     for k in log.ticks:
         flags = "G" * k.on_ground + "H" * k.hcoll + "F" * k.fall_flying + "S" * k.sprinting
         rows.append((k.t, f"T{k.phase} {k.tick:6d} y={k.pos[1]:.6f} vy={k.vel[1]:+.6f} {flags or '-'} in={k.input}"))
+    for k in log.keys:
+        rows.append((k.t, f"K  {k.tick:6d} {k.name} {'down' if k.down else 'up'}"))
     for o in log.outbound:
         wire = "" if o.t_wire is None else f" wire+{(o.t_wire - o.t_send) / 1e3:.0f}us"
         rows.append((o.t_send, f"S  {o.tick:6d} {o.name} {_show(o.details)}{wire}"))

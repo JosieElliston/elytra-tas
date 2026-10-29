@@ -56,13 +56,13 @@ import java.util.UUID;
  * The record format is documented in netlog.py (repo root), which parses it; change
  * both together and bump {@link #FORMAT}.
  *
- * Threads: tick records and H(main) come from the client thread; W/F/R/D and H(netty)
+ * Threads: tick and key records and H(main) come from the client thread; W/F/R/D and H(netty)
  * from the connection's Netty event loop (one thread per channel); S from either; X
  * from the integrated server thread.
  */
 public final class NetLog {
     public static final Logger LOGGER = LoggerFactory.getLogger("elytra-tas");
-    public static final String FORMAT = "elytra-tas-netlog\t1";
+    public static final String FORMAT = "elytra-tas-netlog\t2";
     private static final DateTimeFormatter FILE_NAME = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
     private static final int PENDING_LIMIT = 100_000;
 
@@ -173,6 +173,12 @@ public final class NetLog {
                 .b(player.onGround()).b(player.horizontalCollision).b(player.isFallFlying()).b(player.isSprinting())
                 .l(inputBits(player.input.keyPresses))
                 .emit();
+    }
+
+    /** KeyMapping.setDown changing the mapping's state, client thread. */
+    public static void key(String name, boolean down) {
+        if (writer == null || !config().logKeys) return;
+        new Line('K').s(name).b(down).emit();
     }
 
     // --- outbound -------------------------------------------------------------------

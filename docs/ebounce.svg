@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 770" width="900" height="770" role="img"><title>Normal and perfect ebounce</title><desc>A normal bounce, where the landing move reaches tick N and the glide ends, and two perfect bounces: the landing just misses tick N and the jump arrives before tick N+1, or both moves queue behind a long tick and are handled together.</desc>
+<style>
+text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;font-size:13px;fill:#e8e6df;dominant-baseline:central}
+.h{font-size:15px;font-weight:600}
+.m{fill:#b4b2a9}
+.c{text-anchor:middle}
+.box{fill:#3a3936}
+.brk{fill:none;stroke:#b4b2a9;stroke-width:1}
+.pk{fill:none;stroke-width:1.75}
+.wait{fill:none;stroke-width:1.75;stroke-dasharray:5 4}
+.move{stroke:#afa9ec}.reply{stroke:#5dcaa5}.ping{stroke:#b4b2a9}
+.dot-move{fill:#afa9ec}.dot-reply{fill:#5dcaa5}
+</style>
+<defs>
+<marker id="a-move" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1L9 5L1 9" fill="none" class="move" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<marker id="a-reply" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1L9 5L1 9" fill="none" class="reply" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<marker id="a-ping" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1L9 5L1 9" fill="none" class="ping" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></marker>
+</defs>
+<rect width="100%" height="100%" fill="#1f1e1d"/>
+<text class="h" x="20" y="30">Normal bounce: the landing reaches tick N</text>
+<text class="m" x="20" y="108.0">server</text>
+<text class="m" x="20" y="195.0">client</text>
+<rect class="box" x="160" y="92" width="90" height="32"/>
+<text class="c" x="205.0" y="108.0">tick N−1</text>
+<rect class="box" x="410" y="92" width="90" height="32"/>
+<text class="c" x="455.0" y="108.0">glide off</text>
+<rect class="box" x="660" y="92" width="90" height="32"/>
+<text class="c" x="705.0" y="108.0">tick N+1</text>
+<rect class="box" x="110" y="184" width="30" height="22"/>
+<rect class="box" x="360" y="184" width="30" height="22"/>
+<line class="pk move" x1="140" y1="184" x2="280" y2="124" marker-end="url(#a-move)"/>
+<line class="wait move" x1="280" y1="124" x2="410" y2="124" marker-end="url(#a-move)"/>
+<line class="pk move" x1="390" y1="184" x2="530" y2="124" marker-end="url(#a-move)"/>
+<line class="wait move" x1="530" y1="124" x2="660" y2="124" marker-end="url(#a-move)"/>
+<text class="m" x="110" y="170.0">land</text>
+<text class="m" x="360" y="170.0">jump</text>
+<text class="c" x="335" y="75">tick N sees you on the ground</text>
+<text class="h" x="20" y="270">Perfect bounce, close arrivals: land just misses tick N, jump beats tick N+1</text>
+<text class="m" x="20" y="348.0">server</text>
+<text class="m" x="20" y="435.0">client</text>
+<rect class="box" x="160" y="332" width="90" height="32"/>
+<text class="c" x="205.0" y="348.0">tick N−1</text>
+<rect class="box" x="410" y="332" width="90" height="32"/>
+<text class="c" x="455.0" y="348.0">tick N</text>
+<rect class="box" x="660" y="332" width="90" height="32"/>
+<text class="c" x="705.0" y="348.0">still gliding</text>
+<rect class="box" x="260" y="424" width="30" height="22"/>
+<rect class="box" x="510" y="424" width="30" height="22"/>
+<line class="pk move" x1="290" y1="424" x2="420" y2="364" marker-end="url(#a-move)"/>
+<line class="wait move" x1="420" y1="364" x2="660" y2="364" marker-end="url(#a-move)"/>
+<circle cx="500" cy="364" r="3" class="dot-move"/>
+<line class="pk move" x1="540" y1="424" x2="650" y2="364" marker-end="url(#a-move)"/>
+<text class="m" x="260" y="410.0">land</text>
+<text class="m" x="510" y="410.0">jump</text>
+<path class="brk" d="M420 329V324H500V329"/>
+<text class="c" x="460.0" y="315">just missed tick N</text>
+<text class="c" x="655" y="291">jump arrives before N+1 starts</text>
+<text class="h" x="20" y="510">Perfect bounce, lag spike: both moves queue behind one long tick</text>
+<text class="m" x="20" y="588.0">server</text>
+<text class="m" x="20" y="675.0">client</text>
+<rect class="box" x="160" y="572" width="90" height="32"/>
+<text class="c" x="205.0" y="588.0">tick N−1</text>
+<rect class="box" x="410" y="572" width="325" height="32"/>
+<text class="c" x="572.5" y="588.0">tick N (lag spike)</text>
+<rect class="box" x="738.0" y="572" width="90" height="32"/>
+<text class="c" x="783.0" y="588.0">still gliding</text>
+<rect class="box" x="260" y="664" width="30" height="22"/>
+<rect class="box" x="510" y="664" width="30" height="22"/>
+<line class="pk move" x1="290" y1="664" x2="420" y2="604" marker-end="url(#a-move)"/>
+<line class="wait move" x1="420" y1="604" x2="738.0" y2="604" marker-end="url(#a-move)"/>
+<line class="pk move" x1="540" y1="664" x2="660" y2="604" marker-end="url(#a-move)"/>
+<text class="m" x="260" y="650.0">land</text>
+<text class="m" x="510" y="650.0">jump</text>
+<path class="brk" d="M420 569V564H735V569"/>
+<text class="c" x="577.5" y="555">both queued, then handled together</text>
+<line class="pk move" x1="20" y1="730" x2="60" y2="730"/>
+<text x="72" y="730">move packet: applied when the server handles it, checked by the next tick</text>
+<line class="wait move" x1="20" y1="752" x2="60" y2="752"/>
+<text x="72" y="752">dashes: waiting for a tick</text>
+</svg>

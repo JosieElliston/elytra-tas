@@ -27,16 +27,17 @@ are symlinked into `<profile>/minescript/`; logs go to `minescript/tas_logs/`.
 
 ## Network/tick logger (`mod/`)
 
-Logs what Flashback can't: exact client tick poses and keys, every outbound packet,
+Logs what Flashback can't: exact client tick poses and keys, key presses and releases
+between ticks, every outbound packet,
 inbound packet decode and handle times, socket read/write times, and in singleplayer
 the integrated server's view (move packets processed, player ticks, glide ends). One
 gzipped TSV per connection in `<profile>/elytra-tas/logs/`. It starts on joining a
 server or world (config via Mod Menu, YACL), or with an unbound toggle key. It only
-observes, so it may run on `lqmbda` too.
+observes, apart from the pings below, so it may run on `lqmbda` too.
 
 ```
 cd mod && ./gradlew build
-cp build/libs/elytra-tas-0.1.0.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
+cp build/libs/elytra-tas-0.2.0.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
 ```
 
 Rename the previous version's jar in `mods/` to `.disabled`, as with emc-replay, and
@@ -54,6 +55,45 @@ restart Minecraft.
   `MixinEnvironment.getCurrentEnvironment().audit()` and halts, and `./gradlew
   runServer` (with `run/eula.txt`). `-Dmixin.debug.export=true` writes the mixed
   classes to `run/.mixin.out/`. This worked for 0.1.0 (2026-10-20 01:19 EDT).
+
+## Tick phase (`/etas phase`)
+
+![Server and client ticks, and the six intervals of a move's loop](docs/ticks.svg)
+
+A client command in the same mod, on whether the logger runs or not. It splits the loop
+from a client tick through a move, the server's reply and the next client tick that sees
+it into round trip, server wait, server work (what servers call MSPT), client wait and
+client work, which add up to a whole number of ticks; plus the tick interval. `/etas
+phase help` explains each row. The figures come from `python3 docs/figures.py`.
+
+- **Server wait and server work come from probes.** The mod sends a tab-completion
+  request for `/etas` 4 times a second at random times. The vanilla server answers them on
+  its main thread between ticks, so a probe arriving mid-tick waits for the tick to end.
+  Against send phase that extra delay is a sawtooth, and fitting it gives the tick start
+  and the work time W. In simulation (±2–4 ms jitter, 40 probes) the fit lands within
+  ~1.5 ms of the tick start and rejects W ≤ 5 ms, so a nearly idle server shows nothing.
+  A proxy or plugin that answers completions off the main thread shows no jump either.
+  Not yet seen on a real server as of 2026-10-29 16:30.
+- **Every reply leaves at the end of its tick.** 26.2's `MinecraftServer.tickChildren`
+  suspends flushing for every player and flushes once after all levels and players have
+  ticked. So `set_health` minus your move's send time minus the round trip is server wait
+  + server work, not the wait alone; the readout falls back to that sum when the probes
+  find no jump. In the 20:33 log of 2026-10-28, 7 of 8 kept bounces sat at a sum of
+  15–21 ms and the 8th at 39 next to a stall: the perfect-bounce edge is the tick start,
+  so that sum there is W.
+- **Client wait and tick interval need a packet the server sends every tick.** They time
+  `ClientboundSetHealthPacket`, which vanilla sends from `ServerPlayer.doTick` only when
+  health or food changed. EMC sends it every tick (2026-10-28). Without it, client wait
+  is derived from the loop (marked so) and the loop check is skipped.
+- **The mod sends its own pings, 4 a second, while connected.** why? vanilla pings only
+  with the F3 network chart open, and the vanilla server answers
+  `ServerboundPingRequestPacket` on the Netty thread, not at a tick, so it gives a clean
+  round trip (63–71 ms on EMC, 2026-10-28 20:33).
+- **The client tick grid is fixed for the whole process.** `DeltaTracker.Timer` keeps a
+  fractional residual and drops extra catch-up ticks rather than resetting, so a hitch
+  or a relog doesn't move it; a game restart does. The tracker reads the grid from the
+  timer. why? tick starts trail the grid by up to a frame (0–10 ms at ~100 fps), which
+  would otherwise show up as phase noise.
 
 ## Things that will bite
 
@@ -114,16 +154,24 @@ restart Minecraft.
   beside server lag spikes (ticks of 91–725 ms), and the one singleplayer one in a client hitch that sent the two
   moves 27 ms apart. So the extractor refuses runs whose glide ends before the finish.
   The Burrowed Grove run (2026-10-19 replay) has none.
+
+  ![A normal bounce and the two ways a bounce comes out perfect](docs/ebounce.svg)
 - Packet IDs in `flashback.py` are for protocol 776 (MC 26.2), read off `GameProtocols`
   in the client jar; a different protocol is rejected at load.
 
 ## EMC course rules (measured)
 
 From the logger, 2026-10-20 01:41–02:06 (EMC, ~80–110 ms RTT). The server acts once
-per tick, and its tick phase against the client's is fixed per connection, so a
+per tick, and its tick phase against the client's holds within ~5 ms over a 25-minute
+session (it wanders up to ~30 ms over hours: overnight log of 2026-10-20 02:50–08:50), so a
 response to a packet arrives in one of two delay bands one tick apart (about 120 and
 170 ms after the send here). Fit regions with that in mind: a fixed-width delay window
 gives false contradictions.
+
+- **An unfocused client runs ticks in pairs.** At the 10 fps background/inactivity
+  limit, two ticks run in each frame about 1 ms apart, then nothing for ~100 ms, so the
+  moves go out in pairs too. Server timing results from such a run don't carry over to
+  focused play. why? the overnight 2026-10-20 log ran like this after its first minute.
 
 - **Boosters** set velocity to `speed × look`, where look is the rotation the server
   last received (sent ~165–180 ms before the velocity arrives), and re-send it every

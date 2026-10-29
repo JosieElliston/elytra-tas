@@ -6,6 +6,8 @@
   "client": [
     "ConnectionAccessor",
     "ConnectionMixin",
+    "DeltaTrackerTimerAccessor",
+    "KeyMappingMixin",
     "ListenerAndPacketMixin",
     "LivingEntityMixin",
     "PacketDecoderMixin",

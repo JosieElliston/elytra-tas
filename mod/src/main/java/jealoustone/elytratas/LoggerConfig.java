@@ -25,6 +25,7 @@ public final class LoggerConfig {
     public volatile boolean enabled = true;
     public volatile boolean autoStart = true;
     public volatile boolean logTicks = true;
+    public volatile boolean logKeys = true;
     public volatile boolean logOutbound = true;
     public volatile boolean logInbound = true;
     public volatile boolean logOtherInbound = true;
@@ -41,6 +42,7 @@ public final class LoggerConfig {
             enabled = flag(properties, "enabled");
             autoStart = flag(properties, "autoStart");
             logTicks = flag(properties, "logTicks");
+            logKeys = flag(properties, "logKeys");
             logOutbound = flag(properties, "logOutbound");
             logInbound = flag(properties, "logInbound");
             logOtherInbound = flag(properties, "logOtherInbound");
@@ -56,6 +58,7 @@ public final class LoggerConfig {
         properties.setProperty("enabled", Boolean.toString(enabled));
         properties.setProperty("autoStart", Boolean.toString(autoStart));
         properties.setProperty("logTicks", Boolean.toString(logTicks));
+        properties.setProperty("logKeys", Boolean.toString(logKeys));
         properties.setProperty("logOutbound", Boolean.toString(logOutbound));
         properties.setProperty("logInbound", Boolean.toString(logInbound));
         properties.setProperty("logOtherInbound", Boolean.toString(logOtherInbound));
@@ -80,6 +83,8 @@ public final class LoggerConfig {
                                 () -> autoStart, value -> autoStart = value))
                         .option(toggle("Client ticks", "Local player pose, velocity, flags, and keys at the start and end of every client tick.",
                                 () -> logTicks, value -> logTicks = value))
+                        .option(toggle("Key presses", "Every key mapping going down or up (jump, use, hotbar, and so on), timed when the client handled the key event, between ticks too.",
+                                () -> logKeys, value -> logKeys = value))
                         .option(toggle("Outbound packets", "Every packet sent, with movement, command, input, keep-alive, and pong contents.",
                                 () -> logOutbound, value -> logOutbound = value))
                         .option(toggle("Inbound packets", "Decode and handle times of received packets; teleports, own motion and entity data, keep-alives, pings, chat, titles, and dimension changes in full.",
