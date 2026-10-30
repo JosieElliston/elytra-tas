@@ -8,8 +8,8 @@ python3 extract_run.py REPLAY.zip -o tas/NAME.tas        # last completed run ->
 \tas_play NAME runs=1 trace                              # in game, on deftenvy
 ```
 
-Flashback replays live in `<profile>/flashback/replays/`. `tas_play.pyj` and `tas/`
-are symlinked into `<profile>/minescript/`; logs go to `minescript/tas_logs/`.
+Flashback replays live in `<profile>/flashback/replays/`. `tas_play.pyj`,
+`undeploy_test.pyj` and `tas/` are symlinked into `<profile>/minescript/`; logs go to `minescript/tas_logs/`.
 
 - `flashback.py`: Flashback replay reader (chunk/action format, local player poses,
   chat/title text, shared flags, held slot)
@@ -17,6 +17,9 @@ are symlinked into `<profile>/minescript/`; logs go to `minescript/tas_logs/`.
   checks every gliding tick against elytra physics
 - `physics.py`: MC 26.2 elytra physics, float-faithful, for that check (needs numpy)
 - `tas_play.pyj`: Minescript (Pyjinn) player
+- `undeploy_test.pyj`: tests the [undeploy](../undeploy) mod on EMC: `/hub`, then
+  ebounces in place under undeploy off and several N, and logs each landing's
+  glide-off ticks and any glide lost in the air (`\undeploy_test`, on deftenvy)
 - `pyjinn_check.sh FILE.pyj...`: compiles `.pyj` files with the Pyjinn inside the
   installed Minescript mod, as `\script` does. Run it after every edit. why? Pyjinn
   accepts less than Python (e.g. `S["a"], S["b"] = 1, 2` is rejected: only plain

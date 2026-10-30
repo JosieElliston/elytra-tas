@@ -1,0 +1,344 @@
+r"""
+usage: \undeploy_test [bounces=N] [settings=off,2,3,5,off] [nohub]
+
+Tests the undeploy mod on a live server: sends /hub, then ebounces in place looking
+straight down, N bounces (default 15) under each setting in turn. "off" is vanilla
+(undeploy off); a number is undeploy on with that many ticks. The original undeploy
+settings are put back at exit.
+
+One bounce: land while gliding, jump (as if jump were held), and press jump again in
+the air as soon as the glide has ended, which redeploys. The script measures each
+landing's glide-off from the client's side and spots glides that end in the air
+(a redeploy the server toggled off or refused). The elytra-tas logger, if it runs
+for this server, records the packets and undeploy's own decisions (U records) for
+the same bounces; the script's "segment" rows say which setting was on when.
+
+Log: minescript/tas_logs/<time>_undeploy_test.csv. Ticks there count this script's
+tick events; a landing at t is the physics tick before handler t.
+
+Needs: this account is the alt, an elytra worn, and this server on undeploy's
+allowlist (/undeploy servers add). Don't touch the keyboard or mouse while it runs.
+It stops on: a screen opening (chat, inventory, pause: an easy abort), a
+teleport or respawn, death, or \killjob.
+
+Keys go through the jump KeyMapping, set in the tick handler. why not tas_play's
+swapped ClientInput? this is closed loop: every press reacts to the pose the last
+tick produced, so the keyboard path is fine and keeps vanilla's own input code.
+"""
+
+from system.pyj.minescript import *
+import system.pyj.sys as sys
+import system.pyj.atexit as atexit
+
+ALT = "deftenvy"  # never drive the main account (AGENTS.md)
+
+Minecraft = JavaClass("net.minecraft.client.Minecraft")
+EquipmentSlot = JavaClass("net.minecraft.world.entity.EquipmentSlot")
+Items = JavaClass("net.minecraft.world.item.Items")
+JMath = JavaClass("java.lang.Math")
+File = JavaClass("java.io.File")
+FileWriter = JavaClass("java.io.FileWriter")
+LocalDateTime = JavaClass("java.time.LocalDateTime")
+DateTimeFormatter = JavaClass("java.time.format.DateTimeFormatter")
+UndeployClient = JavaClass("jealoustone.undeploy.UndeployClient")
+
+mc = Minecraft.getInstance()
+
+
+def now_stamp():
+  return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))
+
+
+# --- arguments --------------------------------------------------------------
+
+opts = {"bounces": "15", "settings": "off,2,3,5,off"}
+go_hub = True
+for a in sys.argv[1:]:
+  if a == "nohub":
+    go_hub = False
+  elif "=" in a and a.split("=")[0] in opts:
+    opts[a.split("=")[0]] = a.split("=")[1]
+  else:
+    echo(f"undeploy_test: unknown argument {a}")
+    sys.exit(1)
+bounces = int(opts["bounces"])
+settings = opts["settings"].split(",")
+for s in settings:
+  if s != "off" and (int(s) < 2 or int(s) > 40):
+    echo(f"undeploy_test: setting {s} is not off or 2-40")
+    sys.exit(1)
+
+if player_name() != ALT:
+  echo(f"undeploy_test: refusing to run on {player_name()}; this only drives {ALT}")
+  sys.exit(1)
+
+config = UndeployClient.CONFIG
+if not config.allowed(mc):
+  echo("undeploy_test: this server isn't on undeploy's allowlist; /undeploy servers add first")
+  sys.exit(1)
+orig_enabled = config.enabled
+orig_ticks = config.ticks
+
+# --- log --------------------------------------------------------------------
+
+log_dir = File(mc.gameDirectory, "minescript/tas_logs")
+log_dir.mkdirs()
+log_path = File(log_dir, LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"))
+                + "_undeploy_test.csv").getPath()
+log = FileWriter(log_path)
+log.write("time,tick,segment,setting,event,value\n")
+log.flush()
+
+# --- state ------------------------------------------------------------------
+
+S = {
+  "t": 0, "phase": "hub", "wait": 0, "seg": -1, "done": 0, "fails": 0,
+  "land": -1, "air": False, "applied": -1, "press": -1, "last": None, "stopped": False,
+}
+# Per segment: glide-off ticks (or "kept"), and anomalies.
+offs = []
+lost = []
+player0 = [None]
+key_jump = mc.options.keyJump
+
+
+def setting():
+  return settings[S["seg"]] if S["seg"] >= 0 else "-"
+
+
+def record(event, value=""):
+  log.write(f"{now_stamp()},{S['t']},{S['seg']},{setting()},{event},{value}\n")
+
+
+def undeploy(cmd):
+  # Fabric runs client commands from ClientPacketListener.sendCommand, so this is the
+  # real /undeploy, feedback in chat included.
+  mc.getConnection().sendCommand("undeploy " + cmd)
+
+
+def apply_setting(s):
+  undeploy("off")
+  if s != "off":
+    undeploy("ticks " + s)
+    undeploy("on")
+
+
+def press():
+  key_jump.setDown(True)
+  S["press"] = S["t"]
+
+
+# --- per tick ---------------------------------------------------------------
+
+
+def on_tick(event):
+  if S["stopped"]:
+    return
+  try:
+    key_jump.setDown(False)  # every press lasts one tick
+    S["t"] += 1
+    step()
+  except Exception as e:
+    stop(f"error: {e}")
+
+
+def step():
+  p = mc.player
+  if S["phase"] == "hub":
+    # The hub may be another backend: a respawn and a new player object.
+    S["wait"] += 1
+    if S["wait"] < 100 or p is None or not p.onGround():
+      if S["wait"] > 400:
+        stop("never settled after /hub")
+      return
+    player0[0] = p
+    if not Items.ELYTRA.equals(p.getItemBySlot(EquipmentSlot.CHEST).getItem()):
+      stop("no elytra in the chest slot")
+      return
+    start_segment(0)
+    return
+
+  if p is None or p is not player0[0]:
+    stop("player changed (respawn, dimension change, or disconnect)")
+    return
+  if p.isDeadOrDying():
+    stop("player died")
+    return
+  if mc.screen is not None:
+    stop("a screen opened")
+    return
+  pos = [p.getX(), p.getY(), p.getZ()]
+  last = S["last"]
+  S["last"] = pos
+  if last is not None:
+    dx, dy, dz = pos[0] - last[0], pos[1] - last[1], pos[2] - last[2]
+    if JMath.sqrt(dx * dx + dy * dy + dz * dz) > 3.0:
+      stop("teleported")
+      return
+  p.setXRot(90.0)
+
+  gliding = p.isFallFlying()
+  ground = p.onGround()
+  ph = S["phase"]
+
+  if ph == "settle":
+    # On the ground, not gliding, still: switch setting, then jump.
+    if gliding or not ground:
+      S["wait"] = 0
+      return
+    S["wait"] += 1
+    if S["wait"] == 10 and S["applied"] != S["seg"]:
+      S["applied"] = S["seg"]
+      apply_setting(setting())
+      record("segment", setting())
+    if S["wait"] >= 30:
+      S["phase"] = "rise"
+      press()
+    return
+
+  if ph == "rise":
+    # Ground jump done; deploy at the top.
+    if ground and S["t"] - S["press"] > 3:
+      fail("ground jump didn't leave the ground")
+      return
+    if not ground and p.getDeltaMovement().y <= 0.0:
+      deploy()
+    return
+
+  if ph == "deploy":
+    if gliding:
+      record("glide_start", S["t"] - S["press"])
+      S["phase"] = "glide"
+      S["fails"] = 0
+      return
+    if ground or S["t"] - S["press"] > 3:
+      fail("jump in the air didn't start a glide")
+    return
+
+  if ph == "glide":
+    if gliding and ground:
+      landing()
+      return
+    if not gliding and not ground:
+      # Ended in the air with no landing: the server toggled or refused the START.
+      record("lost_in_air", S["t"] - S["press"])
+      lost[S["seg"]] += 1
+      deploy()
+    return
+
+  if ph == "landed":
+    # Since the landing at S["land"]; jumped on the next tick unless the segment is done.
+    if not ground:
+      S["air"] = True
+    if not gliding:
+      off = S["t"] - S["land"]
+      record("off", off)
+      offs[S["seg"]].append(str(off))
+      if ground:
+        # Done, or the bounce jump didn't happen: start over from the ground.
+        S["phase"] = "end" if S["done"] >= bounces else "settle"
+        S["wait"] = 0
+      else:
+        deploy()
+      return
+    if ground and S["air"]:
+      # Back on the ground still gliding: the server never undeployed (perfect bounce).
+      record("kept")
+      offs[S["seg"]].append("kept")
+      landing()
+      return
+    if S["t"] - S["land"] > 100:
+      fail("glide never ended after landing")
+    return
+
+  if ph == "end":
+    S["wait"] += 1
+    if S["wait"] >= 20:
+      if S["seg"] + 1 < len(settings):
+        start_segment(S["seg"] + 1)
+      else:
+        stop("done")
+    return
+
+
+def start_segment(i):
+  S["seg"] = i
+  S["done"] = 0
+  offs.append([])
+  lost.append(0)
+  S["phase"] = "settle"
+  S["wait"] = 0
+
+
+def deploy():
+  press()
+  record("redeploy")
+  S["phase"] = "deploy"
+
+
+def landing():
+  S["land"] = S["t"]
+  S["air"] = False
+  S["done"] += 1
+  record("landing", S["done"])
+  S["phase"] = "landed"
+  if S["done"] < bounces:
+    press()  # the bounce: as if jump were held through the landing
+
+
+def fail(reason):
+  record("fail", reason)
+  S["fails"] += 1
+  if S["fails"] >= 3:
+    stop(f"3 failures in a row, last: {reason}")
+    return
+  S["phase"] = "settle"
+  S["wait"] = -40
+
+
+def summary():
+  lines = []
+  for i in range(len(offs)):
+    hist = {}
+    for o in offs[i]:
+      if o in hist:
+        hist[o] += 1
+      else:
+        hist[o] = 1
+    keys = sorted(hist.keys())
+    text = " ".join([f"{k}:{hist[k]}" for k in keys])
+    lines.append(f"{settings[i]}: glide-off {text}; ended in air {lost[i]}")
+  return lines
+
+
+def restore():
+  key_jump.setDown(False)
+  try:
+    if mc.getConnection() is not None:
+      undeploy("ticks " + str(orig_ticks))
+      undeploy("on" if orig_enabled else "off")
+  except Exception as e:
+    echo(f"undeploy_test: couldn't restore undeploy settings: {e}")
+  log.flush()
+  log.close()
+
+
+def stop(reason):
+  if S["stopped"]:
+    return
+  S["stopped"] = True
+  key_jump.setDown(False)
+  record("stop", reason.replace(",", ";"))
+  echo(f"undeploy_test: stopped: {reason}. log: {log_path}")
+  for line in summary():
+    echo("  " + line)
+  sys.exit(0)
+
+
+atexit.register(restore)
+add_event_listener("tick", on_tick)
+echo(f"undeploy_test: {bounces} bounces each for {opts['settings']}. Hands off; open any screen to stop.")
+if go_hub:
+  mc.getConnection().sendCommand("hub")
+else:
+  S["wait"] = 100
