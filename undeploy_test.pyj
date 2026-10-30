@@ -164,7 +164,7 @@ def step():
   if p.isDeadOrDying():
     stop("player died")
     return
-  if mc.screen is not None:
+  if mc.gui.screen() is not None:  # 26.2: the screen lives in Gui
     stop("a screen opened")
     return
   pos = [p.getX(), p.getY(), p.getZ()]
@@ -297,17 +297,26 @@ def fail(reason):
 
 
 def summary():
+  # Pyjinn has no sorted(); count into fixed buckets instead.
   lines = []
   for i in range(len(offs)):
-    hist = {}
+    counts = []
+    for k in range(102):
+      counts.append(0)
+    kept = 0
     for o in offs[i]:
-      if o in hist:
-        hist[o] += 1
+      if o == "kept":
+        kept += 1
       else:
-        hist[o] = 1
-    keys = sorted(hist.keys())
-    text = " ".join([f"{k}:{hist[k]}" for k in keys])
-    lines.append(f"{settings[i]}: glide-off {text}; ended in air {lost[i]}")
+        n = int(o)
+        counts[n if n < 101 else 101] += 1
+    parts = []
+    for k in range(102):
+      if counts[k] > 0:
+        parts.append(f"{k}t:{counts[k]}")
+    if kept > 0:
+      parts.append(f"kept:{kept}")
+    lines.append(f"{settings[i]}: glide-off {' '.join(parts)}; ended in air {lost[i]}")
   return lines
 
 
