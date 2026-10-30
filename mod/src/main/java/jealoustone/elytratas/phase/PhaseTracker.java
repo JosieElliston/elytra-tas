@@ -103,10 +103,14 @@ public final class PhaseTracker {
     private static final Map<Long, Long> pings = new HashMap<>();
     /**
      * Probe id -> {socket write time or 0 while still queued, index into PROBE_TEXTS}. Ids
-     * are negative: the vanilla client's are positive, so it ignores our replies.
+     * are negative: the vanilla client's are positive, so it ignores our replies. Not -1:
+     * vanilla's pending id starts at -1 before the first tab completion, so a reply with id
+     * -1 completes its null future and the client disconnects (NPE in
+     * completeCustomSuggestions; it did in a fresh singleplayer world, 2026-10-30).
      */
     private static final Map<Integer, long[]> probes = new HashMap<>();
-    private static int nextProbeId = -1;
+    private static final int FIRST_PROBE_ID = -2;
+    private static int nextProbeId = FIRST_PROBE_ID;
     /** The PROBE_TEXTS entry that got a reply, or -1 while still trying them in turn. */
     private static int probeText = -1;
     private static int probeTurn;
@@ -247,7 +251,7 @@ public final class PhaseTracker {
             int id, text;
             synchronized (PhaseTracker.class) {
                 id = nextProbeId;
-                nextProbeId = nextProbeId <= -1_000_000_000 ? -1 : nextProbeId - 1;
+                nextProbeId = nextProbeId <= -1_000_000_000 ? FIRST_PROBE_ID : nextProbeId - 1;
                 text = probeText >= 0 ? probeText : probeTurn++ % PROBE_TEXTS.length;
                 if (probes.size() > 100) probes.clear();
                 probes.put(id, new long[]{0, text});

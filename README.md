@@ -36,11 +36,13 @@ server or world (config via Mod Menu, YACL), or with an unbound toggle key. It o
 observes, apart from the pings and probes of `/etas phase` below, so it may run on
 `lqmbda` too. Those go out only for whitelisted `user@server` pairs (Mod Menu →
 Whitelist; `deftenvy@elytramc.net` by default, subdomains included, and singleplayer
-always). why? they are packets a vanilla client wouldn't send.
+always). why? they are packets a vanilla client wouldn't send. With the [undeploy](../undeploy) mod installed it
+also records that mod's decisions as `U` records, since the packets it rewrites or makes
+up don't show what the client saw.
 
 ```
 cd mod && ./gradlew build
-cp build/libs/elytra-tas-0.2.0.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
+cp build/libs/elytra-tas-0.3.0.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
 ```
 
 Rename the previous version's jar in `mods/` to `.disabled`, as with emc-replay, and

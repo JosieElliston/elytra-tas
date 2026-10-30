@@ -181,6 +181,16 @@ public final class NetLog {
         new Line('K').s(name).b(down).emit();
     }
 
+    /** A decision of the undeploy mod (its "undeploy:events" entrypoint, {@link UndeployTap}), client thread. */
+    public static void undeploy(String kind, String details) {
+        if (writer == null) return;
+        Line line = new Line('U').s(kind);
+        for (String kv : details.split(" ")) {
+            if (!kv.isEmpty()) line.s(kv);
+        }
+        line.emit();
+    }
+
     // --- outbound -------------------------------------------------------------------
 
     /** Connection.send, on whatever thread called it. */

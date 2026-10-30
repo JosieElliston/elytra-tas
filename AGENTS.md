@@ -15,3 +15,4 @@ see also
 - [elytrasim](/Users/josie/programming_local/elytrasim): where the theory work is
 - [elytra-vario](/Users/josie/programming_local/elytra-vario): a mod that renders a hud with various results from the theory work.
 - [emc-replay](/Users/josie/programming_local/emc-replay): a mod for rendering replays we grab with minescript from emc.
+- [undeploy](/Users/josie/programming_local/undeploy): a public client mod that ends the elytra glide a fixed N ticks after landing (`/undeploy`); the logger records its decisions as `U` records.

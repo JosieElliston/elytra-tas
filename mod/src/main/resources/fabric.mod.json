@@ -15,6 +15,9 @@
     ],
     "modmenu": [
       "jealoustone.elytratas.ElytraTasModMenu"
+    ],
+    "undeploy:events": [
+      "jealoustone.elytratas.netlog.UndeployTap"
     ]
   },
   "depends": {

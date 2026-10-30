@@ -36,6 +36,8 @@ Booleans are 0/1, a missing value is `-`, text escapes `\\ \t \n \r`.
     X  event server_tick x y z vx vy vz onGround fallFlying extra...
                                        integrated server, local player only
     E  event args...                   logger events: stop <reason>, dropped <n>
+    U  kind key=value...               a decision of the undeploy mod (when installed,
+                                       client thread); its tick= is its own count
 
 S details: move_player_*: x y z yRot xRot onGround hColl; player_command: action
 data; player_input: input; keep_alive / pong / accept_teleportation: id.
@@ -45,6 +47,13 @@ set_entity_motion / set_entity_data: only for the local player, `self` then vx v
 keep_alive / ping: id; system_chat: overlay text; set_action_bar_text /
 set_title_text / set_subtitle_text: text; respawn: dimension gameType dataToKeep;
 login: dimension gameType playerId.
+U kinds: landing (due = its undeploy tick), due, hand (the mod handed the client a
+flags update it made itself, which has no H record: gliding, pose), rewrite (the H
+record just before it for set_entity_data had its glide bit changed from server= to
+handed=; pose_dropped), server_off / server_on (a change of the server's bit),
+start_sent / start_held / start_released / start_answered / start_refused /
+start_timeout / start_dropped (START_FALL_FLYING; a held one has an S record but never
+reaches the wire), reset, respawn, active / inactive.
 X events: tick_start / tick_end (ServerPlayer.doTick), move (handleMovePlayer done;
 extra = packet name, packet onGround, hColl), command (handlePlayerCommand; action),
 glide_end (extra = updateFallFlying or stopFallFlying), start_refused (START_FALL_FLYING
@@ -211,6 +220,7 @@ class Log:
     server: list[Server] = field(default_factory=list)
     keys: list[Key] = field(default_factory=list)
     events: list[Rec] = field(default_factory=list)
+    undeploy: list[Rec] = field(default_factory=list)  # U records
     counts: Counter = field(default_factory=Counter)
     truncated: bool = False
 
@@ -285,6 +295,8 @@ def load(path: str | Path) -> Log:
                 handles.append(r)
             elif r.kind == "K":
                 log.keys.append(Key(r.t, r.tick, f[0], _b(f[1])))
+            elif r.kind == "U":
+                log.undeploy.append(r)
             elif r.kind == "X":
                 log.server.append(Server(
                     r.t, r.tick, f[0], int(f[1]), (float(f[2]), float(f[3]), float(f[4])),
@@ -315,6 +327,7 @@ def load(path: str | Path) -> Log:
     log.inbound.sort(key=lambda i: i.t_decode)
     log.server.sort(key=lambda x: x.t)
     log.keys.sort(key=lambda k: k.t)
+    log.undeploy.sort(key=lambda u: u.t)
     return log
 
 
@@ -353,7 +366,7 @@ def _show(fields: tuple[str, ...]) -> str:
 
 
 def timeline(log: Log, everything: bool = False) -> Iterator[tuple[int, str]]:
-    """(t, text) for ticks, key presses, outbound packets, described inbound packets, and server events,
+    """(t, text) for ticks, key presses, outbound packets, described inbound packets, undeploy decisions and server events,
     in time order. `everything` adds name-only inbound packets."""
     rows: list[tuple[int, str]] = []
     for k in log.ticks:
@@ -369,6 +382,8 @@ def timeline(log: Log, everything: bool = False) -> Iterator[tuple[int, str]]:
             continue
         lat = f" decode->handle {(i.t_handle - i.t_decode) / 1e6:.2f}ms"
         rows.append((i.t_handle, f"H{i.thread} {i.handle_tick:6d} {i.name} {_show(i.details)}{lat}"))
+    for u in log.undeploy:
+        rows.append((u.t, f"U  {u.tick:6d} {u.f[0]} {' '.join(u.f[1:])}"))
     for x in log.server:
         rows.append((x.t, f"X  {x.tick:6d} {x.event} st={x.server_tick} y={x.pos[1]:.6f} "
                           f"g={int(x.on_ground)} ff={int(x.fall_flying)} {_show(x.extra)}"))
