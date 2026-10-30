@@ -93,7 +93,7 @@ log.flush()
 
 S = {
   "t": 0, "phase": "hub", "wait": 0, "seg": -1, "done": 0, "fails": 0,
-  "land": -1, "air": False, "applied": -1, "press": -1, "last": None, "stopped": False,
+  "land": -1, "air": False, "applied": -1, "pending": False, "press": -1, "last": None, "stopped": False,
 }
 # Per segment: glide-off ticks (or "kept"), and anomalies.
 offs = []
@@ -206,6 +206,14 @@ def step():
     return
 
   if ph == "deploy":
+    if S["pending"]:
+      if ground:
+        fail("landed before the redeploy press")
+      elif S["t"] - S["press"] >= 2:
+        S["pending"] = False
+        press()
+        record("redeploy")
+      return
     if gliding:
       record("glide_start", S["t"] - S["press"])
       S["phase"] = "glide"
@@ -271,8 +279,9 @@ def start_segment(i):
 
 
 def deploy():
-  press()
-  record("redeploy")
+  # A press needs a released tick before it: LocalPlayer.aiStep starts a glide only on
+  # a jump edge (wasJumping false), and the bounce press may have been the last tick.
+  S["pending"] = True
   S["phase"] = "deploy"
 
 
