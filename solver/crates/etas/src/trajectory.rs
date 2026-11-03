@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use world::World;
 
 use crate::course::{Course, rest_state};
-use crate::state::{FullState, keys_of};
+use crate::state::{FullState, keys_of, keys_to_string};
 use crate::tape::{Tape, TapeRow};
 
 pub const FORMAT: &str = "etas-trajectory";
@@ -223,17 +223,65 @@ pub fn from_tape(
     course: Option<&Course>,
     source: &str,
 ) -> (Trajectory, Option<(usize, Unsupported)>) {
+    fly_tape(tape, world, course, source, "recorded", |_, k| k)
+}
+
+/// A recorded tape with ebounces, as perfect bounces: its rotations and keys, except
+/// that jump is held on every tick that starts on the ground while gliding (the
+/// bounce jump) and released on every gliding tick in the air. why? a replay shows no
+/// keys while gliding (`extract_run.py` fits none there), so the bounce jumps are
+/// missing, and its jump presses in the air are the recording's answers to its
+/// glide-offs, which a perfect bounce doesn't get; held, they would also take the
+/// edge a plan's reaction needs. The seeder for ebounce starts: the recorded inputs,
+/// flown with no glide-off.
+pub fn seed_perfect_bounces(
+    tape: &Tape,
+    world: &World,
+    course: Option<&Course>,
+    source: &str,
+) -> (Trajectory, Option<(usize, Unsupported)>) {
+    fly_tape(
+        tape,
+        world,
+        course,
+        source,
+        "perfect_bounces",
+        |p, mut k| {
+            if p.fall_flying {
+                k.jump = p.on_ground;
+            }
+            k
+        },
+    )
+}
+
+/// Fly a tape's rotations with port from rest, the keys of each tick passed through
+/// `keys(player before the tick, tape keys)`.
+fn fly_tape(
+    tape: &Tape,
+    world: &World,
+    course: Option<&Course>,
+    source: &str,
+    objective: &str,
+    keys: impl Fn(&LocalPlayer, port::Input) -> port::Input,
+) -> (Trajectory, Option<(usize, Unsupported)>) {
     let mut p: LocalPlayer = rest_state(tape.start_pos, tape.start_yaw, tape.start_pitch);
-    let mut header = Header::new(course, "recorded", source);
+    let mut header = Header::new(course, objective, source);
     header.tas_header = Some(tape.header.clone());
     let initial = FullState::from(&p);
     let mut rows = Vec::new();
     let mut err = None;
     for r in &tape.rows {
+        let Ok(k) = keys_of(&r.keys) else { break };
+        let k = keys(&p, k);
         let input = InputRow {
             yaw: r.yaw as f64,
             pitch: r.pitch as f64,
-            keys: r.keys.clone(),
+            keys: if k == keys_of(&r.keys).unwrap_or(k) {
+                r.keys.clone()
+            } else {
+                keys_to_string(k)
+            },
         };
         let ti = match input.tick_input() {
             Ok(t) => t,

@@ -9,8 +9,14 @@
 //! blocks around the swept box, the end checks. What lies outside normal flight is an
 //! [`Event`], and the step stops there; wall and ceiling hits are normal flight and
 //! come back as a [`Contact`].
+//!
+//! [`Faithful::step_glide`] is the perfect-ebounce mode (the `glide` module): the same
+//! tick with the ground allowed, from a [`crate::state::GlideState`].
 
 mod collide;
+mod glide;
+
+pub use glide::GlideTick;
 
 use port::mth;
 use world::{BlockPos, World};
@@ -65,7 +71,11 @@ pub enum Event {
     Stuck(BlockPos),
     /// The move landed on a bouncing block (slime, bed).
     Bounce(BlockPos),
-    /// The move landed: the downward move was clipped, so `onGround` is set.
+    /// The move landed: the downward move was clipped, so `onGround` is set. The
+    /// state it landed in is [`Faithful::step_glide`]'s tick from the same state
+    /// (`FlightState::lift_glide`, or the carried `GlideState`), which allows the
+    /// ground. why not carry it here? events are small `Copy` values that callers
+    /// match on; a landing that matters is a bounce, and that mode steps on.
     Landing,
     /// The tick read a cell the world doesn't cover.
     UnknownSpace(BlockPos),
@@ -145,6 +155,11 @@ impl Faithful {
     /// then `updateFallFlyingMovement`. Returns the new velocity and the horizontal
     /// speed before the update (what wall damage compares against).
     pub fn velocity(&self, v: [f64; 3], k: &Look) -> ([f64; 3], f64) {
+        self.elytra(self.zero_small(v), k)
+    }
+
+    /// `LivingEntity.aiStep`'s small-velocity zeroing.
+    pub fn zero_small(&self, v: [f64; 3]) -> [f64; 3] {
         let [mut x, mut y, mut z] = v;
         if x * x + z * z < 9.0E-6 {
             x = 0.0;
@@ -153,6 +168,12 @@ impl Faithful {
         if y.abs() < 0.003 {
             y = 0.0;
         }
+        [x, y, z]
+    }
+
+    /// `updateFallFlyingMovement`, and the horizontal speed before it.
+    pub fn elytra(&self, v: [f64; 3], k: &Look) -> ([f64; 3], f64) {
+        let [mut x, mut y, mut z] = v;
         let move_hor = (x * x + z * z).sqrt();
         // The adds of 0.0 are the Java's `add(0, dy, 0)`: they turn -0.0 into 0.0.
         x += 0.0;

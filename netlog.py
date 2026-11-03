@@ -38,6 +38,8 @@ Booleans are 0/1, a missing value is `-`, text escapes `\\ \t \n \r`.
     E  event args...                   logger events: stop <reason>, dropped <n>
     U  kind key=value...               a decision of the undeploy mod (when installed,
                                        client thread); its tick= is its own count
+    P  kind key=value...               /etas play (client thread), one key=value per field
+                                       (values may hold spaces); line= is a plan line
 
 S details: move_player_*: x y z yRot xRot onGround hColl; player_command: action
 data; player_input: input; keep_alive / pong / accept_teleportation: id.
@@ -54,6 +56,15 @@ handed=; pose_dropped), server_off / server_on (a change of the server's bit),
 start_sent / start_held / start_released / start_answered / start_refused /
 start_timeout / start_dropped (START_FALL_FLYING; a held one has an S record but never
 reaches the wire), reset, respawn, active / inactive.
+P kinds: start (plan, lines, reactions, tol, runs, settle, maxfail, format); attempt n
+(reset item used); play attempt (line 1 set on this tick); diverge line dx dy dz d (pose
+before this tick's physics minus line `line`'s expected pose, every nonzero one); abort
+line dx dy dz d tol (the same, over tolerance: keys released on this tick); glide_off
+line react (the client handled a glide-off since the last tick; `line` is the line set on
+this tick, react the directive index or -); react line directive event action (a
+reaction fired: jump pressed on this tick); finish line text / timer line ("Course
+complete!" / "Timer started!" handled after line `line` flew); end attempt result reason
+line divergences max_dev reactions finish_line; stop reason done attempts.
 X events: tick_start / tick_end (ServerPlayer.doTick), move (handleMovePlayer done;
 extra = packet name, packet onGround, hColl), command (handlePlayerCommand; action),
 glide_end (extra = updateFallFlying or stopFallFlying), start_refused (START_FALL_FLYING

@@ -3,7 +3,8 @@
 Flight kernels for the solver tools ([ARCHITECTURE.md](../../ARCHITECTURE.md), "Physics").
 No globals: a kernel is a value. `sim::state` has the full state, the flight state
 (position and velocity) and the rules between them: `FlightState::lift`,
-`FullState::flight` (which says what normal flight is).
+`FullState::flight` (which says what normal flight is); and `GlideState`, a glide
+that may be on the ground, for perfect ebounces.
 
 ## Faithful kernel (`sim::faithful`)
 
@@ -45,6 +46,23 @@ holds the rotation terms; reuse it across velocities.
   move but matter after it (sprint at a jump, fall distance at a landing), so a
   recorded run resumes from its recorded full state, not a lift. The tape test checks
   that port flies a lift exactly as the recorded state.
+- **Perfect ebounces: `Faithful::step_glide`**, from a `GlideState` with the tick's
+  keys. The client never ends a glide, so after a landing it glides on: on the ground
+  the elytra update runs and the floor clips the move again, and held jump jumps
+  (`jumpFromGround`, sprint boost along the yaw) before the elytra update. Port does
+  the same, so its replay of a bounce is the perfect one. In the air it is `step`'s
+  arithmetic; a landing is a tick with `landed` set (with step-up, which `step` stops
+  short of), not an event. Exact against port on the glide state (2026-11-03 06:00
+  EST): ~340k ticks per run of `tests/faithful_ebounce.rs` (floors of 17 shapes with
+  bumps, ceilings and event blocks; ~16k landings, ~12k jumps, ~2.5k with sprint,
+  ~1k held back by the jump delay, ~500 step-ups), and the 2026-10-19 ebounce
+  replay's first bounce (`etas` `tests/ebounce.rs`). Sneak is not modeled.
+- **Projection for bounces.** `GlideState::flight()` is the flight state once off the
+  ground, and `step` flies it the same (the test checks ~280k ticks). It drops what
+  the next bounce reads: sprint (which only ends while gliding, by releasing forward
+  or a non-minor wall hit), the jump delay (10 after a jump, 0 after a tick without
+  jump) and the last keys. So carry the `GlideState` through a flight that bounces
+  again; `FlightState::lift_glide` fills them neutral (no sprint boost).
 
 ## Generic kernel (`sim::generic`)
 
@@ -69,4 +87,6 @@ the gliding box to `world::Aabb`s, and the points of the L-shaped move.
 - **Ablations** are fields of `Hooks`; `LiftShape::Pow(k)` is the first (the
   conversion's lift factor). The default is the game.
 - **Ghost points are corners, not segments**: a move can pass through a box thinner
-  than the move with every point outside.
+  than the move with every point outside. `ghost::leg_sdf` measures a whole leg of
+  the L instead, exactly (a leg moves along one axis, so its sweep is a box); the
+  `etas::solve` DDP constrains that.

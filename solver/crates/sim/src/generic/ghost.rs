@@ -4,7 +4,7 @@
 //! Distances are between the gliding player's box and world boxes, over [`Scalar`] so
 //! they differentiate along with the kernel. Constraining the points of [`l_move`]
 //! keeps its corners clear, not its segments: a move longer than a box is thin can
-//! pass through it with every point outside.
+//! pass through it with every point outside. [`leg_sdf`] measures a whole leg.
 
 use super::Scalar;
 use super::scalar::max;
@@ -47,6 +47,43 @@ pub fn box_sdf<T: Scalar>(pos: [T; 3], b: &Aabb) -> T {
     match n_pos {
         0 => max(max(gap[0], gap[1]), gap[2]),
         // why not sqrt(g²)? the same value, but exact, and no sqrt near 0.
+        1 => outside.unwrap(),
+        _ => sqr.sqrt(),
+    }
+}
+
+/// Signed distance, as [`box_sdf`] measures it, from `b` to the gliding box swept from
+/// feet position `from` to `to`. Each leg of [`l_move`] moves along one axis, and the
+/// sweep of a box along an axis is a box, so for a leg this is exact: the leg clears
+/// `b` exactly when it is positive, where checking the leg's points can miss a box
+/// thinner than the leg. For a segment off the axes it is the distance to the sweep's
+/// bounding box, a lower bound. `leg_sdf(p, p, b) == box_sdf(p, b)`.
+///
+/// Smoothness: as [`box_sdf`]'s, plus a kink in a moving coordinate where the leg
+/// changes direction (`from[i] == to[i]`).
+pub fn leg_sdf<T: Scalar>(from: [T; 3], to: [T; 3], b: &Aabb) -> T {
+    let lo = [-HALF_WIDTH, 0.0, -HALF_WIDTH];
+    let hi = [HALF_WIDTH, HEIGHT, HALF_WIDTH];
+    let gap: [T; 3] = std::array::from_fn(|i| {
+        let (a, z) = if from[i].re() <= to[i].re() {
+            (from[i], to[i])
+        } else {
+            (to[i], from[i])
+        };
+        max(T::cst(b.min[i] - hi[i]) - z, a + T::cst(lo[i] - b.max[i]))
+    });
+    let mut outside: Option<T> = None;
+    let mut sqr = T::cst(0.0);
+    let mut n_pos = 0;
+    for g in gap {
+        if g.re() > 0.0 {
+            outside = Some(g);
+            sqr = sqr + g * g;
+            n_pos += 1;
+        }
+    }
+    match n_pos {
+        0 => max(max(gap[0], gap[1]), gap[2]),
         1 => outside.unwrap(),
         _ => sqr.sqrt(),
     }

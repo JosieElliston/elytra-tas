@@ -23,6 +23,9 @@ pub mod ghost;
 mod scalar;
 
 pub use scalar::Scalar;
+/// The dual-number crate the kernel's derivatives come from, so a solver names the
+/// same version.
+pub use num_dual;
 
 use crate::state::{FlightState, Input};
 

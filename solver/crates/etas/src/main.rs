@@ -5,6 +5,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use etas::course::Course;
+use etas::plan::{self as eplan, plan_from};
 use etas::tape::Tape;
 use etas::trajectory::{Trajectory, from_tape};
 use etas::verify::{Plan, verify};
@@ -19,7 +20,8 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     /// Replay a trajectory (.jsonl) or a .tas plan with port against a course; exit 1
-    /// if a recorded state doesn't reproduce or a rule is broken.
+    /// if a recorded state doesn't reproduce, a rule is broken, or a planned bounce
+    /// lacks a working @react.
     Verify {
         file: PathBuf,
         #[arg(long)]
@@ -31,6 +33,15 @@ enum Cmd {
     /// .tas tape -> trajectory, replayed with port in the course's world.
     Tas2traj {
         tape: PathBuf,
+        #[arg(long)]
+        course: PathBuf,
+        #[arg(short, long)]
+        out: PathBuf,
+    },
+    /// Trajectory (or .tas) -> plan: its tape, the plan header, and an @react for
+    /// every planned perfect bounce; then verifies the plan (exit 1 if it fails).
+    Plan {
+        traj: PathBuf,
         #[arg(long)]
         course: PathBuf,
         #[arg(short, long)]
@@ -53,7 +64,7 @@ fn run(cli: Cli) -> Result<bool, String> {
         Cmd::Verify { file, course, json } => {
             let (c, w) = Course::load(&course)?;
             let report = if is_tape(&file) {
-                verify(&c, &w, Plan::Tape(&Tape::read(&file)?))
+                verify(&c, &w, Plan::Reactive(&eplan::Plan::read(&file)?))
             } else {
                 verify(&c, &w, Plan::Trajectory(&Trajectory::read(&file)?))
             };
@@ -78,6 +89,34 @@ fn run(cli: Cli) -> Result<bool, String> {
                 return Ok(false);
             }
             Ok(true)
+        }
+        Cmd::Plan { traj, course, out } => {
+            let (c, w) = Course::load(&course)?;
+            let t = if is_tape(&traj) {
+                let (t, err) = from_tape(
+                    &Tape::read(&traj)?,
+                    &w,
+                    Some(&c),
+                    &traj.display().to_string(),
+                );
+                if let Some((tick, u)) = err {
+                    return Err(format!("port stopped at tick {tick}: {u:?}"));
+                }
+                t
+            } else {
+                Trajectory::read(&traj)?
+            };
+            let (p, _) = plan_from(&c, &w, &t);
+            std::fs::write(&out, p.write()).map_err(|e| format!("{}: {e}", out.display()))?;
+            println!(
+                "wrote {} ticks and {} reactions to {}",
+                p.tape.rows.len(),
+                p.reacts.len(),
+                out.display()
+            );
+            let report = verify(&c, &w, Plan::Reactive(&eplan::Plan::read(&out)?));
+            print!("{report}");
+            Ok(report.ok())
         }
         Cmd::Traj2tas { traj, out } => {
             let t = Trajectory::read(&traj)?;

@@ -52,7 +52,8 @@ public final class PhaseCommand {
     }
 
     private static int usage(FabricClientCommandSource src) {
-        src.sendFeedback(Component.literal("/etas phase: tick timing between you and the server (/etas phase help)"));
+        src.sendFeedback(Component.literal("/etas phase: tick timing between you and the server (/etas phase help)\n"
+                + "/etas play <plan> [runs=N]: fly a plan, on " + jealoustone.elytratas.play.Playback.ALT + " only; /etas stop; /etas status"));
         return 1;
     }
 

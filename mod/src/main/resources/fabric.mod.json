@@ -3,7 +3,7 @@
   "id": "elytra-tas",
   "version": "${version}",
   "name": "Elytra TAS",
-  "description": "Tools for the elytra TAS project on EMC. Logs client ticks and network packet timing, and shows tick phase against the server (/etas phase).",
+  "description": "Tools for the elytra TAS project on EMC. Logs client ticks and network packet timing, shows tick phase against the server (/etas phase), and flies TAS plans (/etas play).",
   "authors": [
     "josie"
   ],

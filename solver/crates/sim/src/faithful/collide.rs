@@ -312,13 +312,98 @@ pub(super) fn collide(
     if v[0] * v[0] + v[1] * v[1] + v[2] * v[2] == 0.0 {
         return Ok(v);
     }
-    let area = expand_towards(bb, v);
+    let cols = colliders(world, &expand_towards(bb, v))?;
+    if cols.blocks.is_empty() {
+        return Ok(v);
+    }
+    check_suffocation(world, pos, bb, &cols)?;
+    collide_with(world, bb, &cols, v)
+}
+
+/// `Entity.collide` with step-up: [`collide`], then, when the move landed or started
+/// on the ground (`on_ground`) and clipped horizontally, the step-up heights the
+/// game tries (the colliders' grid heights up to `maxUpStep`, lowest first), taking
+/// the first that moves further horizontally.
+pub(super) fn collide_step(
+    world: &World,
+    pos: [f64; 3],
+    bb: &Aabb,
+    v: [f64; 3],
+    on_ground: bool,
+) -> Result<[f64; 3], Event> {
+    let step = collide(world, pos, bb, v)?;
+    let (x_coll, z_coll) = (v[0] != step[0], v[2] != step[2]);
+    let landed = v[1] != step[1] && v[1] < 0.0;
+    if !((landed || on_ground) && (x_coll || z_coll)) {
+        return Ok(step);
+    }
+    let grounded = if landed {
+        move_box(bb, [0.0, step[1], 0.0])
+    } else {
+        *bb
+    };
+    let mut area = expand_towards(&grounded, [v[0], MAX_UP_STEP as f64, v[2]]);
+    if !landed {
+        area = expand_towards(&area, [0.0, -1.0E-5f32 as f64, 0.0]);
+    }
+    let cols = colliders(world, &area)?;
+    let skip = step[1] as f32;
+    // `collectCandidateStepUpHeights`: each block's grid heights from the box bottom,
+    // as floats, 0 to the step height, deduplicated by bits, sorted
+    let mut heights: Vec<f32> = Vec::with_capacity(4);
+    let mut lines = Vec::new();
+    for (block, _) in cols.iter() {
+        lines.clear();
+        lines.extend(grid_lines(world, block, 1));
+        lines.sort_by(f64::total_cmp);
+        let mut last = f64::NAN;
+        for &l in &lines {
+            // `IndirectMerger` keeps one coordinate of any within 1e-7
+            if last >= l - EPS {
+                continue;
+            }
+            last = l;
+            let h = (l - grounded.min[1]) as f32;
+            if !(h < 0.0) && h != skip {
+                if h > MAX_UP_STEP {
+                    break;
+                }
+                if !heights.iter().any(|c| c.to_bits() == h.to_bits()) {
+                    heights.push(h);
+                }
+            }
+        }
+    }
+    heights.sort_by(f32::total_cmp);
+    let hor = |m: [f64; 3]| m[0] * m[0] + m[2] * m[2];
+    for h in heights {
+        let up = collide_with(world, &grounded, &cols, [v[0], h as f64, v[2]])?;
+        if hor(up) > hor(step) {
+            let to_ground = bb.min[1] - grounded.min[1];
+            return Ok([up[0] - 0.0, up[1] - to_ground, up[2] - 0.0]);
+        }
+    }
+    Ok(step)
+}
+
+/// `LivingEntity.maxUpStep()`: the `STEP_HEIGHT` default, as a float.
+const MAX_UP_STEP: f32 = 0.6;
+
+fn move_box(b: &Aabb, d: [f64; 3]) -> Aabb {
+    Aabb {
+        min: std::array::from_fn(|i| b.min[i] + d[i]),
+        max: std::array::from_fn(|i| b.max[i] + d[i]),
+    }
+}
+
+/// The blocks around `area` that a move can hit, in cursor order.
+fn colliders(world: &World, area: &Aabb) -> Result<Colliders, Event> {
     let mut cols = Colliders {
         boxes: Vec::new(),
         blocks: Vec::new(),
     };
     let mut buf = Vec::new();
-    for_blocks(world, &area, &mut buf, |b, boxes| {
+    for_blocks(world, area, &mut buf, |b, boxes| {
         cols.boxes.extend_from_slice(boxes);
         cols.blocks.push(Block {
             end: cols.boxes.len(),
@@ -328,10 +413,19 @@ pub(super) fn collide(
         });
         Ok(())
     })?;
+    Ok(cols)
+}
+
+/// `Entity.collideWithShapes`: the L-shaped move against a fixed collider list.
+fn collide_with(
+    world: &World,
+    bb: &Aabb,
+    cols: &Colliders,
+    v: [f64; 3],
+) -> Result<[f64; 3], Event> {
     if cols.blocks.is_empty() {
         return Ok(v);
     }
-    check_suffocation(world, pos, bb, &cols)?;
     let order = if v[0].abs() < v[2].abs() {
         [1, 2, 0]
     } else {
@@ -340,14 +434,21 @@ pub(super) fn collide(
     let mut r = [0.0; 3];
     for a in order {
         if v[a] != 0.0 {
-            let moving = Aabb {
-                min: std::array::from_fn(|i| bb.min[i] + r[i]),
-                max: std::array::from_fn(|i| bb.max[i] + r[i]),
-            };
-            r[a] = collide_axis(world, a, &moving, &cols, v[a])?;
+            r[a] = collide_axis(world, a, &move_box(bb, r), cols, v[a])?;
         }
     }
     Ok(r)
+}
+
+/// `CollisionGetter.noCollision` for blocks: no block's shape meets `bx`.
+pub(super) fn no_collision(world: &World, bx: &Aabb) -> Result<bool, Event> {
+    let mut any = false;
+    let mut buf = Vec::new();
+    for_blocks(world, bx, &mut buf, |_, _| {
+        any = true;
+        Ok(())
+    })?;
+    Ok(!any)
 }
 
 /// `LocalPlayer.moveTowardsClosestSpace`'s test, at the four columns under the box's
@@ -518,13 +619,28 @@ pub(super) fn landing_on_pos(
     bb: &Aabb,
     movement: [f64; 3],
 ) -> Result<BlockPos, Event> {
+    // `onGroundNoBlocks` was clear: it is in flight
+    let (support, _) = check_supporting_block(world, pos, bb, movement, false)?;
+    on_pos(world, pos, support, 0.2)
+}
+
+/// `Entity.checkSupportingBlock(true, movement)` after a move that ends on the
+/// ground: the supporting block and the new `onGroundNoBlocks`. The test slab under
+/// the box, and if it finds nothing and `no_blocks` (the last value) is clear, the
+/// slab where the box came from.
+pub(super) fn check_supporting_block(
+    world: &World,
+    pos: [f64; 3],
+    bb: &Aabb,
+    movement: [f64; 3],
+    no_blocks: bool,
+) -> Result<(Option<BlockPos>, bool), Event> {
     let test = Aabb {
         min: [bb.min[0], bb.min[1] - 1.0E-6, bb.min[2]],
         max: [bb.max[0], bb.min[1], bb.max[2]],
     };
     let mut support = supporting_block(world, pos, &test)?;
-    if support.is_none() {
-        // `onGroundNoBlocks` was clear (it is in flight): try where the box came from
+    if support.is_none() && !no_blocks {
         let back = Aabb {
             min: [
                 test.min[0] - movement[0],
@@ -539,16 +655,26 @@ pub(super) fn landing_on_pos(
         };
         support = supporting_block(world, pos, &back)?;
     }
-    let y = mth::floor(pos[1] - 0.2f32 as f64);
+    Ok((support, support.is_none()))
+}
+
+/// `Entity.getOnPos(offset)`: the supporting block at the height `offset` below the
+/// feet (fences keep their own position for offsets up to 0.5, walls and gates for
+/// any), or the block there under the position without one.
+pub(super) fn on_pos(
+    world: &World,
+    pos: [f64; 3],
+    support: Option<BlockPos>,
+    offset: f32,
+) -> Result<BlockPos, Event> {
+    let y = mth::floor(pos[1] - offset as f64);
     Ok(match support {
         Some(p) => {
             let class = world.detail(state_at(world, p)?).class.as_str();
-            // `getOnPos`: fences, walls and gates keep their own position
-            if matches!(class, "FenceBlock" | "WallBlock" | "FenceGateBlock") {
-                p
-            } else {
-                BlockPos { y, ..p }
-            }
+            let keep = class == "WallBlock"
+                || class == "FenceGateBlock"
+                || offset as f64 <= 0.5 && class == "FenceBlock";
+            if keep { p } else { BlockPos { y, ..p } }
         }
         None => BlockPos {
             x: mth::floor(pos[0]),

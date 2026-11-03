@@ -2,6 +2,16 @@
 //! and rules, and say whether it holds. The judge is the least clever code we have
 //! (ARCHITECTURE.md, Verify): port, the world file, and the course's predicates over
 //! each tick's end pose, nothing from the solver that made the plan.
+//!
+//! **Perfect bounces.** A gliding landing inside the course's ground-allowed region
+//! is a planned perfect bounce: port keeps gliding (only the server ends a glide), so
+//! the replay already flies the bounce as if the server never undeployed. What makes
+//! that true on EMC is the plan's `@react glide_off press_jump`: the glide-off arrives
+//! a few ticks after the landing, and a jump press on that tick restarts the glide
+//! before the tick's physics. For each tick of the window verify replays that branch
+//! (glide flag off and the server's pose before the tick, jump held for it) and
+//! requires it to fly the plan's poses. A gliding landing anywhere else fails: the
+//! glide ends there.
 
 use std::fmt;
 
@@ -10,15 +20,35 @@ use serde::Serialize;
 use world::{Aabb, World};
 
 use crate::course::{Course, Observed, Rule, Variant, rest_state};
+use crate::plan::{Action, Event, React};
 use crate::state::FullState;
 use crate::tape::Tape;
 use crate::trajectory::Trajectory;
 
-/// What verify replays.
+/// What verify replays. A trajectory carries no reactions, so its bounces are
+/// reported with the window they need but not failed for lacking one; a tape is a
+/// plan without reactions.
 pub enum Plan<'a> {
     Trajectory(&'a Trajectory),
     Tape(&'a Tape),
+    Reactive(&'a crate::plan::Plan),
 }
+
+/// The glide-off reaches the client at least this many ticks after the landing tick
+/// (the tick whose move first says onGround). why 2? 26.2's server ticks levels, which
+/// send entity data, before player connections, whose `doTick` ends the glide, so its
+/// "off" leaves a tick after the tick that saw the ground (undeploy README: 2 is zero
+/// ping in the best tick phase).
+pub const GLIDE_OFF_MIN: usize = 2;
+/// The latest glide-off a plan's window covers. why 8? on EMC it came 3 or 4 ticks
+/// after the landing at ~65 ms round trip (2026-10-29 17:05 log: 3 on 112 bounces, 4
+/// on 86), 4 in the 2026-10-19 ebounce replay, and 6 or 7 behind Ping Equalizer's
+/// 68 ms hold (17:05 and 17:17 logs); one more for a packet read on either side of a
+/// tick edge. Later than that the server is lagging, which makes bounces perfect on
+/// its side anyway (README, "Things that will bite").
+pub const GLIDE_OFF_MAX: usize = 8;
+/// Delays a bounce's window must cover: those seen on EMC without a packet hold.
+pub const GLIDE_OFF_NATURAL: [usize; 2] = [3, 4];
 
 /// A rule's first firing: the tick whose end pose the server judged, and the secant
 /// time: where the segment from the previous pose crosses the region's face, in ticks.
@@ -48,6 +78,42 @@ pub struct GroundTouch {
     pub pos: [f64; 3],
     pub timer_running: bool,
     pub allowed: bool,
+}
+
+/// A planned perfect bounce: a gliding landing in the ground-allowed region.
+#[derive(Debug, Clone, Serialize)]
+pub struct Bounce {
+    /// The landing tick: its move ends on the ground.
+    pub landing: usize,
+    /// The tick that jumped off (the first tick back in the air), if any.
+    pub jump: Option<usize>,
+    pub pos: [f64; 3],
+    /// Arrival ticks of the glide-off, in `landing + GLIDE_OFF_MIN ..= landing +
+    /// GLIDE_OFF_MAX` and before the next bounce's window could start, at which a
+    /// jump press flies the plan's poses.
+    pub rescuable: Vec<usize>,
+    /// Those that don't, and why.
+    pub not_rescuable: Vec<(usize, String)>,
+    /// The plan's `@react` window for it, if the plan has one.
+    pub window: Option<(usize, usize)>,
+}
+
+impl Bounce {
+    /// The window a plan should carry: the first run of consecutive rescuable ticks.
+    pub fn window_to_plan(&self) -> Option<(usize, usize)> {
+        let t0 = *self.rescuable.first()?;
+        let mut t1 = t0;
+        while self.rescuable.contains(&(t1 + 1)) {
+            t1 += 1;
+        }
+        Some((t0, t1))
+    }
+
+    /// The glide-off delays (ticks after the landing) the plan's window covers.
+    pub fn covered(&self) -> Option<(usize, usize)> {
+        self.window
+            .map(|(a, b)| (a - self.landing, b - self.landing))
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -94,6 +160,7 @@ pub struct Report {
     pub chat_lag: [usize; 2],
     pub contacts: Vec<Contact>,
     pub ground: Vec<GroundTouch>,
+    pub bounces: Vec<Bounce>,
     pub kills: Vec<KillHit>,
     pub clearance: Option<Clearance>,
     pub roughness: Roughness,
@@ -164,6 +231,15 @@ fn horizontal(v: port::Vec3) -> f64 {
 // ticks index several parallel per-tick vectors
 #[allow(clippy::needless_range_loop)]
 pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
+    let reacts: Option<&[React]> = match &plan {
+        Plan::Trajectory(_) => None,
+        Plan::Tape(_) => Some(&[]),
+        Plan::Reactive(p) => Some(&p.reacts),
+    };
+    let plan = match plan {
+        Plan::Reactive(p) => Plan::Tape(&p.tape),
+        other => other,
+    };
     // the start, the inputs, and the recorded states to hold them to
     let (mut p, inputs, rec_full, rec_tape): (
         LocalPlayer,
@@ -210,6 +286,7 @@ pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
                 Some(tape),
             )
         }
+        Plan::Reactive(_) => unreachable!("turned into its tape above"),
     };
     let start = course.start_state().ok();
     let starts_at_course_start = start
@@ -351,6 +428,100 @@ pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
         });
     }
 
+    // planned perfect bounces, and gliding landings elsewhere
+    let mut bounces = Vec::new();
+    let mut bad_landings = Vec::new();
+    let landings: Vec<usize> = (1..=n)
+        .filter(|&t| {
+            players[t].on_ground
+                && !players[t - 1].on_ground
+                && players[t].fall_flying
+                && tf.is_none_or(|f| t < f)
+        })
+        .collect();
+    for (i, &l) in landings.iter().enumerate() {
+        if !course.ground_allowed(obs[l].pos, Variant::Working) {
+            bad_landings.push(l);
+            continue;
+        }
+        let next = landings.get(i + 1).copied();
+        let jump = (l + 1..=n).find(|&t| !players[t].on_ground);
+        // arrivals after the next landing are the next bounce's (its window starts
+        // at least GLIDE_OFF_MIN after it)
+        let last = (l + GLIDE_OFF_MAX).min(n).min(next.unwrap_or(usize::MAX));
+        let mut rescuable = Vec::new();
+        let mut not_rescuable = Vec::new();
+        for t in l + GLIDE_OFF_MIN..=last {
+            match rescue(world, &players, &inputs, l, t) {
+                Ok(()) => rescuable.push(t),
+                Err(why) => not_rescuable.push((t, why)),
+            }
+        }
+        bounces.push(Bounce {
+            landing: l,
+            jump,
+            pos: obs[l].pos,
+            rescuable,
+            not_rescuable,
+            window: None,
+        });
+    }
+    let mut react_failures = Vec::new();
+    if let Some(reacts) = reacts {
+        let mut used = vec![false; reacts.len()];
+        for b in bounces.iter_mut() {
+            let found = reacts.iter().enumerate().find(|(_, r)| {
+                r.event == Event::GlideOff
+                    && r.action == Action::PressJump
+                    && r.t0 > b.landing
+                    && r.t0 <= b.landing + GLIDE_OFF_MAX
+            });
+            match found {
+                None => react_failures.push(format!(
+                    "bounce at tick {}: no @react glide_off press_jump within {} ticks after it",
+                    b.landing, GLIDE_OFF_MAX
+                )),
+                Some((j, r)) => {
+                    used[j] = true;
+                    b.window = Some((r.t0, r.t1));
+                    for t in r.t0..=r.t1 {
+                        if b.rescuable.contains(&t) {
+                            continue;
+                        }
+                        let why = match b.not_rescuable.iter().find(|(u, _)| *u == t) {
+                            Some((_, w)) => w.clone(),
+                            None => rescue(world, &players, &inputs, b.landing, t)
+                                .err()
+                                .unwrap_or_default(),
+                        };
+                        if !why.is_empty() {
+                            react_failures.push(format!(
+                                "bounce at tick {}: a glide-off at tick {t} in its window doesn't fly as planned ({why})",
+                                b.landing
+                            ));
+                        }
+                    }
+                    for d in GLIDE_OFF_NATURAL {
+                        if !(r.t0..=r.t1).contains(&(b.landing + d)) {
+                            react_failures.push(format!(
+                                "bounce at tick {}: window {}..{} misses a glide-off {d} ticks after the landing",
+                                b.landing, r.t0, r.t1
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        for (j, r) in reacts.iter().enumerate() {
+            if !used[j] {
+                react_failures.push(format!("{} covers no planned bounce", r.line()));
+            }
+            if let Some(q) = reacts[..j].iter().find(|q| q.t0 <= r.t1 && r.t0 <= q.t1) {
+                react_failures.push(format!("{} overlaps {}", r.line(), q.line()));
+            }
+        }
+    }
+
     // clearance
     let (c0, c1) = match (ts, tf) {
         (Some(s), Some(f)) => (s, f),
@@ -466,6 +637,13 @@ pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
     } else if tf.is_none() {
         failures.push("never reaches the finish (working box)".into());
     }
+    for l in &bad_landings {
+        failures.push(format!(
+            "tick {l}: gliding landing outside the ground-allowed region at {:?} (the glide ends there)",
+            obs[*l].pos
+        ));
+    }
+    failures.extend(react_failures);
     for k in &kills {
         failures.push(format!(
             "tick {}: kill rule {} at {:?}",
@@ -492,12 +670,97 @@ pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
         chat_lag: course.observation.tick_chat_lag,
         contacts,
         ground,
+        bounces,
         kills,
         clearance,
         roughness,
         provisional,
         failures,
     }
+}
+
+/// The pose the server's glide-off carries: what its `updatePlayerPose` picks for a
+/// player on the ground at the landing position without the glide (standing if it
+/// fits, else crouching, else swimming; the client takes it with the flag).
+fn server_pose(world: &World, landed: &LocalPlayer) -> port::Pose {
+    let fits = |pose: port::Pose| {
+        port::level::no_collision(
+            world,
+            &pose.make_bounding_box(landed.position).deflate(1.0E-7),
+        )
+        .unwrap_or(false)
+    };
+    if !fits(port::Pose::Swimming) {
+        return landed.pose;
+    }
+    if fits(port::Pose::Standing) {
+        port::Pose::Standing
+    } else if fits(port::Pose::Crouching) {
+        port::Pose::Crouching
+    } else {
+        port::Pose::Swimming
+    }
+}
+
+/// Whether a glide-off first handled before tick `t` (of the bounce landing at
+/// `landing`), answered with jump held for that tick, flies the plan: from the state
+/// after tick `t - 1` with the flag off and the server's pose, port flies the plan's
+/// inputs (jump added at `t`) to the plan's poses, until its full state is the plan's
+/// again or the plan ends. A press can't restart the glide on the ground
+/// (`canGlide`), nor when the tape already held jump the tick before (no edge); and a
+/// tick without the glide may start a sprint (`canStartSprinting`), which the plan's
+/// next jump would feel.
+fn rescue(
+    world: &World,
+    players: &[LocalPlayer],
+    inputs: &[TickInput],
+    landing: usize,
+    t: usize,
+) -> Result<(), String> {
+    let base = &players[t - 1];
+    if !base.fall_flying {
+        return Err("not gliding before it".into());
+    }
+    if base.on_ground {
+        return Err("on the ground: the press can't restart the glide".into());
+    }
+    if base.input.key_presses.jump {
+        return Err(format!("jump held at tick {}: the press is no edge", t - 1));
+    }
+    let mut q = base.clone();
+    q.fall_flying = false;
+    q.pose = server_pose(world, &players[landing]);
+    let mut sprint_started = false;
+    for u in t..players.len() {
+        let mut input = inputs[u - 1];
+        if u == t {
+            input.keys.jump = true;
+        }
+        tick(&mut q, &input, world).map_err(|e| format!("tick {u}: {}", unsupported(e)))?;
+        let want = &players[u];
+        if u == t {
+            sprint_started = q.sprinting && !want.sprinting;
+        }
+        if q.position != want.position || q.on_ground != want.on_ground {
+            let d = q
+                .position
+                .subtract_xyz(want.position.x, want.position.y, want.position.z);
+            return Err(format!(
+                "tick {u}: off by {:.2e}{}{}",
+                d.length_sqr().sqrt(),
+                if q.fall_flying { "" } else { ", not gliding" },
+                if sprint_started {
+                    format!("; the tick without the glide started a sprint at {t}")
+                } else {
+                    String::new()
+                }
+            ));
+        }
+        if FullState::from(&q) == FullState::from(want) {
+            return Ok(());
+        }
+    }
+    Ok(())
 }
 
 fn region_of(p: &crate::course::Pred) -> Option<&str> {
@@ -521,6 +784,7 @@ fn early(course: &Course, why: String) -> Report {
         chat_lag: course.observation.tick_chat_lag,
         contacts: vec![],
         ground: vec![],
+        bounces: vec![],
         kills: vec![],
         clearance: None,
         roughness: Roughness::default(),
@@ -638,6 +902,31 @@ impl fmt::Display for Report {
                 g.join(", ")
             }
         )?;
+        for b in &self.bounces {
+            let delays = |ts: &mut dyn Iterator<Item = usize>| -> String {
+                let v: Vec<String> = ts.map(|t| (t - b.landing).to_string()).collect();
+                if v.is_empty() {
+                    "none".into()
+                } else {
+                    v.join(" ")
+                }
+            };
+            writeln!(
+                f,
+                "bounce at tick {}{}: {}; glide-off delays a press rescues: {} (of {GLIDE_OFF_MIN}..{GLIDE_OFF_MAX}, or up to the next landing)",
+                b.landing,
+                match b.jump {
+                    Some(j) => format!(", jump {j}"),
+                    None => ", no jump".into(),
+                },
+                match (b.window, b.covered()) {
+                    (Some((t0, t1)), Some((d0, d1))) =>
+                        format!("@react {t0} {t1} covers delays {d0}..{d1}"),
+                    _ => "no @react".into(),
+                },
+                delays(&mut b.rescuable.iter().copied()),
+            )?;
+        }
         if let Some(c) = &self.clearance {
             writeln!(
                 f,

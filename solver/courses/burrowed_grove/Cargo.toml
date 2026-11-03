@@ -7,3 +7,5 @@ publish = false
 [dependencies]
 etas = { path = "../../crates/etas" }
 sha2 = "0.10.9"
+sim = { path = "../../crates/sim" }
+world = { path = "../../crates/world" }

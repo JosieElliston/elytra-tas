@@ -137,6 +137,8 @@ version = "0.1.0"
 dependencies = [
  "etas",
  "sha2",
+ "sim",
+ "world",
 ]
 
 [[package]]

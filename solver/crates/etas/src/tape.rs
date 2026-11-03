@@ -1,5 +1,6 @@
 //! `.tas` tapes (format in `extract_run.py`'s docstring): the recorded runs, and the
-//! branchless plan `tas_play` flies.
+//! branchless plan `tas_play` flies. A plan with reactions is `plan::Plan`, which
+//! parses its `@` lines and hands the rest here.
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -128,6 +129,12 @@ impl Tape {
 
     /// The tape as `extract_run.py` writes it, human-readable comments included.
     pub fn write(&self) -> String {
+        self.write_with(|_| String::new())
+    }
+
+    /// [`Tape::write`], with `before(t)`'s lines written before tick line `t` (a
+    /// plan's directives).
+    pub fn write_with(&self, before: impl Fn(usize) -> String) -> String {
         let mut out = String::new();
         for (k, v) in &self.header {
             if k == "start" {
@@ -147,6 +154,7 @@ impl Tape {
             }
         }
         for r in &self.rows {
+            out.push_str(&before(r.t));
             let _ = writeln!(
                 out,
                 "{} {:08x} {:08x} {} {:016x} {:016x} {:016x}    # {:.4} {:.4} {:.4} yaw {:.3} pitch {:.3}{}",

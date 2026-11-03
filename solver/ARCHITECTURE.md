@@ -9,11 +9,19 @@ each experiment owns its own copy of the problem: nothing composes. So the share
 is kept small and strict (physics, world, course, artifacts, verify), and everything
 else is a tool that may come and go.
 
-Status as of 2026-11-03 01:01 EST: build-order steps 1–4 work end to end on Burrowed
-Grove (port, world, course, `verify` of the recorded tape); the faithful kernel (normal
-flight with collision, bit-exact against port) and the generic kernel's flight part
-exist; the client-gametest oracle runs, and port matches it on all but 3 of 9455 ticks
-(the JVM's `Math.cos`, see `crates/port/README.md`); no solver yet.
+Status as of 2026-11-03 06:24 EST: build-order steps 1–6 exist.
+- Steps 1–4 work end to end on Burrowed Grove: port, world, course, and `verify` of the
+  recorded tape. The client-gametest oracle runs, and port matches it on all but 3 of
+  9455 ticks (the JVM's `Math.cos`, see `crates/port/README.md`).
+- Kernels: the faithful kernel covers normal flight with collision and perfect-ebounce
+  ground glides, bit-exact against port. The generic kernel covers flight.
+- The first solver (DDP through ghost walls, `crates/etas/src/solve/`) re-solves
+  stretches of the recorded run: six spliced stretches take it from 647 to 615 ticks
+  and it verifies, though it chatters (no roughness price yet).
+- Plans (PLAN-FORMAT.md) are written and verified by `etas plan` and played by
+  `/etas play` (mod 0.4.0), so far only in singleplayer gametests.
+- Not yet: boosters, branching plans, a Rust-written plan flown by the mod, any
+  playback on EMC.
 
 ## Layout
 

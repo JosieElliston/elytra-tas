@@ -23,7 +23,7 @@ Flashback replays live in `<profile>/flashback/replays/`. `tas_play.pyj`,
 - `tools/block_dump.sh`: regenerates the block table `data/blocks-26.2.tsv.gz`
   (`tools/BlockDump.java` against the Loom-cached 26.2 jar). World files name the
   table by hash, so regenerating it means re-extracting them.
-- `tas_play.pyj`: Minescript (Pyjinn) player
+- `tas_play.pyj`: Minescript (Pyjinn) player; `/etas play` in `mod/` (below) replaces it
 - `undeploy_test.pyj`: tests the [undeploy](../undeploy) mod on EMC: `/hub`, then
   ebounces in place under undeploy off and several N, and logs each landing's
   glide-off ticks and any glide lost in the air (`\undeploy_test`, on deftenvy)
@@ -37,7 +37,9 @@ Flashback replays live in `<profile>/flashback/replays/`. `tas_play.pyj`,
   with the port and the course's rules (exit 1 on a broken rule or a recorded state that
   doesn't reproduce); `etas tas2traj` / `traj2tas` convert. The trajectory format is in
   `crates/etas/src/trajectory.rs`. `cargo run --release -p burrowed_grove --bin
-  recorded` is the smoke test of the chain on the recorded run.
+  recorded` is the smoke test of the chain on the recorded run; `--bin resolve [A..B ...]`
+  then re-solves stretches of it with DDP on the generic kernel, re-flies them under the
+  faithful kernel and verifies the spliced run (`crates/etas/src/solve/`).
 - `fit_course.py COURSE -o solver/courses/COURSE/course.json`: fits a course's timer
   start, finish and kill rules from the replays and logger logs its `COURSES` entry
   lists, each rule with the bracket its data allows; its docstring is the format spec.
@@ -53,8 +55,8 @@ inbound packet decode and handle times, socket read/write times, and in singlepl
 the integrated server's view (move packets processed, player ticks, glide ends). One
 gzipped TSV per connection in `<profile>/elytra-tas/logs/`. It starts on joining a
 server or world (config via Mod Menu, YACL), or with an unbound toggle key. It only
-observes, apart from the pings and probes of `/etas phase` below, so it may run on
-`lqmbda` too. Those go out only for whitelisted `user@server` pairs (Mod Menu →
+observes, apart from the pings and probes of `/etas phase` and the playback of `/etas
+play` below, so it may run on `lqmbda` too (playback refuses any account but `deftenvy`). Those go out only for whitelisted `user@server` pairs (Mod Menu →
 Whitelist; `deftenvy@elytramc.net` by default, subdomains included, and singleplayer
 always). why? they are packets a vanilla client wouldn't send. With the [undeploy](../undeploy) mod installed it
 also records that mod's decisions as `U` records, since the packets it rewrites or makes
@@ -62,7 +64,7 @@ up don't show what the client saw.
 
 ```
 cd mod && ./gradlew build
-cp build/libs/elytra-tas-0.3.0.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
+cp build/libs/elytra-tas-0.4.0.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
 ```
 
 Rename the previous version's jar in `mods/` to `.disabled`, as with emc-replay, and
@@ -148,6 +150,34 @@ work, and the tick interval. `/etas phase help` explains each row. The figures c
   reached the client 6–7 ticks after landing instead of 3–4. The phase buttons cost
   nothing but move the two waits only against each other (client wait +d, server wait
   −d); their sum mod 50 is set by the round trip, the work on both ends and any hold.
+
+## Playback (`/etas play`)
+
+`/etas play PLAN [runs=N] [settle=T] [maxfail=K]` flies `<profile>/elytra-tas/plans/PLAN.tas`
+(solver/PLAN-FORMAT.md version 1, or a plain `.tas` tape) as `tas_play` does: reset with
+the slot-1 item, wait for the exact start pose (and the glide flag off), `settle` still
+ticks (default 10), then line 1; again after "Course complete!" plus 20 ticks or an abort,
+until N runs are done (default: until stopped) or K attempts in a row failed (default 3).
+`/etas stop` stops and hands the keyboard back; `/etas status` shows the line, divergences,
+reactions and the last attempts. While it plays, keys and mouse don't move you. The logger
+records it as `P` records (netlog.py). Tests: solver/oracle/README.md, "Playback tests".
+
+- **It refuses unless the account is `deftenvy`,** the plan's `account=` (if any) matches,
+  and the server is whitelisted for the logger's own packets; singleplayer always counts.
+  It also refuses an unknown `@` line, another `format=`, plan keys or `@react` without
+  `format=etas-plan 1`, a `ticks=` that doesn't match, and a `press_jump` window whose
+  tick before holds `J`.
+- **Every nonzero pose difference is logged, and one over `diverge_tol` aborts:** checked
+  before each tick's physics against the previous line, keys released on that tick.
+- **A glide-off is caught where the client handles it** (`handleSetEntityData`, at the
+  start of a frame, before its ticks), and `press_jump` goes in at the next
+  `START_LEVEL_TICK`, the same input path as the tape's keys, so it lands in the physics
+  of the first tick to see the flag cleared. Not earlier: that tick's own keys would
+  overwrite it. A jump pressed by a reaction counts as held on the next line.
+- **The camera is set each frame at `Minecraft.renderFrame`'s head**, after the mouse and
+  before camera setup, so the lerp needs no frame-late prediction (unlike `tas_play`'s
+  render events). The exact rotation goes back at `START_CLIENT_TICK`, before anything
+  in the tick (the logger's `T` record included) reads it.
 
 ## Things that will bite
 

@@ -47,8 +47,11 @@ dependencies {
 }
 
 def casesDir = file("cases").absolutePath
+def playbackDir = file("build/playback").absolutePath
 tasks.matching { it.name == "runClientGameTest" }.configureEach {
 	systemProperty "oracle.out", casesDir
+	// PlaybackGameTest's plans, logs and the held ebounce case (README.md, "Playback tests")
+	systemProperty "playback.out", playbackDir
 	doFirst {
 		if (!loggerJar.exists()) throw new GradleException("no logger jar at ${loggerJar}: build ../../mod first")
 	}

@@ -1,7 +1,9 @@
 //! Player state at two levels (ARCHITECTURE.md, "State"): the full state, every field
 //! the game's movement reads, so a cut anywhere can be resumed; and the flight state,
 //! position and velocity, for normal flight. [`FlightState::lift`] and
-//! [`FullState::flight`] move between them.
+//! [`FullState::flight`] move between them. Between the two is [`GlideState`], a
+//! glide that may touch the ground: what the faithful kernel's perfect-ebounce mode
+//! steps.
 //!
 //! **Normal flight** is a tick that the elytra path flies and nothing else touches.
 //! What the state alone decides is [`FullState::flight`]: gliding, off the ground, in
@@ -163,6 +165,108 @@ impl FullState {
             FlightState {
                 pos: self.pos,
                 vel: self.vel,
+            },
+        )
+    }
+}
+
+/// A glide that may be on the ground: the state the faithful kernel's perfect-ebounce
+/// mode ([`crate::faithful::Faithful::step_glide`]) steps. Gliding (`fall_flying`, the
+/// gliding pose, glider equipped) is implied; the client never ends it, only the
+/// server does, and a perfect bounce is one where it doesn't.
+///
+/// The fields past `vel` never change a move in the air. They decide the jump off the
+/// ground (`on_ground`, `no_jump_delay`, `sprinting` for the sprint boost, the
+/// supporting block for the jump factor), sprint's end (`keys`, the collision flags),
+/// and the next landing's supporting block (`on_ground_no_blocks`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GlideState {
+    pub pos: [f64; 3],
+    pub vel: [f64; 3],
+    pub on_ground: bool,
+    pub horizontal_collision: bool,
+    pub minor_horizontal_collision: bool,
+    pub supporting_block: Option<BlockPos>,
+    pub on_ground_no_blocks: bool,
+    /// Shared flag 3. While gliding it can only end (`canStartSprinting` needs the glide
+    /// off), so a bounce keeps the sprint boost only if sprint survived the flight.
+    pub sprinting: bool,
+    pub no_jump_delay: i32,
+    /// The last tick's keys: the jump edge and the forward impulse read them.
+    pub keys: Keys,
+}
+
+impl FlightState<f64> {
+    /// The glide state of this flight state, with [`FlightState::lift`]'s neutral
+    /// values: not sprinting, no jump delay, no keys, no collision. A bounce from it
+    /// jumps without the sprint boost.
+    pub fn lift_glide(&self) -> GlideState {
+        GlideState {
+            pos: self.pos,
+            vel: self.vel,
+            on_ground: false,
+            horizontal_collision: false,
+            minor_horizontal_collision: false,
+            supporting_block: None,
+            on_ground_no_blocks: false,
+            sprinting: false,
+            no_jump_delay: 0,
+            keys: Keys::default(),
+        }
+    }
+}
+
+impl GlideState {
+    /// The flight state, when back in normal flight: off the ground. The other fields
+    /// are dropped, so carry the glide state, not the flight state, through a flight
+    /// that bounces again (its jump needs `sprinting` and `no_jump_delay`).
+    pub fn flight(&self) -> Option<FlightState<f64>> {
+        (!self.on_ground).then_some(FlightState {
+            pos: self.pos,
+            vel: self.vel,
+        })
+    }
+
+    /// The full state: these fields, gliding, and [`FlightState::lift`]'s neutral
+    /// values for the rest. Exact for the next tick: the fields left neutral are
+    /// written before they are read while gliding, or only feed starting a sprint,
+    /// which gliding rules out.
+    pub fn lift(&self) -> FullState {
+        let mut f = FlightState {
+            pos: self.pos,
+            vel: self.vel,
+        }
+        .lift();
+        f.on_ground = self.on_ground;
+        f.horizontal_collision = self.horizontal_collision;
+        f.minor_horizontal_collision = self.minor_horizontal_collision;
+        f.supporting_block = self.supporting_block;
+        f.on_ground_no_blocks = self.on_ground_no_blocks;
+        f.sprinting = self.sprinting;
+        f.sprint_speed_modifier = self.sprinting;
+        f.no_jump_delay = self.no_jump_delay;
+        f.keys = self.keys;
+        f.jumping = self.keys.jump;
+        f
+    }
+}
+
+impl FullState {
+    /// The glide state, if the state glides (on the ground or not): `fall_flying`, in
+    /// the gliding pose, glider equipped. None otherwise.
+    pub fn glide(&self) -> Option<GlideState> {
+        (self.fall_flying && self.pose == Pose::FallFlying && self.glider_equipped).then_some(
+            GlideState {
+                pos: self.pos,
+                vel: self.vel,
+                on_ground: self.on_ground,
+                horizontal_collision: self.horizontal_collision,
+                minor_horizontal_collision: self.minor_horizontal_collision,
+                supporting_block: self.supporting_block,
+                on_ground_no_blocks: self.on_ground_no_blocks,
+                sprinting: self.sprinting,
+                no_jump_delay: self.no_jump_delay,
+                keys: self.keys,
             },
         )
     }

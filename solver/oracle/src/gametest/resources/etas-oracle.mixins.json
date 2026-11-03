@@ -8,7 +8,9 @@
     "EntityAccessor",
     "LivingEntityAccessor",
     "LocalPlayerAccessor",
-    "LocalPlayerMixin"
+    "LocalPlayerMixin",
+    "GlideHoldMixin",
+    "MinecraftAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

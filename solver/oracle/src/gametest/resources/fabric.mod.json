@@ -6,7 +6,8 @@
   "environment": "client",
   "entrypoints": {
     "fabric-client-gametest": [
-      "jealoustone.etasoracle.OracleGameTest"
+      "jealoustone.etasoracle.OracleGameTest",
+      "jealoustone.etasoracle.PlaybackGameTest"
     ],
     "client": [
       "jealoustone.etasoracle.Driver"

@@ -1,0 +1,275 @@
+{
+ "format": "etas-course",
+ "version": 1,
+ "name": "super_classic_downtown_ebounce_test",
+ "dimension": "minecraft:cesuperclassicdowntown",
+ "world": {
+  "path": "super_classic_downtown.world.gz",
+  "content_sha256": "e9fbf711fcd027696e2de3f68c3d816e411c33515562228e6b462aac55165f48",
+  "extract": "python3 extract_world.py <replays>/2026-10-19T23_25_42_ebounce.zip --tick 9700 --bounds -80 70 -110 0 130 -40 -o solver/crates/etas/tests/data/ebounce/super_classic_downtown.world.gz"
+ },
+ "fitted_from": {
+  "replays": [
+   {
+    "name": "2026-10-19T23_25_42_ebounce.zip",
+    "sha256": "bd4f5d63034315088fa45e633597441fdfd9823564413d4048dd31d2797f40a3"
+   }
+  ],
+  "logs": [],
+  "excluded": [],
+  "tool": "hand-written test fixture, not fit_course.py",
+  "note": "fit_course.py fails on this map's finish (no box holds the finishes without an outside point), so the start area is README's measured box and the finish a placeholder at run 1's finish pose"
+ },
+ "observation": {
+  "tick_chat_lag": [
+   2,
+   5
+  ],
+  "note": "replay band, as fit_course.py uses for replays without a log"
+ },
+ "start": {
+  "source": {
+   "path": "solver/crates/etas/tests/data/ebounce/ebounce_run1.tas",
+   "sha256": "c51e98164e970ecc66af8e1145f28c72ab4b60c3695059e398902e4f579f36a2"
+  },
+  "pose": [
+   "c043400000000000",
+   "4057400000000000",
+   "c052a00000000000",
+   "00000000",
+   "00000000"
+  ],
+  "inputs": [
+   [
+    "00000000",
+    "3f476126",
+    "-"
+   ],
+   [
+    "bf9588dc",
+    "40793970",
+    "-"
+   ],
+   [
+    "c11588dd",
+    "413e089a",
+    "-"
+   ],
+   [
+    "c237062e",
+    "41dba106",
+    "-"
+   ],
+   [
+    "c2c6fd76",
+    "4221378f",
+    "-"
+   ],
+   [
+    "c2f61bec",
+    "42482889",
+    "-"
+   ],
+   [
+    "c2f4f0da",
+    "424b460d",
+    "WR"
+   ],
+   [
+    "c2f4f0da",
+    "424b460d",
+    "WR"
+   ],
+   [
+    "c2f4f0da",
+    "424b460d",
+    "WR"
+   ],
+   [
+    "c2f4f0da",
+    "424b460d",
+    "WR"
+   ],
+   [
+    "c2f4f0da",
+    "424b460d",
+    "WR"
+   ],
+   [
+    "c2f4f0da",
+    "424b460d",
+    "WR"
+   ],
+   [
+    "c2f4f0da",
+    "4245d266",
+    "WJR"
+   ],
+   [
+    "c2fa00d2",
+    "423a23b7",
+    "WR"
+   ],
+   [
+    "c30402d3",
+    "422a9021",
+    "WR"
+   ],
+   [
+    "c3087d44",
+    "42165045",
+    "WRJ"
+   ]
+  ],
+  "glide_tick": 16,
+  "timer_tick": 163,
+  "finish_tick": 293,
+  "finish_text": "Course complete! Your time: 6.540 seconds (-0.320)"
+ },
+ "regions": {
+  "start_area": {
+   "working": {
+    "min": [
+     -52.0,
+     86.0,
+     null
+    ],
+    "max": [
+     -27.0,
+     99.0,
+     -64.0
+    ]
+   },
+   "inner": {
+    "min": [
+     -52.0,
+     86.0,
+     null
+    ],
+    "max": [
+     -27.0,
+     99.0,
+     -64.0
+    ]
+   },
+   "outer": {
+    "min": [
+     -52.0,
+     86.0,
+     null
+    ],
+    "max": [
+     -27.0,
+     99.0,
+     -64.0
+    ]
+   },
+   "faces": {
+    "x_min": "assumed",
+    "x_max": "assumed",
+    "y_min": "assumed",
+    "y_max": "assumed",
+    "z_min": "assumed",
+    "z_max": "assumed"
+   },
+   "status": "provisional",
+   "note": "README, EMC course rules: super classic downtown -52 <= x < -27, 86 <= y < 99, z < -64, box-like in bulk; not fitted here"
+  },
+  "finish": {
+   "working": {
+    "min": [
+     13.505196112362436,
+     19.0625,
+     -96.84627083340737
+    ],
+    "max": [
+     15.505196112362436,
+     21.0625,
+     -94.84627083340737
+    ]
+   },
+   "inner": {
+    "min": [
+     14.505196112362436,
+     20.0625,
+     -95.84627083340737
+    ],
+    "max": [
+     14.505196112362436,
+     20.0625,
+     -95.84627083340737
+    ]
+   },
+   "outer": {
+    "min": [
+     13.505196112362436,
+     19.0625,
+     -96.84627083340737
+    ],
+    "max": [
+     15.505196112362436,
+     21.0625,
+     -94.84627083340737
+    ]
+   },
+   "faces": {
+    "x_min": "assumed",
+    "x_max": "assumed",
+    "y_min": "assumed",
+    "y_max": "assumed",
+    "z_min": "assumed",
+    "z_max": "assumed"
+   },
+   "status": "provisional",
+   "note": "placeholder: 1 block around run 1's pose at its finish tick"
+  }
+ },
+ "rules": {
+  "timer_start": {
+   "event": "first",
+   "when": {
+    "not": {
+     "in": "start_area"
+    }
+   },
+   "after": "start",
+   "status": "provisional",
+   "note": "as burrowed_grove"
+  },
+  "finish": {
+   "event": "first",
+   "when": {
+    "in": "finish"
+   },
+   "after": "timer_start",
+   "status": "provisional",
+   "note": "placeholder region"
+  },
+  "kill": [
+   {
+    "name": "ground",
+    "event": "any",
+    "when": {
+     "and": [
+      {
+       "field": "on_ground"
+      },
+      {
+       "not": {
+        "in": "start_area"
+       }
+      }
+     ]
+    },
+    "after": "timer_start",
+    "until": "finish",
+    "status": "provisional",
+    "note": "as burrowed_grove"
+   }
+  ]
+ },
+ "ground_allowed": [
+  "start_area"
+ ],
+ "boosters": []
+}

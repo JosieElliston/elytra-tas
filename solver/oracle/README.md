@@ -106,6 +106,50 @@ autoJumpTime, crouching. Floats are written widened to double, as the logger doe
 - The rotation is set right before physics each tick, as in playback, so a mouse
   turn between ticks never reaches the physics; turning within a tick isn't covered.
 
+## Playback tests
+
+`PlaybackGameTest` runs after the oracle cases in the same client, in its own world,
+and tests the mod's `/etas play` (README.md at the repo root, "Playback"). Its plans,
+logs and the held case go to `build/playback/`. `PLAYBACK_TESTS=a,b,c` picks (default
+all; `none` skips). The quick way to run only these:
+
+```
+ORACLE_CASES=air:1 ./gradlew runClientGameTest       # about 3.5 min in all
+cd .. && ORACLE_CASES_DIR=$PWD/oracle/build/playback/cases CARGO_TARGET_DIR=target/agent-port \
+    cargo test -p port --release --test oracle -- --nocapture
+```
+
+- refusals: a non-alt account, and plans with `format=etas-plan 2`, `@branch`, an unknown
+  event, `@react` in a plain tape, `account=lqmbda`, a wrong `ticks=`, no `start=`.
+- (a) a plan made from the oracle case `PLAYBACK_CASE` (default `air-1`; it must be in
+  `cases/`): its inputs, and the poses of its log's END records. Flown twice with
+  `runs=2`: as of 2026-11-03 06:15 EST, 0 divergent ticks in both.
+- (b) ebounces: off a 50-block pillar onto the flat world's ground, a hop after each
+  landing. The Driver flies it once with the server's glide-off held (`GlideHoldMixin`),
+  which is what port models: nothing ends the glide. That run is written as the oracle
+  case `build/playback/cases/ebounce-held`, and port's replay above must be
+  continuous-exact on it (240/240 ticks, 2026-11-03). Its inputs and poses become a plan
+  with `@react L+1 L+6 glide_off press_jump` after each single-tick landing L, cut at the
+  first longer contact. Playback flies it 9 times with the vanilla glide-off: 36 of 36
+  reactions fired, 0 divergent ticks, and the glide-off was first seen before line L+3 in
+  all 36 (2026-11-03 06:15 EST). The same plan without reactions aborts at the first
+  landing's L+3.
+- (c) the air case's plan with line 150's x off by 0.01, and the player moved 1e-3 in x
+  on the tick line 120 is set in attempt 1 (`maxfail=2`): the aborts come after lines 120
+  and 150, each tick's physics runs with no keys, and the input is handed back at the stop.
+
+The test runs as `deftenvy` by replacing `Minecraft.user` (`MinecraftAccessor`), and
+stands in for EMC: a stick in slot 1 teleports to the start on the server, and the test
+sends "Course complete!" 25 lines before a plan's end.
+
+- **Singleplayer has a fixed glide-off delay and no lag**, so (b) shows the reaction path
+  and the physics claim, not EMC's timing: there the glide-off comes 3-4 ticks after a
+  landing (README.md, "Tick phase"), and a perfect bounce needs the player airborne by then.
+- **A platform start needs the platform gone right before line 1.** The oracle removes
+  it between ticks; the test removes it on the tick line 1 is set, from a
+  `START_LEVEL_TICK` listener registered after the mod's, so after playback's handler and
+  before physics.
+
 ## Things that will bite
 
 - **The gametest dependencies go after `fabricApi { configureTests }`** in

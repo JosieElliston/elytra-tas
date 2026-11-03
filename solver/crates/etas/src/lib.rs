@@ -1,10 +1,15 @@
-//! The toolkit (ARCHITECTURE.md, Tools): course files, artifacts and `verify` so far.
+//! The toolkit (ARCHITECTURE.md, Tools): course files, artifacts, `verify` and one
+//! solver so far.
 //!
 //! - [`course`]: course files from `fit_course.py`, and their world
 //! - [`trajectory`]: the trajectory artifact; [`tape`]: `.tas` tapes, the branchless plan
+//! - [`plan`]: plans for the `/etas` mod (a tape plus reactions, `PLAN-FORMAT.md`)
 //! - [`verify`]: the gate every plan passes before it goes to the mod
+//! - [`solve`]: the first solver, re-solving a stretch of a recorded run
 
 pub mod course;
+pub mod plan;
+pub mod solve;
 pub mod state;
 pub mod tape;
 pub mod trajectory;

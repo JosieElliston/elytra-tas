@@ -56,7 +56,7 @@ import java.util.UUID;
  * The record format is documented in netlog.py (repo root), which parses it; change
  * both together and bump {@link #FORMAT}.
  *
- * Threads: tick and key records and H(main) come from the client thread; W/F/R/D and H(netty)
+ * Threads: tick, key and playback records and H(main) come from the client thread; W/F/R/D and H(netty)
  * from the connection's Netty event loop (one thread per channel); S from either; X
  * from the integrated server thread.
  */
@@ -188,6 +188,17 @@ public final class NetLog {
         for (String kv : details.split(" ")) {
             if (!kv.isEmpty()) line.s(kv);
         }
+        line.emit();
+    }
+
+    /**
+     * A playback event ({@code /etas play}, {@link jealoustone.elytratas.play.Playback}),
+     * client thread: the kind, then key=value fields, each its own field (values may hold spaces).
+     */
+    public static void playback(String kind, String... fields) {
+        if (writer == null) return;
+        Line line = new Line('P').s(kind);
+        for (String f : fields) line.s(f);
         line.emit();
     }
 
