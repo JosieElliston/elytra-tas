@@ -1,0 +1,9 @@
+[package]
+name = "burrowed_grove"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+etas = { path = "../../crates/etas" }
+sha2 = "0.10.9"

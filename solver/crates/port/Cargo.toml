@@ -1,0 +1,11 @@
+[package]
+name = "port"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+world = { version = "0.1.0", path = "../world" }
+
+[dev-dependencies]
+proptest = "1.12.0"
+flate2 = "1.1.10"

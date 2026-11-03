@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "package": "jealoustone.etasoracle.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "mixins": [],
+  "client": [
+    "ClientInputAccessor",
+    "EntityAccessor",
+    "LivingEntityAccessor",
+    "LocalPlayerAccessor",
+    "LocalPlayerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

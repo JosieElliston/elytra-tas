@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "etas-oracle",
+  "version": "0",
+  "name": "elytra-tas physics oracle",
+  "environment": "client",
+  "entrypoints": {
+    "fabric-client-gametest": [
+      "jealoustone.etasoracle.OracleGameTest"
+    ],
+    "client": [
+      "jealoustone.etasoracle.Driver"
+    ]
+  },
+  "depends": {
+    "elytra-tas": "*"
+  },
+  "mixins": [
+    "etas-oracle.mixins.json"
+  ]
+}

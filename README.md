@@ -16,6 +16,13 @@ Flashback replays live in `<profile>/flashback/replays/`. `tas_play.pyj`,
 - `extract_run.py`: finds runs, reconstructs per-tick inputs, writes a `.tas` tape and
   checks every gliding tick against elytra physics
 - `physics.py`: MC 26.2 elytra physics, float-faithful, for that check (needs numpy)
+- `world.py`: the blocks the client had at a replay tick (block updates applied,
+  unknown space explicit, `min_y` from registry data). `extract_world.py REPLAY.zip
+  --tick T [--bounds X0 Y0 Z0 X1 Y1 Z1] -o OUT.world.gz` writes them as a world file
+  for `solver/` and prints a coverage report; its docstring is the format spec.
+- `tools/block_dump.sh`: regenerates the block table `data/blocks-26.2.tsv.gz`
+  (`tools/BlockDump.java` against the Loom-cached 26.2 jar). World files name the
+  table by hash, so regenerating it means re-extracting them.
 - `tas_play.pyj`: Minescript (Pyjinn) player
 - `undeploy_test.pyj`: tests the [undeploy](../undeploy) mod on EMC: `/hub`, then
   ebounces in place under undeploy off and several N, and logs each landing's
@@ -25,6 +32,16 @@ Flashback replays live in `<profile>/flashback/replays/`. `tas_play.pyj`,
   accepts less than Python (e.g. `S["a"], S["b"] = 1, 2` is rejected: only plain
   names in tuple targets), CPython's `ast` passes those, and in game you see only
   the first error per launch. It catches syntax only, not runtime errors.
+- `solver/`: the toolkit for min-time plans, [ARCHITECTURE.md](solver/ARCHITECTURE.md).
+  `etas verify FILE --course solver/courses/NAME` replays a trajectory or `.tas` plan
+  with the port and the course's rules (exit 1 on a broken rule or a recorded state that
+  doesn't reproduce); `etas tas2traj` / `traj2tas` convert. The trajectory format is in
+  `crates/etas/src/trajectory.rs`. `cargo run --release -p burrowed_grove --bin
+  recorded` is the smoke test of the chain on the recorded run.
+- `fit_course.py COURSE -o solver/courses/COURSE/course.json`: fits a course's timer
+  start, finish and kill rules from the replays and logger logs its `COURSES` entry
+  lists, each rule with the bracket its data allows; its docstring is the format spec.
+  Faces the data can't reach are written as assumed and the rule as provisional.
 - `mod/`: Fabric client mod, see below. `netlog.py`: reader for its logs; its
   docstring is the format spec (`python3 netlog.py LOG.tsv.gz --timeline`).
 
@@ -134,6 +151,11 @@ work, and the tick interval. `/etas phase help` explains each row. The figures c
 
 ## Things that will bite
 
+- **On EMC, vines end the glide.** Vanilla's `can_glide_through` block tag exempts vines
+  (and cave, weeping and twisting vines) from the climbable check in `travelFallFlying`,
+  but EMC sends no such tag (Burrowed Grove and canyon replays, checked 2026-11-02), and
+  the client uses the server's tags. World files carry the server's tags for this
+  reason; don't use vanilla's.
 - **Flashback wraps yaw.** `Recorder.Position` stores `Mth.wrapDegrees(yaw)`; the
   client's yaw is unbounded, and elytra physics sees its float bits through a sine
   table, so 179.27 and -180.73 don't fly the same (~1e-5 blocks/tick). The extractor

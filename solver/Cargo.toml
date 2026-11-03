@@ -1,0 +1,11 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "courses/burrowed_grove"]
+# course crates are added here as they are created: "courses/<name>"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[profile.release]
+debug = 1

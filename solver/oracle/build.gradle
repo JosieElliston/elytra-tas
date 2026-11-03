@@ -1,0 +1,55 @@
+plugins {
+	id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+repositories {
+	maven { url = 'https://maven.isxander.dev/releases' }
+	maven { url = 'https://maven.terraformersmc.com/' }
+}
+
+// The elytra-tas logger writes each case's log; build it first in ../../mod. -PloggerJar
+// overrides the path.
+def loggerJar = file(project.findProperty("loggerJar") ?: "../../mod/build/libs/elytra-tas-${project.logger_version}.jar")
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 25
+}
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_25
+	targetCompatibility = JavaVersion.VERSION_25
+}
+
+// Everything is in src/gametest; there is no main mod. ./gradlew runClientGameTest opens
+// a singleplayer dev client and writes the cases to cases/ (README.md).
+fabricApi {
+	configureTests {
+		createSourceSet = true
+		modId = "etas-oracle"
+		enableGameTests = false
+		enableClientGameTests = true
+		eula = true
+	}
+}
+
+// after configureTests, which creates the gametest configurations
+dependencies {
+	gametestImplementation files(loggerJar)
+	gametestRuntimeOnly "dev.isxander:yet-another-config-lib:${project.yacl_version}"
+	gametestRuntimeOnly "com.terraformersmc:modmenu:${project.modmenu_version}"
+}
+
+def casesDir = file("cases").absolutePath
+tasks.matching { it.name == "runClientGameTest" }.configureEach {
+	systemProperty "oracle.out", casesDir
+	doFirst {
+		if (!loggerJar.exists()) throw new GradleException("no logger jar at ${loggerJar}: build ../../mod first")
+	}
+}

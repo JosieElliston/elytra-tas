@@ -1,0 +1,17 @@
+[package]
+name = "sim"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+num-dual = "0.15.1"
+num-traits = "0.2.19"
+# numerics only (`port::mth`: the sine table, fdlibm's cos); the faithful kernel's
+# physics is its own
+port = { path = "../port" }
+world = { version = "0.1.0", path = "../world" }
+
+[dev-dependencies]
+approx = "0.5.1"
+nalgebra = "0.35.0"
+proptest = "1.12.0"

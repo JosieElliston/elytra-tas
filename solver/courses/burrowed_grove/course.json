@@ -1,0 +1,540 @@
+{
+ "format": "etas-course",
+ "version": 1,
+ "name": "burrowed_grove",
+ "dimension": "minecraft:eburrowedgrove",
+ "world": {
+  "path": "burrowed_grove.world.gz",
+  "content_sha256": "e5d3b698a101e0e308d157792c1fd9b5f23f7b694ac54924d48ed68f777487d0",
+  "extract": "python3 extract_world.py <replays>/2026-10-19T23_03_50.zip --tick 24788 --bounds -90 -64 -66 45 190 100 -o solver/courses/burrowed_grove/burrowed_grove.world.gz"
+ },
+ "fitted_from": {
+  "replays": [
+   {
+    "name": "2026-10-19T23_03_50.zip",
+    "sha256": "d708521a4a0fb4ab15c488461282c957e7d70ce5ff9a802636f4da3ff699931d"
+   },
+   {
+    "name": "2026-10-19T23_25_42_ebounce.zip",
+    "sha256": "bd4f5d63034315088fa45e633597441fdfd9823564413d4048dd31d2797f40a3"
+   },
+   {
+    "name": "2026-10-20T00_00_14_burrowed_grove_three.zip",
+    "sha256": "ff6de5f6b170181b4affa8b5931b367ff6ce180e47b9e514bc82256d9249ad84"
+   },
+   {
+    "name": "2026-10-20T00_18_41.zip",
+    "sha256": "44480e86dc550a756ae5d3c296c856000bfa58a092a62741a612106b8c19988f"
+   },
+   {
+    "name": "2026-10-20T00_21_02.zip",
+    "sha256": "3ee9b2a9cf79f9057b0f52aa1a380c54acbe49682e7106543d1456a466025b8e"
+   }
+  ],
+  "logs": [
+   {
+    "name": "2026-10-20_01-24-23.tsv.gz",
+    "sha256": "0ec83519e4d885a12c0f832b159a458185f2c13619e3f4dba5b89b88d08e4c8f",
+    "same_session_as": "2026-10-20T01_25_47.zip"
+   },
+   {
+    "name": "2026-10-20_01-41-33.tsv.gz",
+    "sha256": "208b899c4dd74c7f99bdb92a75ad0977e5793b99f653c49fb696b6c0e7464279",
+    "same_session_as": "2026-10-20T01_44_58_burrowed_grove.zip"
+   },
+   {
+    "name": "2026-10-20_18-05-35.tsv.gz",
+    "sha256": "957427b8723d3954e387783d88ff63987c2deb7e1b98bf9280e05bd467244661",
+    "same_session_as": "2026-10-20T18_24_43.zip"
+   },
+   {
+    "name": "2026-10-20_18-26-16.tsv.gz",
+    "sha256": "ea6cbb9c5b0848468b07dfb3bce200488b0e37683ee3630572ea84d044f2371c",
+    "same_session_as": "2026-10-20T19_14_21.zip"
+   }
+  ],
+  "excluded": [
+   {
+    "name": "2026-10-20_02-50-17.tsv.gz / 2026-10-20T08_50_11_overnight.zip",
+    "why": "unfocused client: ticks and moves go out in pairs, so the one-pose-per-server-tick model doesn't hold (README, EMC course rules); its ~600 runs replay the tape, so their poses add nothing to the geometry"
+   }
+  ],
+  "tool": "fit_course.py",
+  "commit": "e3d68b199918984882b69e9b4bd74e5bbef60866",
+  "dirty": true,
+  "fitted_at": "2026-11-03 01:00:38 EST"
+ },
+ "observation": {
+  "tick_chat_lag": [
+   2,
+   3
+  ],
+  "note": "Logged sessions (2026-10-20, ~70-85 ms round trip): a tick-end chat on tape tick C judged the pose of C-3, or C-2 when the server tick started late; replays without a log are fitted with [2, 5]. Kill messages are sent from a packet handler, not at a tick end.",
+  "sessions": [
+   {
+    "session": "2026-10-19T23_03_50.zip",
+    "kind": "replay",
+    "note": "replay band (2, 5)"
+   },
+   {
+    "session": "2026-10-19T23_25_42_ebounce.zip",
+    "kind": "replay",
+    "note": "replay band (2, 5)"
+   },
+   {
+    "session": "2026-10-20T00_00_14_burrowed_grove_three.zip",
+    "kind": "replay",
+    "note": "replay band (2, 5)"
+   },
+   {
+    "session": "2026-10-20T00_18_41.zip",
+    "kind": "replay",
+    "note": "replay band (2, 5)"
+   },
+   {
+    "session": "2026-10-20T00_21_02.zip",
+    "kind": "replay",
+    "note": "replay band (2, 5)"
+   },
+   {
+    "session": "2026-10-20_01-24-23.tsv.gz",
+    "kind": "log",
+    "note": "use_item replies: handler 1 (min 56 ms), tick end 1 (max 146 ms); band 56..206 ms"
+   },
+   {
+    "session": "2026-10-20_01-41-33.tsv.gz",
+    "kind": "log",
+    "note": "use_item replies: handler 12 (min 56 ms), tick end 12 (max 134 ms); band 56..194 ms"
+   },
+   {
+    "session": "2026-10-20_18-05-35.tsv.gz",
+    "kind": "log",
+    "note": "use_item replies: handler 0 (min 56 ms), tick end 2 (max 129 ms); band 56..189 ms"
+   },
+   {
+    "session": "2026-10-20_18-26-16.tsv.gz",
+    "kind": "log",
+    "note": "use_item replies: handler 4 (min 55 ms), tick end 8 (max 125 ms); band 55..185 ms"
+   }
+  ]
+ },
+ "start": {
+  "source": {
+   "path": "tas/burrowed_grove.tas",
+   "sha256": "e616e16a7735b59c71ac4032de78971cec127cc96aa631d9b070e69e3aedce4f"
+  },
+  "pose": [
+   "400c000000000000",
+   "4064c00000000000",
+   "404c400000000000",
+   "42480000",
+   "00000000"
+  ],
+  "inputs": [
+   [
+    "42480000",
+    "00000000",
+    "-"
+   ],
+   [
+    "42480000",
+    "00000000",
+    "-"
+   ],
+   [
+    "42480000",
+    "00000000",
+    "-"
+   ],
+   [
+    "42480000",
+    "00000000",
+    "-"
+   ],
+   [
+    "42480000",
+    "00000000",
+    "-"
+   ],
+   [
+    "4244e27c",
+    "3fae7502",
+    "WR"
+   ],
+   [
+    "424cac46",
+    "40ff747c",
+    "WR"
+   ],
+   [
+    "424cac46",
+    "414d9c2f",
+    "WR"
+   ],
+   [
+    "4248c761",
+    "41878408",
+    "WR"
+   ],
+   [
+    "4245a9dd",
+    "41ace642",
+    "WR"
+   ],
+   [
+    "4240fd97",
+    "41cf2af7",
+    "WR"
+   ],
+   [
+    "423d18b2",
+    "41eb34a1",
+    "WR"
+   ],
+   [
+    "4237a50b",
+    "42052de7",
+    "WR"
+   ],
+   [
+    "42316a03",
+    "4214c17b",
+    "WR"
+   ],
+   [
+    "422e4c7f",
+    "4221feec",
+    "WR"
+   ],
+   [
+    "422e4c7f",
+    "42277293",
+    "WJR"
+   ],
+   [
+    "42316a03",
+    "422ce63a",
+    "WR"
+   ],
+   [
+    "4239fb2e",
+    "42332142",
+    "WR"
+   ],
+   [
+    "42428c59",
+    "4234b004",
+    "WR"
+   ],
+   [
+    "4250912b",
+    "4234b004",
+    "WR"
+   ],
+   [
+    "425d073b",
+    "4234b004",
+    "WRJ"
+   ]
+  ],
+  "glide_tick": 21,
+  "timer_tick": 45,
+  "finish_tick": 692,
+  "finish_text": "Course complete! Your time: 32.360 seconds (-3.780)"
+ },
+ "regions": {
+  "start_area": {
+   "working": {
+    "min": [
+     -6.436645438530405,
+     159.44472160571218,
+     53.548131681719205
+    ],
+    "max": [
+     7.085599083089195,
+     168.9457965530025,
+     65.7060658885948
+    ]
+   },
+   "inner": {
+    "min": [
+     -6.401645438530406,
+     160.44472160571218,
+     54.548131681719205
+    ],
+    "max": [
+     6.085599083089195,
+     167.9457965530025,
+     64.85606588859436
+    ]
+   },
+   "outer": {
+    "min": [
+     -6.4716454385304045,
+     96.44472160572553,
+     -9.451868318278358
+    ],
+    "max": [
+     70.08559908308823,
+     231.9457965529443,
+     66.55606588859523
+    ]
+   },
+   "faces": {
+    "x_min": "fitted",
+    "x_max": "assumed",
+    "y_min": "assumed",
+    "y_max": "assumed",
+    "z_min": "assumed",
+    "z_max": "fitted"
+   },
+   "status": "provisional",
+   "note": "Timer starts on the first observed pose outside. Inside: poses judged before each timer start, and every pose of attempts that never started it; outside: each timer start's latest band pose.",
+   "evidence": {
+    "inside": 9448,
+    "outside": 85
+   }
+  },
+  "finish": {
+   "working": {
+    "min": [
+     -36.60855656299941,
+     -46.28469233650224,
+     72.30333193675648
+    ],
+    "max": [
+     -35.38355656299946,
+     -44.28469233650224,
+     84.5883319367612
+    ]
+   },
+   "inner": {
+    "min": [
+     -35.60855656299941,
+     -45.28469233650224,
+     83.5883319367612
+    ],
+    "max": [
+     -35.60855656299941,
+     -45.28469233650224,
+     83.5883319367612
+    ]
+   },
+   "outer": {
+    "min": [
+     -99.60855656301197,
+     -109.28469233652169,
+     61.01833193675177
+    ],
+    "max": [
+     -35.1585565629995,
+     18.715307663497452,
+     147.5883319367661
+    ]
+   },
+   "faces": {
+    "x_min": "assumed",
+    "x_max": "fitted",
+    "y_min": "assumed",
+    "y_max": "assumed",
+    "z_min": "fitted",
+    "z_max": "assumed"
+   },
+   "status": "provisional",
+   "note": "Finish on the first observed pose inside, timer running. Inside: each finish's latest band pose (all from one trajectory: the tape and tas_play replays of it), so inner is near a point and the faces the data doesn't reach are assumed; outside: poses judged with the timer running before a finish or attempt end.",
+   "evidence": {
+    "inside": 9,
+    "outside": 9400
+   }
+  }
+ },
+ "rules": {
+  "timer_start": {
+   "event": "first",
+   "when": {
+    "not": {
+     "in": "start_area"
+    }
+   },
+   "after": "start",
+   "status": "provisional",
+   "note": "see regions.start_area",
+   "evidence": {
+    "timer_starts": 85,
+    "attempts": 115
+   }
+  },
+  "finish": {
+   "event": "first",
+   "when": {
+    "in": "finish"
+   },
+   "after": "timer_start",
+   "status": "provisional",
+   "note": "see regions.finish",
+   "evidence": {
+    "finishes": 9
+   }
+  },
+  "kill": [
+   {
+    "name": "ground",
+    "event": "any",
+    "when": {
+     "and": [
+      {
+       "field": "on_ground"
+      },
+      {
+       "not": {
+        "in": "start_area"
+       }
+      }
+     ]
+    },
+    "after": "timer_start",
+    "until": "finish",
+    "status": "provisional",
+    "note": "Conservative: any observed ground touch outside the start area kills. Logged touches with the timer running: 12 killed (reset with no item use, arriving with the glide-off), 2 survived; which touches kill isn't pinned down (single-tick bounces survived in some places and killed in others; a kill may need the server to have ended the glide). Touches before the timer start (start area) never killed or started the timer.",
+    "evidence": {
+     "killed": [
+      {
+       "pos": [
+        -11.428,
+        152.0,
+        70.727
+       ],
+       "source": "2026-10-20_18-26-16.tsv.gz@41196",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -23.724,
+        159.0,
+        66.556
+       ],
+       "source": "2026-10-20_18-26-16.tsv.gz@41317",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        26.784,
+        106.0,
+        19.368
+       ],
+       "source": "2026-10-20_18-26-16.tsv.gz@41622",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -20.303,
+        -43.0,
+        74.159
+       ],
+       "source": "2026-10-20_18-26-16.tsv.gz@42293",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -23.678,
+        159.0,
+        66.441
+       ],
+       "source": "2026-10-20_18-26-16.tsv.gz@42411",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -25.026,
+        158.0,
+        66.326
+       ],
+       "source": "2026-10-20_18-26-16.tsv.gz@42788",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -71.275,
+        -12.0,
+        32.828
+       ],
+       "source": "2026-10-20_18-26-16.tsv.gz@43353",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -23.033,
+        159.0,
+        66.977
+       ],
+       "source": "2026-10-20_18-26-16.tsv.gz@43420",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -68.118,
+        133.0,
+        63.411
+       ],
+       "source": "2026-10-20_18-26-16.tsv.gz@43609",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -23.446,
+        159.0,
+        66.525
+       ],
+       "source": "2026-10-20_18-26-16.tsv.gz@43683",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        21.32,
+        80.0,
+        -35.701
+       ],
+       "source": "2026-10-20_18-26-16.tsv.gz@44028",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        31.273,
+        101.0,
+        19.401
+       ],
+       "source": "2026-10-20_18-26-16.tsv.gz@44330",
+       "ticks": 1
+      }
+     ],
+     "survived": [
+      {
+       "pos": [
+        -30.385,
+        -44.0,
+        85.811
+       ],
+       "source": "2026-10-20_01-24-23.tsv.gz@1577",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -27.462,
+        158.0,
+        65.659
+       ],
+       "source": "2026-10-20_18-26-16.tsv.gz@44110",
+       "ticks": 1
+      }
+     ],
+     "unknown": 5,
+     "start_area_touches": 136
+    }
+   }
+  ]
+ },
+ "ground_allowed": [
+  "start_area"
+ ],
+ "boosters": []
+}

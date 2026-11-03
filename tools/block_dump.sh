@@ -1,5 +1,6 @@
 #!/bin/sh
-# Regenerate data/blocks-26.2.tsv.gz (block state ids and collision boxes) from the
+# Regenerate data/blocks-26.2.tsv.gz (block states: collision boxes, offsets, movement
+# classes; see world.py's docstring) from the
 # MC 26.2 jar that Fabric Loom caches (elytra-vario builds put it there).
 # usage: tools/block_dump.sh
 set -eu
