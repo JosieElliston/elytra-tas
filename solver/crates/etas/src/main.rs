@@ -78,6 +78,10 @@ enum Cmd {
         /// Draw the collision boxes the physics sees, not the block models.
         #[arg(long)]
         collision: bool,
+        /// Join ticks with the physics' L-shaped move (y, then the larger horizontal axis,
+        /// then the other) instead of straight lines. Noisy at speed; zoom with --ticks.
+        #[arg(long)]
+        l_step: bool,
         /// Only the course and runs, without replaying them through `verify`.
         #[arg(long)]
         no_verify: bool,
@@ -224,6 +228,7 @@ fn run(cli: Cli) -> Result<bool, String> {
             out,
             ticks,
             collision,
+            l_step,
             no_verify,
             width,
         } => {
@@ -255,6 +260,7 @@ fn run(cli: Cli) -> Result<bool, String> {
             let opts = etas::draw::SheetOptions {
                 ticks: (ticks.len() == 2).then(|| (ticks[0], ticks[1])),
                 collision,
+                l_step,
                 width,
                 ..Default::default()
             };

@@ -30,6 +30,80 @@ pub fn speeds(t: &Trajectory) -> Vec<f64> {
         .collect()
 }
 
+/// The path as the physics moves it: per tick, y first, then the larger horizontal axis
+/// of the requested move, then the other (`Entity.collide`). Each entry is a point and
+/// its fractional tick, and ticks `a..=b` end on their exact positions. Teleports are
+/// straight lines. Off by default in [`run`]: a tick's L is a small zigzag, so a fast
+/// run looks noisy, but it's what collision actually tests.
+pub fn l_step_points(t: &Trajectory, a: usize, b: usize) -> Vec<(V3, f64)> {
+    let pts = points(t);
+    let mut out = vec![(pts[a], a as f64)];
+    for tick in a + 1..=b {
+        let (from, to) = (pts[tick - 1], pts[tick]);
+        let teleported = t.arrivals.iter().any(|x| {
+            x.tick == tick && matches!(x.event, ServerEvent::Teleport { .. })
+        });
+        if teleported {
+            out.push((to, tick as f64));
+            continue;
+        }
+        let total: f64 = (0..3).map(|k| (to[k] - from[k]).abs()).sum();
+        let mut at = from;
+        let mut walked = 0.0;
+        let first = l_step_first_horizontal(t, tick);
+        for axis in [1, first, 2 - first] {
+            let d = to[axis] - at[axis];
+            if d == 0.0 {
+                continue;
+            }
+            walked += d.abs();
+            at[axis] = to[axis];
+            let frac = if total > 0.0 { walked / total } else { 1.0 };
+            out.push((at, tick as f64 - 1.0 + frac));
+        }
+        // land on the tick's exact bits
+        out.last_mut().unwrap().0 = to;
+    }
+    out
+}
+
+/// Which horizontal axis tick `tick` moved along first: 0 (x) or 2 (z), as
+/// `Direction.axisStepOrder`, x unless |x| < |z| of the requested move.
+fn l_step_first_horizontal(t: &Trajectory, tick: usize) -> usize {
+    let row = &t.rows[tick - 1];
+    let from = state_at(t, tick - 1).position;
+    let to = row.state.position;
+    // without a horizontal collision the requested move is what happened
+    let mut d = [to[0] - from[0], to[2] - from[2]];
+    if row.state.horizontal_collision
+        && let Some(requested) = requested_move(t, tick)
+    {
+        d = requested;
+    }
+    if d[0].abs() < d[1].abs() { 2 } else { 0 }
+}
+
+/// The horizontal move tick `tick` asked for, which an artifact doesn't store and a wall
+/// clips: the tick flown again in an empty world, where nothing clips it. Block friction
+/// and speed factors are missing there, which scale x and z alike, so which is larger
+/// survives. None if the state doesn't resume.
+fn requested_move(t: &Trajectory, tick: usize) -> Option<[f64; 2]> {
+    let start = state_at(t, tick - 1);
+    let mut p = start.to_player().ok()?;
+    let c = start.position.map(|v| v.floor() as i32);
+    let corner = |s: i32| world::BlockPos {
+        x: c[0] + s,
+        y: c[1] + s,
+        z: c[2] + s,
+    };
+    let empty = World::air(corner(-32), corner(32));
+    crate::server::apply_at(&mut p, &t.arrivals, tick, &empty);
+    let before = p.position;
+    let input = t.rows[tick - 1].input.tick_input().ok()?;
+    port::tick(&mut p, &input, &empty).ok()?;
+    Some([p.position.x - before.x, p.position.z - before.z])
+}
+
 fn state_at(t: &Trajectory, tick: usize) -> &crate::state::FullState {
     if tick == 0 {
         &t.initial
@@ -54,6 +128,9 @@ pub struct RunStyle {
     pub ends: bool,
     /// Only these ticks of the run.
     pub ticks: Option<(usize, usize)>,
+    /// Join ticks with the physics' L-shaped move ([`l_step_points`]) instead of straight
+    /// lines.
+    pub l_step: bool,
 }
 
 impl RunStyle {
@@ -67,6 +144,7 @@ impl RunStyle {
             events: true,
             ends: true,
             ticks: None,
+            l_step: false,
         }
     }
 }
@@ -79,17 +157,24 @@ pub fn run(f: &mut Frame, t: &Trajectory, st: &RunStyle) {
     let (a, b) = st.ticks.unwrap_or((0, pts.len() - 1));
     let (a, b) = (a.min(pts.len() - 1), b.min(pts.len() - 1));
     let stroke = Stroke::new(st.color, st.width);
+    let v = speeds(t);
+    let (line, values): (Vec<V3>, Vec<f64>) = if st.l_step {
+        l_step_points(t, a, b)
+            .into_iter()
+            .map(|(p, tick)| {
+                let i = (tick.floor() as usize).min(v.len() - 1);
+                let j = (i + 1).min(v.len() - 1);
+                (p, v[i] + (v[j] - v[i]) * (tick - i as f64))
+            })
+            .unzip()
+    } else {
+        (pts[a..=b].to_vec(), v[a..=b].to_vec())
+    };
     match st.by_speed {
-        Some((lo, hi)) => tools::gradient(
-            f,
-            &pts[a..=b],
-            &speeds(t)[a..=b],
-            lo,
-            hi,
-            &Ramp::magnitude(),
-            stroke,
-        ),
-        None => f.polyline(&pts[a..=b], stroke),
+        Some((lo, hi)) => {
+            tools::gradient(f, &line, &values, lo, hi, &Ramp::magnitude(), stroke)
+        }
+        None => f.polyline(&line, stroke),
     }
     if st.tick_every > 0 {
         let dot = Marker::circle(WHITE, 4.0);
@@ -340,6 +425,8 @@ pub struct SheetOptions {
     /// Frame this tick range.
     pub ticks: Option<(usize, usize)>,
     pub collision: bool,
+    /// Join ticks with the physics' L-shaped move.
+    pub l_step: bool,
     /// Pixels per panel.
     pub width: u32,
     pub height: u32,
@@ -356,6 +443,7 @@ impl Default for SheetOptions {
         SheetOptions {
             ticks: None,
             collision: false,
+            l_step: false,
             width: 1100,
             height: 720,
             headroom: 4.0,
@@ -527,6 +615,7 @@ pub fn sheet(scene: &Scene, c: Option<&Course>, runs: &[SheetRun], o: &SheetOpti
         for (i, r) in runs.iter().enumerate() {
             let mut st = RunStyle::new(if single { WHITE } else { series(i) });
             st.by_speed = speed;
+            st.l_step = o.l_step;
             // paths of a plan share most of their ticks; one set of labels will do
             st.tick_labels = i == 0 || runs.len() <= 2;
             run(&mut f, &r.traj, &st);
@@ -612,6 +701,67 @@ mod tests {
         assert_eq!(img.w, 300);
         // three panels and a header
         assert!(img.h > 600);
+    }
+
+    /// One airborne tick from `v` at the origin of a world with stone at `wall_z` (if any).
+    fn one_tick(v: [f64; 3], wall_z: Option<i32>) -> Trajectory {
+        let at = |x, y, z| world::BlockPos { x, y, z };
+        let mut w = World::air(at(-16, 0, -16), at(16, 31, 16));
+        if let Some(z) = wall_z {
+            for x in -16..=16 {
+                for y in 0..=31 {
+                    w.set(at(x, y, z), "minecraft:stone");
+                }
+            }
+        }
+        let mut p = port::LocalPlayer::new(port::Vec3::new(0.5, 15.0, 0.5), 0.0, 0.0);
+        p.set_delta_movement(port::Vec3::new(v[0], v[1], v[2]));
+        let initial = crate::state::FullState::from(&p);
+        let input = crate::trajectory::InputRow {
+            yaw: 0.0,
+            pitch: 0.0,
+            keys: "-".into(),
+        };
+        port::tick(&mut p, &input.tick_input().unwrap(), &w).unwrap();
+        Trajectory {
+            header: crate::trajectory::Header::new(None, "test", "test"),
+            initial,
+            arrivals: Vec::new(),
+            rows: vec![crate::trajectory::Row {
+                t: 1,
+                input,
+                state: crate::state::FullState::from(&p),
+            }],
+        }
+    }
+
+    /// The axes each leg of the tick moved along, in order.
+    fn legs(t: &Trajectory) -> Vec<usize> {
+        let l = l_step_points(t, 0, 1);
+        assert_eq!(l.last().unwrap().0, t.rows[0].state.position, "ends exactly");
+        l.windows(2)
+            .map(|w| (0..3).find(|&k| w[0].0[k] != w[1].0[k]).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn l_step_goes_y_then_the_larger_horizontal_axis() {
+        assert_eq!(legs(&one_tick([0.8, -0.3, 0.4], None)), [1, 0, 2]);
+        assert_eq!(legs(&one_tick([0.4, -0.3, 0.8], None)), [1, 2, 0]);
+        // a tie goes to x, as `axis_step_order` has it
+        assert_eq!(legs(&one_tick([0.5, -0.3, 0.5], None)), [1, 0, 2]);
+    }
+
+    /// z is the larger axis asked for, so it goes first, though the wall leaves x the
+    /// larger axis actually moved. Compare port's `axis_step_order`.
+    #[test]
+    fn l_step_order_comes_from_the_requested_move_at_a_wall() {
+        let t = one_tick([0.4, -0.3, 0.9], Some(1));
+        let s = &t.rows[0].state;
+        assert!(s.horizontal_collision);
+        let (dx, dz) = (s.position[0] - 0.5, s.position[2] - 0.5);
+        assert!(dx.abs() > dz.abs(), "the wall flips which looks larger: {dx} {dz}");
+        assert_eq!(legs(&t), [1, 2, 0]);
     }
 
     #[test]

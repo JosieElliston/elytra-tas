@@ -44,7 +44,7 @@ Flashback replays live in `<profile>/flashback/replays/`. `tas_play.pyj`,
   ebounces lost the glide into a branching plan (`runs/downtown.tas`): perfect bounces
   with `@react` windows, and a `@branch … glide_off` to a lost-glide flight wherever a
   glide-off can come at a tick no jump press rescues.
-  `etas view RUN... --course solver/courses/NAME -o out.png [--ticks A B] [--collision]`
+  `etas view RUN... --course solver/courses/NAME -o out.png [--ticks A B] [--collision] [--l-step]`
   renders runs in their world from above, the side and in perspective, with `verify`'s
   findings marked; a course program uses the `view` crate and `etas::draw` directly for
   anything else (`crates/view/src/lib.rs`). Textures come from the client jar
