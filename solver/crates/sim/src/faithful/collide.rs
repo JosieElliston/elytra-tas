@@ -451,6 +451,26 @@ pub(super) fn no_collision(world: &World, bx: &Aabb) -> Result<bool, Event> {
     Ok(!any)
 }
 
+/// [`check_suffocation`] on its own, for a tick whose move may not meet the block:
+/// the colliders around the four corner columns of `bb`.
+pub(super) fn check_inside(world: &World, pos: [f64; 3], bb: &Aabb) -> Result<(), Event> {
+    let w = 0.6f32 as f64 * 0.35;
+    let area = Aabb {
+        min: [
+            mth::floor(pos[0] - w) as f64,
+            bb.min[1],
+            mth::floor(pos[2] - w) as f64,
+        ],
+        max: [
+            mth::floor(pos[0] + w) as f64 + 1.0,
+            bb.max[1],
+            mth::floor(pos[2] + w) as f64 + 1.0,
+        ],
+    };
+    let cols = colliders(world, &area)?;
+    check_suffocation(world, pos, bb, &cols)
+}
+
 /// `LocalPlayer.moveTowardsClosestSpace`'s test, at the four columns under the box's
 /// corners (inset to 0.35 of the width): a suffocating block overlapping the column
 /// within the box's height. The game then pushes the player sideways.

@@ -1,15 +1,20 @@
 """Fit a course file (EMC's rules for one map) from Flashback replays and logger logs.
 
 usage: python3 fit_course.py COURSE -o OUT.json [--world WORLD.gz] [--tape TAPE.tas]
+       python3 fit_course.py COURSE --boosters-into COURSE.json
 
 COURSE names an entry of COURSES below (its sources: replays, logs, tape, world). The
 fit's evidence and brackets go to stdout. `solver/crates/etas` reads the file.
+`--boosters-into` fits only the boosters (from the entry's `boosters`, `booster_logs`
+and `booster_replays`) and writes them into an existing course file, setting its
+version to 2; for courses fitted by other means (the hand-written alpine test course).
 
-Course file format, version 1. This docstring is the spec; `etas::course` reads it.
+Course file format, version 2 (version 1 is the same with `boosters` always []). This
+docstring is the spec; `etas::course` reads both.
 One JSON object:
 
     format          "etas-course"
-    version         1; a reader rejects other versions
+    version         2; a reader rejects versions it doesn't know
     name            course name
     dimension       dimension key the sources were matched on
     world           {"path": world file, relative to the course file,
@@ -26,7 +31,7 @@ One JSON object:
     ground_allowed  [region names]: where the ground may be touched while the timer
                     runs. Separate from the timer-start region. why? secrets you can
                     stand on and odd start areas exist on other maps.
-    boosters        [] (format room; not modeled yet)
+    boosters        [booster, ...] (below)
 
 Observed state. The server judges the position, onGround and glide flag of a client's
 move packets, so a rule is a predicate over (x, y, z, on_ground, fall_flying) of a
@@ -70,6 +75,32 @@ Rule:
     status          "fitted" | "provisional", and why in `note`
     evidence        what the fit saw
 
+Booster: a volume that sets your velocity (boosters.py's docstring has the
+measurements; README, "EMC course rules", the summary).
+    name            course-local name
+    speed           blocks per tick. The velocity the client receives for a move with
+                    float rotation (yaw, pitch) is, in doubles: yaw' = Mth.wrapDegrees(yaw)
+                    (the server's copy); d = (-cos p sin y, -sin p, cos p cos y) with
+                    p = toRadians(pitch), y = toRadians(yaw') (Bukkit's
+                    Location.getDirection); per axis c = (int)(clamp(speed d, -3.9, 3.9)
+                    * 8000) / 8000.0 (the pre-1.21.9 velocity packet); then LpVec3 write
+                    and read (26.2's packet, re-encoded for the client).
+                    `etas::booster::payload` is the reference.
+    region          a region (as above) over the position of the move whose rotation
+                    the boost carries
+    delays          [d, ...]: the velocity acts on the physics of tick n + d, n the tick
+                    of that move (tape numbering). One case per delay: the server's tick
+                    phase against the client's picks one, and it holds within a visit
+    entry           a visit is a run of consecutive ticks whose moves are inside the
+                    region; its first boost comes on one of its first entry + 1 ticks
+    settle          the settle - 1 inside ticks after the first boost may or may not
+                    boost; every inside tick after those does, and none outside
+    status          "provisional": the trigger isn't a function of the observed
+                    state (which of the maybe ticks boost is not predictable from the
+                    data), and visits with a move on the ground don't follow the rules
+    note, evidence  what the fit saw: inside and outside points, delays, the first-boost
+                    index per visit, sure misses, grounded visits
+
 Killing blocks are the world's (`world::Effect::Climbable` ends the glide, so it kills
 here, as unknown space does); kill rules here are the course's own.
 
@@ -82,6 +113,10 @@ tick gap with the next is never judged. With a logger log, the band is the moves
 D_lo..D_hi before the chat was decoded (D_lo: the fastest round trip a plugin answered
 from a packet handler, less 10 ms; D_hi: the slowest tick-end reply plus a tick, both
 from `use_item`; the tick covers server lag, which delays tick-end replies).
+A longer lag spike pushes a chat past its band, and the poses just before the band then
+sit on the wrong side; where that puts an outside point inside the hull of the inside
+points, the fit drops those pre-band points (`drop_contradicted`) and lists them in the
+region's `evidence.dropped`.
 """
 
 from __future__ import annotations
@@ -96,9 +131,11 @@ import math
 import struct
 import subprocess
 import sys
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import boosters
 import flashback as fb
 import netlog
 import world
@@ -128,6 +165,46 @@ COURSES = {
                   "unfocused client: ticks and moves go out in pairs, so the one-pose-per-"
                   "server-tick model doesn't hold (README, EMC course rules); its ~600 runs "
                   "replay the tape, so their poses add nothing to the geometry"},
+    ),
+    "super_classic_downtown": dict(
+        dimension="minecraft:cesuperclassicdowntown",
+        tape="solver/courses/super_classic_downtown/ebounce_run4.tas",
+        world="solver/courses/super_classic_downtown/super_classic_downtown.world.gz",
+        world_extract=("python3 extract_world.py <replays>/2026-10-19T23_25_42_ebounce.zip --tick 10900 "
+                       "--bounds -96 0 -128 47 143 -17 -o "
+                       "solver/courses/super_classic_downtown/super_classic_downtown.world.gz"),
+        replays=["2026-10-19T23_25_42_ebounce.zip"],
+        logs={"2026-10-20_01-45-07.tsv.gz": "2026-10-20T01_49_25_super_classic_downtown.zip",
+              "2026-10-20_01-50-02.tsv.gz": None,
+              "2026-10-30_01-58-29.tsv.gz": "2026-10-30T02_08_05.zip",
+              "2026-10-31_18-52-03.tsv.gz": None,
+              "2026-10-31_20-06-39.tsv.gz": "2026-10-31T20_34_14.zip"},
+        excluded={},
+    ),
+    # also `--boosters-into` the hand-written test course (crates/etas/tests/data/alpine)
+    "alpine": dict(
+        dimension="minecraft:ealpine",
+        # run 2 of the 00:09 replay (15.46 s): run 3 (14.80 s) starts mid-glide off the
+        # reset pose, which playback can't reproduce
+        tape="solver/courses/alpine/recorded.tas",
+        world="solver/courses/alpine/alpine.world.gz",
+        world_extract=("python3 extract_world.py <replays>/2026-10-20T00_09_57_alpine.zip --tick 2961 "
+                       "--bounds -96 150 -150 16 256 240 -o solver/courses/alpine/alpine.world.gz"),
+        replays=["2026-10-20T00_09_57_alpine.zip"],
+        # the log's session saved the replay named (by end times; 01_27_31 has no completed run)
+        logs={"2026-10-20_01-26-31.tsv.gz": "2026-10-20T01_27_31.zip",
+              "2026-10-20_01-32-58.tsv.gz": "2026-10-20T01_33_24.zip",
+              "2026-10-20_01-58-55.tsv.gz": "2026-10-20T02_06_28_alpine.zip"},
+        excluded={},
+        # search: a box around the booster that holds every boost of its speed there
+        boosters=[dict(name="ring_1", speed=1.4, search=[[-40, 164, -114], [-24, 180, -104]],
+                       note="the ring of green blocks at z = -112, flown through toward +z"),
+                  dict(name="gold_ring", speed=2.5, search=[[-5, 158, -75], [4, 172, -60]],
+                       note="the gold-block ring at x = -2, flown through toward +x"),
+                  dict(name="ring_3", speed=2.5, search=[[-73, 164, 38], [-62, 176, 50]])],
+        booster_logs=["2026-10-20_01-26-31.tsv.gz", "2026-10-20_01-32-58.tsv.gz", "2026-10-20_01-58-55.tsv.gz"],
+        # replays without a log of the same session
+        booster_replays=["2026-10-20T00_09_57_alpine.zip"],
     ),
 }
 
@@ -459,7 +536,60 @@ def grow(inner, outside):
     return lo, hi, free
 
 
-def region(name: str, inside, outside, note: str) -> dict:
+MAX_DROP = 8  # inside points one contradiction may drop before the fit gives up
+
+
+def drop_contradicted(inside, outside, suspect: str):
+    """Resolve outside points that lie in the hull of the inside points by dropping the
+    side `collect` took from before a chat's lag band (`suspect`): returns (inside,
+    outside, dropped), dropped as (point, the point it contradicted). why that side? a
+    server lag spike delays a chat past its band, so the poses just before the band,
+    which `collect` puts on the near side of the rule, were judged after the crossing.
+    Perfect ebounces come with lag spikes, so bounce maps have such runs: the timer chat
+    late (pre-band poses taken as inside the start area while above it) or the finish
+    chat late (pre-band poses taken as outside the finish while in it).
+    - "inside" (the start area): per contradicted outside point o, drop the fewest
+      inside points that free one face of their hull past o (those on o's far side
+      along one axis). Raises if that takes more than MAX_DROP points: then the box
+      model, not the lag, is wrong.
+    - "outside" (the finish): drop each outside point in the inside hull.
+    """
+    inside, outside, dropped = list(inside), list(outside), []
+    if suspect == "outside":
+        lo, hi = hull(inside)
+        keep = []
+        for o in outside:
+            if all(lo[k] <= o[0][k] <= hi[k] for k in range(3)):
+                dropped.append((o, (None, "the hull of the inside points")))
+            else:
+                keep.append(o)
+        return inside, keep, dropped
+    while True:
+        lo, hi = hull(inside)
+        bad = next((o for o in outside if all(lo[k] <= o[0][k] <= hi[k] for k in range(3))), None)
+        if bad is None:
+            return inside, outside, dropped
+        cuts = [[p for p in inside if (p[0][k] >= bad[0][k] if side else p[0][k] <= bad[0][k])]
+                for k in range(3) for side in (0, 1)]
+        cut = min(cuts, key=len)
+        if len(cut) > MAX_DROP:
+            raise ValueError(f"outside point {bad} is inside the hull of the inside points, and freeing a "
+                             f"face takes {len(cut)} of them (more than {MAX_DROP}): not one box")
+        ids = {id(p) for p in cut}
+        inside = [p for p in inside if id(p) not in ids]
+        dropped += [(p, bad) for p in cut]
+
+
+def region(name: str, inside, outside, note: str, suspect: str | None = None) -> dict:
+    """The region's bracket from its evidence. `suspect` ("inside" or "outside"): the
+    side whose points may be lag-misjudged (`drop_contradicted`); None: a contradiction
+    raises."""
+    dropped = []
+    if suspect:
+        inside, outside, dropped = drop_contradicted(inside, outside, suspect)
+    if dropped:
+        note += (f" {len(dropped)} {suspect} points were dropped as contradicted (a chat delayed past its "
+                 "lag band; `drop_contradicted`), listed in evidence.dropped.")
     inner = hull(inside)
     olo, ohi, limited = grow(inner, outside)
     wlo, whi, faces = [], [], {}
@@ -478,13 +608,82 @@ def region(name: str, inside, outside, note: str) -> dict:
         inner={"min": inner[0], "max": inner[1]},
         outer={"min": olo, "max": ohi},
         faces=faces, status=status, note=note,
-        evidence={"inside": len(inside), "outside": len(outside)},
+        evidence={"inside": len(inside), "outside": len(outside),
+                  "dropped": [dict(pos=[round(v, 3) for v in p[0]], source=p[1], against=o[1])
+                              for p, o in dropped]},
     )
 
 
 def near(points, box, margin=1.0):
     lo, hi = box
     return [p for p in points if all(lo[k] - margin <= p[0][k] <= hi[k] + margin for k in range(3))]
+
+
+# --- boosters ---------------------------------------------------------------------
+
+
+
+def fit_boosters(cfg: dict) -> tuple[list[dict], dict]:
+    """The course's boosters (format above) and their sources, from boosters.py's
+    classification of the entry's booster logs and replays."""
+    sessions = boosters.course_sessions(cfg)
+    out = []
+    for spec in cfg["boosters"]:
+        inside, outside, delays, usual = [], [], Counter(), set()
+        for s, bs in sessions:
+            i, o = boosters.booster_points(s, bs, spec["speed"], spec["search"])
+            inside += i
+            outside += o
+            d = Counter(b.delay for b in bs if b.speed == spec["speed"] and boosters.in_box(b.move.pos, spec["search"]))
+            delays.update(d)
+            if d:  # the session's commonest delay over all its boosts: the phase is the session's
+                usual.add(Counter(b.delay for b in bs).most_common(1)[0][0])
+        # an exit inside the hull of the boosted moves is a sure miss, not a face
+        h = hull(inside)
+        conflicts = [p for p in outside if all(h[0][k] <= p[0][k] <= h[1][k] for k in range(3))]
+        outside = [p for p in outside if p not in conflicts]
+        reg = region(spec["name"], inside, outside,
+                     "Inside: every move a boost carried the rotation of; outside: the move after a visit's "
+                     f"last boost when that is {boosters.SETTLE} or more ticks after its first.")
+        box = (reg["working"]["min"], reg["working"]["max"])
+        inner = (reg["inner"]["min"], reg["inner"]["max"])
+        lags, maybe, grounded, misses, never = Counter(), Counter(), Counter(), [], 0
+        for s, bs in sessions:
+            st = boosters.visit_stats(s, bs, box, inner, spec["speed"])
+            lags.update(st["lags"])
+            maybe.update(st["maybe"])
+            grounded.update(st["grounded"])
+            misses += st["misses"]
+            never += st["never"]
+        n = sum(delays.values())
+        out.append(dict(
+            name=spec["name"], speed=spec["speed"], region=reg, delays=sorted(usual),
+            entry=max(lags, default=0), settle=boosters.SETTLE, status="provisional",
+            note=(spec.get("note", "") + ". " if spec.get("note") else "") +
+                 "Which of a visit's maybe ticks boost isn't a function of the moves the server saw (boosters.py). "
+                 "The delays are each source's commonest (over all its boosts); the others are lag. Visits with a move "
+                 "on the ground follow neither entry nor settle (standing in the gold ring boosted every 10-25 ticks).",
+            evidence=dict(boosts=n, delays={str(k): v for k, v in sorted(delays.items())},
+                          entry_lag={str(k): v for k, v in sorted(lags.items())},
+                          maybe_ticks={"boosted": maybe[True], "not": maybe[False]},
+                          sure_misses=misses, exits_inside_hull=[src for _, src in conflicts],
+                          airborne_visits_without_boost=never,
+                          grounded_visits={"with_boosts": grounded["boosts"], "without": grounded["none"]}),
+        ))
+    srcs = {"logs": [{"name": n, "sha256": sha256_file(LOGS / n)} for n in cfg.get("booster_logs", [])],
+            "replays": [{"name": n, "sha256": sha256_file(REPLAYS / n)} for n in cfg.get("booster_replays", [])],
+            "tool": "fit_course.py --boosters-into"}
+    return out, srcs
+
+
+def report_boosters(bs: list[dict]):
+    for b in bs:
+        r, e = b["region"], b["evidence"]
+        print(f"booster {b['name']} speed {b['speed']}: delays {b['delays']} entry {b['entry']} settle {b['settle']}")
+        for k in ("inner", "outer", "working"):
+            print(f"  {k:8s} min {[round(x, 3) for x in r[k]['min']]}  max {[round(x, 3) for x in r[k]['max']]}")
+        print("  faces", r["faces"])
+        print("  evidence", {k: v for k, v in e.items()})
 
 
 # --- main --------------------------------------------------------------------------
@@ -527,11 +726,26 @@ def main(argv=None):
     global START
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("course", choices=sorted(COURSES))
-    ap.add_argument("-o", "--out", required=True)
+    ap.add_argument("-o", "--out")
     ap.add_argument("--world", help="world file (default: the course's)")
     ap.add_argument("--tape", help="tape (default: the course's)")
+    ap.add_argument("--boosters-into", metavar="COURSE.json", help="fit only the boosters, into this course file")
     args = ap.parse_args(argv)
     cfg = COURSES[args.course]
+    if args.boosters_into:
+        path = Path(args.boosters_into)
+        course = json.loads(path.read_text())
+        course["boosters"], srcs = fit_boosters(cfg)
+        course["version"] = 2
+        commit, dirty = git_state()
+        course["fitted_from"]["boosters"] = {**srcs, "commit": commit, "dirty": dirty, "fitted_at": datetime.datetime.now()
+                                             .astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")}
+        path.write_text(json.dumps(course, indent=1) + "\n")
+        report_boosters(course["boosters"])
+        print(f"wrote boosters into {path}")
+        return
+    if not args.out:
+        ap.error("-o is required")
     out = Path(args.out).resolve()
     tape_path = ROOT / (args.tape or cfg["tape"])
     world_path = (Path(args.world) if args.world else ROOT / cfg["world"]).resolve()
@@ -556,13 +770,13 @@ def main(argv=None):
     start_area = region("start_area", ev.start_in, ev.start_out,
                         "Timer starts on the first observed pose outside. Inside: poses judged before each "
                         "timer start, and every pose of attempts that never started it; outside: each timer "
-                        "start's latest band pose.")
+                        "start's latest band pose.", suspect="inside")
     timed_finishes(ev, start_area)
     finish = region("finish", ev.finish_in, ev.finish_out,
                     "Finish on the first observed pose inside, timer running. Inside: each finish's latest "
-                    "band pose (all from one trajectory: the tape and tas_play replays of it), so inner is "
-                    "near a point and the faces the data doesn't reach are assumed; outside: poses judged "
-                    "with the timer running before a finish or attempt end.")
+                    "band pose, or its timer-anchored pose; runs that all approach one way leave inner small "
+                    "and the faces they don't reach assumed; outside: poses judged with the timer running "
+                    "before a finish or attempt end.", suspect="outside")
     allowed_touch = [t for t in ev.touches if not t["timer"]]
     run_touch = [t for t in ev.touches if t["timer"]]
     kills = [t for t in run_touch if t["outcome"] == "killed"]
@@ -584,7 +798,7 @@ def main(argv=None):
     commit, dirty = git_state()
     glide_tick = int(header["glide_tick"])
     course = {
-        "format": "etas-course", "version": 1, "name": args.course, "dimension": cfg["dimension"],
+        "format": "etas-course", "version": 2, "name": args.course, "dimension": cfg["dimension"],
         "world": {"path": str(world_path.relative_to(out.parent)) if world_path.is_relative_to(out.parent)
                   else str(world_path), "content_sha256": wh["content_sha256"], "extract": cfg["world_extract"]},
         "fitted_from": {**srcs, "excluded": [{"name": k, "why": v} for k, v in cfg["excluded"].items()],
@@ -617,6 +831,9 @@ def main(argv=None):
         "ground_allowed": ["start_area"],
         "boosters": [],
     }
+    if cfg.get("boosters"):
+        course["boosters"], course["fitted_from"]["boosters"] = fit_boosters(cfg)
+        report_boosters(course["boosters"])
     out.write_text(json.dumps(course, indent=1) + "\n")
     # report
     for name, r in course["regions"].items():

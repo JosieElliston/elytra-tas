@@ -1,0 +1,907 @@
+{
+ "format": "etas-course",
+ "version": 2,
+ "name": "alpine",
+ "dimension": "minecraft:ealpine",
+ "world": {
+  "path": "alpine.world.gz",
+  "content_sha256": "d3a609a2c80748c03eda67887e777aa9632ae851c2891d1172e0bc73921c8c8b",
+  "extract": "python3 extract_world.py <replays>/2026-10-20T00_09_57_alpine.zip --tick 2961 --bounds -96 150 -150 16 256 240 -o solver/courses/alpine/alpine.world.gz"
+ },
+ "fitted_from": {
+  "replays": [
+   {
+    "name": "2026-10-20T00_09_57_alpine.zip",
+    "sha256": "a6de4b04b37aaed1f904b9010dbb95f654b798fb656d592471f361cea5e2a547"
+   }
+  ],
+  "logs": [
+   {
+    "name": "2026-10-20_01-26-31.tsv.gz",
+    "sha256": "8af1fdd2596295f2481bd210ab6d057fbd26487a46ac22849365149c4a15657f",
+    "same_session_as": "2026-10-20T01_27_31.zip"
+   },
+   {
+    "name": "2026-10-20_01-32-58.tsv.gz",
+    "sha256": "b4bef32a79bcc6d0518421b8d51ea0092c18174b56413e8e2ad465b8e771e5d6",
+    "same_session_as": "2026-10-20T01_33_24.zip"
+   },
+   {
+    "name": "2026-10-20_01-58-55.tsv.gz",
+    "sha256": "f9aaecf47274c4bfa96cab4ffba6c036e2b0bd79adad95e587c810d5a6d5ffb7",
+    "same_session_as": "2026-10-20T02_06_28_alpine.zip"
+   }
+  ],
+  "excluded": [],
+  "tool": "fit_course.py",
+  "commit": "46583a7d7e5703de4ebb82ba9767a351db4fde45",
+  "dirty": true,
+  "fitted_at": "2026-11-03 15:35:04 EST",
+  "boosters": {
+   "logs": [
+    {
+     "name": "2026-10-20_01-26-31.tsv.gz",
+     "sha256": "8af1fdd2596295f2481bd210ab6d057fbd26487a46ac22849365149c4a15657f"
+    },
+    {
+     "name": "2026-10-20_01-32-58.tsv.gz",
+     "sha256": "b4bef32a79bcc6d0518421b8d51ea0092c18174b56413e8e2ad465b8e771e5d6"
+    },
+    {
+     "name": "2026-10-20_01-58-55.tsv.gz",
+     "sha256": "f9aaecf47274c4bfa96cab4ffba6c036e2b0bd79adad95e587c810d5a6d5ffb7"
+    }
+   ],
+   "replays": [
+    {
+     "name": "2026-10-20T00_09_57_alpine.zip",
+     "sha256": "a6de4b04b37aaed1f904b9010dbb95f654b798fb656d592471f361cea5e2a547"
+    }
+   ],
+   "tool": "fit_course.py --boosters-into"
+  }
+ },
+ "observation": {
+  "tick_chat_lag": [
+   2,
+   3
+  ],
+  "note": "Logged sessions (2026-10-20, ~70-85 ms round trip): a tick-end chat on tape tick C judged the pose of C-3, or C-2 when the server tick started late; replays without a log are fitted with [2, 5]. Kill messages are sent from a packet handler, not at a tick end.",
+  "sessions": [
+   {
+    "session": "2026-10-20T00_09_57_alpine.zip",
+    "kind": "replay",
+    "note": "replay band (2, 5)"
+   },
+   {
+    "session": "2026-10-20_01-26-31.tsv.gz",
+    "kind": "log",
+    "note": "use_item replies: handler 0 (min 56 ms), tick end 0 (max nan ms); band 56..160 ms"
+   },
+   {
+    "session": "2026-10-20_01-32-58.tsv.gz",
+    "kind": "log",
+    "note": "use_item replies: handler 0 (min 56 ms), tick end 0 (max nan ms); band 56..160 ms"
+   },
+   {
+    "session": "2026-10-20_01-58-55.tsv.gz",
+    "kind": "log",
+    "note": "use_item replies: handler 32 (min 56 ms), tick end 32 (max 128 ms); band 56..188 ms"
+   }
+  ]
+ },
+ "start": {
+  "source": {
+   "path": "solver/courses/alpine/recorded.tas",
+   "sha256": "e5d3e50f2e23afc37474597c7bb9b4d67684399b9076a636570bcf093f2a5ca0"
+  },
+  "pose": [
+   "c042400000000000",
+   "4066200000000000",
+   "c061500000000000",
+   "3e476126",
+   "3e476126"
+  ],
+  "inputs": [
+   [
+    "3f476126",
+    "40476126",
+    "-"
+   ],
+   [
+    "3f9588dd",
+    "4137cd90",
+    "-"
+   ],
+   [
+    "3f793970",
+    "41d3d739",
+    "-"
+   ],
+   [
+    "be476128",
+    "423aeb15",
+    "WR"
+   ],
+   [
+    "bf1588dd",
+    "42839f23",
+    "WR"
+   ],
+   [
+    "3e476124",
+    "429d52a8",
+    "WR"
+   ],
+   [
+    "3f1588dc",
+    "42a262a1",
+    "WR"
+   ],
+   [
+    "3e476124",
+    "429e7dba",
+    "WR"
+   ],
+   [
+    "bf1588dd",
+    "429842af",
+    "WJR"
+   ],
+   [
+    "bf1588dd",
+    "4294c176",
+    "WR"
+   ],
+   [
+    "bf476126",
+    "429078dc",
+    "WR"
+   ],
+   [
+    "bf793970",
+    "428d5b54",
+    "WRJ"
+   ]
+  ],
+  "glide_tick": 12,
+  "timer_tick": 45,
+  "finish_tick": 354,
+  "finish_text": "Course complete! Your time: 15.460 seconds (-0.780)"
+ },
+ "regions": {
+  "start_area": {
+   "working": {
+    "min": [
+     -52.69999998807907,
+     167.90888326013055,
+     -154.69999998807907
+    ],
+    "max": [
+     -27.72434306277903,
+     183.68632737730272,
+     -123.63214591721407
+    ]
+   },
+   "inner": {
+    "min": [
+     -51.69999998807907,
+     168.90888326013055,
+     -153.69999998807907
+    ],
+    "max": [
+     -28.72434306277903,
+     182.68632737730272,
+     -123.73214591721413
+    ]
+   },
+   "outer": {
+    "min": [
+     -115.69999998810307,
+     104.90888326015593,
+     -217.69999998802086
+    ],
+    "max": [
+     35.27565693722421,
+     246.6863273772445,
+     -123.53214591721402
+    ]
+   },
+   "faces": {
+    "x_min": "assumed",
+    "x_max": "assumed",
+    "y_min": "assumed",
+    "y_max": "assumed",
+    "z_min": "assumed",
+    "z_max": "fitted"
+   },
+   "status": "provisional",
+   "note": "Timer starts on the first observed pose outside. Inside: poses judged before each timer start, and every pose of attempts that never started it; outside: each timer start's latest band pose. 5 inside points were dropped as contradicted by an outside point (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped.",
+   "evidence": {
+    "inside": 3519,
+    "outside": 58,
+    "dropped": [
+     {
+      "pos": [
+       -33.734,
+       167.711,
+       -122.076
+      ],
+      "source": "2026-10-20_01-26-31.tsv.gz@449",
+      "against": "2026-10-20T00_09_57_alpine.zip@90 (timer chat @92)"
+     },
+     {
+      "pos": [
+       -33.522,
+       167.349,
+       -121.329
+      ],
+      "source": "2026-10-20_01-26-31.tsv.gz@450",
+      "against": "2026-10-20T00_09_57_alpine.zip@90 (timer chat @92)"
+     },
+     {
+      "pos": [
+       -33.937,
+       168.091,
+       -122.801
+      ],
+      "source": "2026-10-20_01-26-31.tsv.gz@448",
+      "against": "2026-10-20T00_09_57_alpine.zip@478 (timer chat @480)"
+     },
+     {
+      "pos": [
+       -34.912,
+       172.81,
+       -123.112
+      ],
+      "source": "2026-10-20_01-26-31.tsv.gz@532",
+      "against": "2026-10-20T00_09_57_alpine.zip@2663 (timer chat @2665)"
+     },
+     {
+      "pos": [
+       -34.131,
+       168.49,
+       -123.5
+      ],
+      "source": "2026-10-20_01-26-31.tsv.gz@447",
+      "against": "2026-10-20_01-58-55.tsv.gz@757 (timer chat @758)"
+     }
+    ]
+   }
+  },
+  "finish": {
+   "working": {
+    "min": [
+     -72.76017656975068,
+     180.171289797446,
+     209.0756366654097
+    ],
+    "max": [
+     -67.94306620174434,
+     184.79406927360498,
+     217.78906934563577
+    ]
+   },
+   "inner": {
+    "min": [
+     -71.76017656975068,
+     181.171289797446,
+     209.52563666540928
+    ],
+    "max": [
+     -68.94306620174434,
+     184.2040692736055,
+     216.78906934563577
+    ]
+   },
+   "outer": {
+    "min": [
+     -135.7601765697724,
+     117.17128979748883,
+     208.6256366654101
+    ],
+    "max": [
+     -4.943066201745918,
+     185.38406927360444,
+     280.78906934557756
+    ]
+   },
+   "faces": {
+    "x_min": "assumed",
+    "x_max": "assumed",
+    "y_min": "assumed",
+    "y_max": "fitted",
+    "z_min": "fitted",
+    "z_max": "assumed"
+   },
+   "status": "provisional",
+   "note": "Finish on the first observed pose inside, timer running. Inside: each finish's latest band pose (all from one trajectory: the tape and tas_play replays of it), so inner is near a point and the faces the data doesn't reach are assumed; outside: poses judged with the timer running before a finish or attempt end.",
+   "evidence": {
+    "inside": 7,
+    "outside": 7032,
+    "dropped": []
+   }
+  }
+ },
+ "rules": {
+  "timer_start": {
+   "event": "first",
+   "when": {
+    "not": {
+     "in": "start_area"
+    }
+   },
+   "after": "start",
+   "status": "provisional",
+   "note": "see regions.start_area",
+   "evidence": {
+    "timer_starts": 58,
+    "attempts": 61
+   }
+  },
+  "finish": {
+   "event": "first",
+   "when": {
+    "in": "finish"
+   },
+   "after": "timer_start",
+   "status": "provisional",
+   "note": "see regions.finish",
+   "evidence": {
+    "finishes": 7
+   }
+  },
+  "kill": [
+   {
+    "name": "ground",
+    "event": "any",
+    "when": {
+     "and": [
+      {
+       "field": "on_ground"
+      },
+      {
+       "not": {
+        "in": "start_area"
+       }
+      }
+     ]
+    },
+    "after": "timer_start",
+    "until": "finish",
+    "status": "provisional",
+    "note": "Conservative: any observed ground touch outside the start area kills. Logged touches with the timer running: 11 killed (reset with no item use, arriving with the glide-off), 16 survived; which touches kill isn't pinned down (single-tick bounces survived in some places and killed in others; a kill may need the server to have ended the glide). Touches before the timer start (start area) never killed or started the timer.",
+    "evidence": {
+     "killed": [
+      {
+       "pos": [
+        -67.125,
+        231.0,
+        167.441
+       ],
+       "source": "2026-10-20_01-26-31.tsv.gz@1153",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -27.3,
+        168.0,
+        -112.189
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@814",
+       "ticks": 5
+      },
+      {
+       "pos": [
+        -35.722,
+        168.0,
+        -110.603
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@1081",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -27.3,
+        168.0,
+        -111.386
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@3480",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        0.105,
+        167.0,
+        -71.306
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@3829",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -1.359,
+        167.0,
+        -62.475
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@4352",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        8.7,
+        165.0,
+        -77.251
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@4806",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -0.59,
+        159.0,
+        -64.593
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@5371",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -9.595,
+        159.0,
+        -73.39
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@5468",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -0.291,
+        163.0,
+        -68.841
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@6148",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -69.973,
+        160.0,
+        47.073
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@8577",
+       "ticks": 4
+      }
+     ],
+     "survived": [
+      {
+       "pos": [
+        -1.3,
+        165.0,
+        -70.489
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@3279",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -1.3,
+        165.0,
+        -70.191
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@3284",
+       "ticks": 10
+      },
+      {
+       "pos": [
+        -1.3,
+        165.0,
+        -70.755
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@3636",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -1.3,
+        165.0,
+        -70.486
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@3641",
+       "ticks": 46
+      },
+      {
+       "pos": [
+        -0.401,
+        163.0,
+        -63.978
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@3947",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -0.517,
+        163.0,
+        -63.729
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@3952",
+       "ticks": 169
+      },
+      {
+       "pos": [
+        -0.509,
+        163.0,
+        -65.475
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@4132",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -0.463,
+        162.0,
+        -67.233
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@4135",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -0.509,
+        162.922,
+        -65.475
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@4136",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -0.509,
+        162.0,
+        -65.475
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@4141",
+       "ticks": 64
+      },
+      {
+       "pos": [
+        -0.627,
+        163.0,
+        -63.368
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@4475",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -0.662,
+        163.0,
+        -63.308
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@4480",
+       "ticks": 85
+      },
+      {
+       "pos": [
+        0.354,
+        163.0,
+        -63.3
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@4578",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        0.442,
+        162.0,
+        -63.3
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@4581",
+       "ticks": 31
+      },
+      {
+       "pos": [
+        0.3,
+        168.0,
+        -69.557
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@4961",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        0.311,
+        168.0,
+        -68.795
+       ],
+       "source": "2026-10-20_01-58-55.tsv.gz@4966",
+       "ticks": 29
+      }
+     ],
+     "unknown": 8,
+     "start_area_touches": 208
+    }
+   }
+  ]
+ },
+ "ground_allowed": [
+  "start_area"
+ ],
+ "boosters": [
+  {
+   "name": "ring_1",
+   "speed": 1.4,
+   "region": {
+    "working": {
+     "min": [
+      -36.011983299585644,
+      166.10544016892513,
+      -110.94135763427292
+     ],
+     "max": [
+      -27.001822798300637,
+      176.81876574688397,
+      -107.99570636522819
+     ]
+    },
+    "inner": {
+     "min": [
+      -35.961983299585654,
+      167.10544016892513,
+      -110.88135763427289
+     ],
+     "max": [
+      -27.01682279830064,
+      175.81876574688397,
+      -108.0007063652282
+     ]
+    },
+    "outer": {
+     "min": [
+      -36.061983299585634,
+      103.10544016894795,
+      -111.00135763427295
+     ],
+     "max": [
+      -26.986822798300636,
+      239.81876574682576,
+      -107.99070636522819
+     ]
+    },
+    "faces": {
+     "x_min": "fitted",
+     "x_max": "fitted",
+     "y_min": "assumed",
+     "y_max": "assumed",
+     "z_min": "fitted",
+     "z_max": "fitted"
+    },
+    "status": "provisional",
+    "note": "Inside: every move a boost carried the rotation of; outside: the move after a visit's last boost when that is 3 or more ticks after its first.",
+    "evidence": {
+     "inside": 147,
+     "outside": 37,
+     "dropped": []
+    }
+   },
+   "delays": [
+    3,
+    4
+   ],
+   "entry": 3,
+   "settle": 3,
+   "status": "provisional",
+   "note": "the ring of green blocks at z = -112, flown through toward +z. Which of a visit's maybe ticks boost isn't a function of the moves the server saw (boosters.py). The delays are each source's commonest (over all its boosts); the others are lag. Visits with a move on the ground follow neither entry nor settle (standing in the gold ring boosted every 10-25 ticks).",
+   "evidence": {
+    "boosts": 147,
+    "delays": {
+     "3": 5,
+     "4": 138,
+     "5": 2,
+     "6": 1,
+     "7": 1
+    },
+    "entry_lag": {
+     "0": 35,
+     "1": 7,
+     "2": 1,
+     "3": 1
+    },
+    "maybe_ticks": {
+     "boosted": 57,
+     "not": 25
+    },
+    "sure_misses": [
+     "2026-10-20_01-58-55.tsv.gz@2405"
+    ],
+    "exits_inside_hull": [
+     "2026-10-20_01-58-55.tsv.gz@2405 (after 2401..2404)"
+    ],
+    "airborne_visits_without_boost": 1,
+    "grounded_visits": {
+     "with_boosts": 1,
+     "without": 0
+    }
+   }
+  },
+  {
+   "name": "gold_ring",
+   "speed": 2.5,
+   "region": {
+    "working": {
+     "min": [
+      -2.1019943274131747,
+      161.0,
+      -71.93994868890087
+     ],
+     "max": [
+      1.05568080960294,
+      168.05499999999995,
+      -62.30000001192093
+     ]
+    },
+    "inner": {
+     "min": [
+      -1.9519943274131775,
+      162.0,
+      -70.94994868890036
+     ],
+     "max": [
+      0.98068080960294,
+      168.0,
+      -63.30000001192093
+     ]
+    },
+    "outer": {
+     "min": [
+      -2.251994327413172,
+      98.00000000001558,
+      -72.92994868890138
+     ],
+     "max": [
+      1.1306808096029402,
+      168.1099999999999,
+      0.6999999880750486
+     ]
+    },
+    "faces": {
+     "x_min": "fitted",
+     "x_max": "fitted",
+     "y_min": "assumed",
+     "y_max": "fitted",
+     "z_min": "fitted",
+     "z_max": "assumed"
+    },
+    "status": "provisional",
+    "note": "Inside: every move a boost carried the rotation of; outside: the move after a visit's last boost when that is 3 or more ticks after its first.",
+    "evidence": {
+     "inside": 93,
+     "outside": 8,
+     "dropped": []
+    }
+   },
+   "delays": [
+    3,
+    4
+   ],
+   "entry": 3,
+   "settle": 3,
+   "status": "provisional",
+   "note": "the gold-block ring at x = -2, flown through toward +x. Which of a visit's maybe ticks boost isn't a function of the moves the server saw (boosters.py). The delays are each source's commonest (over all its boosts); the others are lag. Visits with a move on the ground follow neither entry nor settle (standing in the gold ring boosted every 10-25 ticks).",
+   "evidence": {
+    "boosts": 93,
+    "delays": {
+     "3": 3,
+     "4": 86,
+     "5": 3,
+     "6": 1
+    },
+    "entry_lag": {
+     "0": 11,
+     "1": 3,
+     "2": 2,
+     "3": 1
+    },
+    "maybe_ticks": {
+     "boosted": 12,
+     "not": 10
+    },
+    "sure_misses": [],
+    "exits_inside_hull": [],
+    "airborne_visits_without_boost": 3,
+    "grounded_visits": {
+     "with_boosts": 10,
+     "without": 8
+    }
+   }
+  },
+  {
+   "name": "ring_3",
+   "speed": 2.5,
+   "region": {
+    "working": {
+     "min": [
+      -70.69999998807907,
+      167.08161036694042,
+      42.095197495147616
+     ],
+     "max": [
+      -66.39713550079617,
+      173.60799115697804,
+      47.13982774755796
+     ]
+    },
+    "inner": {
+     "min": [
+      -69.69999998807907,
+      168.08161036694042,
+      43.095197495147616
+     ],
+     "max": [
+      -66.64213550079629,
+      172.60799115697804,
+      46.62982774755806
+     ]
+    },
+    "outer": {
+     "min": [
+      -133.6999999881037,
+      104.08161036696464,
+      -20.904802504852853
+     ],
+     "max": [
+      -66.15213550079604,
+      236.60799115691984,
+      47.64982774755786
+     ]
+    },
+    "faces": {
+     "x_min": "assumed",
+     "x_max": "fitted",
+     "y_min": "assumed",
+     "y_max": "assumed",
+     "z_min": "assumed",
+     "z_max": "fitted"
+    },
+    "status": "provisional",
+    "note": "Inside: every move a boost carried the rotation of; outside: the move after a visit's last boost when that is 3 or more ticks after its first.",
+    "evidence": {
+     "inside": 25,
+     "outside": 3,
+     "dropped": []
+    }
+   },
+   "delays": [
+    3,
+    4
+   ],
+   "entry": 3,
+   "settle": 3,
+   "status": "provisional",
+   "note": "Which of a visit's maybe ticks boost isn't a function of the moves the server saw (boosters.py). The delays are each source's commonest (over all its boosts); the others are lag. Visits with a move on the ground follow neither entry nor settle (standing in the gold ring boosted every 10-25 ticks).",
+   "evidence": {
+    "boosts": 25,
+    "delays": {
+     "3": 7,
+     "4": 18
+    },
+    "entry_lag": {
+     "0": 12,
+     "3": 1
+    },
+    "maybe_ticks": {
+     "boosted": 9,
+     "not": 11
+    },
+    "sure_misses": [],
+    "exits_inside_hull": [],
+    "airborne_visits_without_boost": 1,
+    "grounded_visits": {
+     "with_boosts": 0,
+     "without": 0
+    }
+   }
+  }
+ ]
+}

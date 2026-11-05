@@ -3,6 +3,7 @@ package jealoustone.etasoracle;
 import jealoustone.elytratas.netlog.NetLog;
 import jealoustone.elytratas.play.Plan;
 import jealoustone.elytratas.play.Playback;
+import jealoustone.etasoracle.mixin.EntityAccessor;
 import jealoustone.etasoracle.mixin.LocalPlayerAccessor;
 import jealoustone.etasoracle.mixin.MinecraftAccessor;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -17,6 +18,9 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.commands.arguments.blocks.BlockStateParser;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;
+import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
+import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
@@ -59,6 +63,11 @@ import java.util.zip.GZIPInputStream;
  * press_jump} after each landing; playback then flies it with the vanilla glide-off and
  * must match it. The held run is also written as an oracle case for port's replay.</li>
  * <li>(c) a divergence injected mid-plan aborts on the right tick with the keys released.</li>
+ * <li>(d) branches (format 2): the client is handed velocities and glide-offs at chosen
+ * lines (the real handlers, called between ticks); each branch, a rejoin, an
+ * {@code @ignore}, a payload within {@code velocity_tol}, and the aborts for an unlisted
+ * observation and a missing one. Expected poses come from Driver runs with the same
+ * injections.</li>
  * </ul>
  * The slot-1 reset item is a stick here: using it teleports to the current {@link Target}
  * on the server, standing in for EMC's checkpoint item. "Course complete!" is sent by the
@@ -75,6 +84,8 @@ public final class PlaybackGameTest implements FabricClientGameTest {
     private static volatile Target target;
     /** Removed on both sides on the tick line 1 is applied, as the oracle removes its platform before the first tick. */
     private static volatile BlockPos removeOnLine1;
+    /** Read on the server thread (ServerMoveMixin): removed there before the next move is handled. */
+    public static volatile BlockPos removeOnServerMove;
     /** (c): shift the player's x by {@link #nudge} on the tick this line is applied, in this attempt. */
     private static volatile int nudgeLine = -1, nudgeAttempt = -1;
     private static volatile double nudge;
@@ -86,6 +97,15 @@ public final class PlaybackGameTest implements FabricClientGameTest {
     private static volatile net.minecraft.client.player.ClientInput driverInput;
     private static boolean registered;
 
+    /** (d): hand the client {@code kind} ("velocity", or "glide_off") before line {@code line}; {@code v} null = its own velocity. */
+    private record Inject(int line, String kind, double[] v) {
+    }
+
+    private static volatile List<Inject> injects = List.of();
+    /** (d): while a Driver run records, injections key on its steps instead of playback's lines. */
+    private static volatile boolean recording;
+    private static final List<String> injected = new java.util.concurrent.CopyOnWriteArrayList<>();
+
     private static final int FINISH_BEFORE_END = 25;
 
     private final List<String> failures = new ArrayList<>();
@@ -93,7 +113,7 @@ public final class PlaybackGameTest implements FabricClientGameTest {
 
     @Override
     public void runTest(ClientGameTestContext context) {
-        String which = System.getenv().getOrDefault("PLAYBACK_TESTS", "a,b,c");
+        String which = System.getenv().getOrDefault("PLAYBACK_TESTS", "a,b,c,d");
         if (which.equals("none")) return;
         Set<String> tests = Set.of(which.split(","));
         Path out = Path.of(System.getProperty("playback.out", "build/playback"));
@@ -137,6 +157,10 @@ public final class PlaybackGameTest implements FabricClientGameTest {
                 }
             }
             if (tests.contains("b")) caseB(context, sp, out);
+            if (tests.contains("d")) {
+                caseDVelocity(context, sp, out);
+                caseDGlide(context, sp, out);
+            }
         } catch (RuntimeException | AssertionError e) {
             failures.add("error: " + e);
             e.printStackTrace();
@@ -172,6 +196,33 @@ public final class PlaybackGameTest implements FabricClientGameTest {
             sp.teleportTo(sl, t.pos.x, t.pos.y, t.pos.z, Set.of(), t.yaw, 0.0F, true);
             return InteractionResult.SUCCESS;
         });
+        // (d): after a tick's physics, so a packet handled here is seen before the next line
+        ClientTickEvents.END_CLIENT_TICK.register(c -> {
+            List<Inject> js = injects;
+            if (c.player == null || js.isEmpty()) return;
+            int line;
+            if (recording) {
+                line = Driver.steps();
+            } else {
+                Playback.Status s = Playback.status();
+                if (s.phase() != Playback.Phase.PLAY) return;
+                line = s.line();
+            }
+            for (Inject j : js) {
+                if (j.line() != line + 1) continue;
+                LocalPlayer p = c.player;
+                if (j.kind().equals("velocity")) {
+                    Vec3 v = j.v() == null ? p.getDeltaMovement() : new Vec3(j.v()[0], j.v()[1], j.v()[2]);
+                    c.getConnection().handleSetEntityMotion(new ClientboundSetEntityMotionPacket(p.getId(), v));
+                    injected.add("velocity " + v + " before line " + j.line());
+                } else {
+                    byte f = p.getEntityData().get(EntityAccessor.oracle$sharedFlags());
+                    c.getConnection().handleSetEntityData(new ClientboundSetEntityDataPacket(p.getId(),
+                            List.of(SynchedEntityData.DataValue.create(EntityAccessor.oracle$sharedFlags(), (byte) (f & ~0x80)))));
+                    injected.add("glide_off (was gliding " + ((f & 0x80) != 0) + ", now " + p.isFallFlying() + ") before line " + j.line());
+                }
+            }
+        });
         // registered after the mod's, so it runs after Playback.step in the same tick, before physics
         ClientTickEvents.START_LEVEL_TICK.register(level -> {
             Minecraft c = Minecraft.getInstance();
@@ -193,8 +244,10 @@ public final class PlaybackGameTest implements FabricClientGameTest {
             BlockPos rm = removeOnLine1;
             if (rm != null && s.line() == 1) {
                 c.level.setBlock(rm, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
-                c.getSingleplayerServer().execute(() -> c.getSingleplayerServer().overworld()
-                        .setBlock(rm, Blocks.AIR.defaultBlockState(), Block.UPDATE_CLIENTS));
+                // and on the server right before it checks this tick's move (ServerMoveMixin): queued
+                // with execute, the removal sometimes ran after that move, and the server sent the
+                // player back (2026-11-03 10:46: both attempts of (c))
+                removeOnServerMove = rm;
             }
             if (s.line() == nudgeLine && s.attempt() == nudgeAttempt) {
                 LocalPlayer p = c.player;
@@ -258,7 +311,20 @@ public final class PlaybackGameTest implements FabricClientGameTest {
         String tick = "1 " + hex(0.0F) + " " + hex(0.0F) + " - " + hex(0.5) + " " + hex(-60.0) + " " + hex(0.5);
         Map<String, List<String>> plans = new TreeMap<>();
         plans.put("ok", List.of("format=etas-plan 1", "account=deftenvy", start, tick));
-        plans.put("bad-format", List.of("format=etas-plan 2", start, tick));
+        plans.put("bad-format", List.of("format=etas-plan 3", start, tick));
+        String seg = "@segment s 2";
+        String tick2 = "2 " + hex(0.0F) + " " + hex(0.0F) + " - " + hex(0.5) + " " + hex(-60.0) + " " + hex(0.5);
+        String vel = "@branch 2 set_velocity " + hex(0.0) + " " + hex(0.5) + " " + hex(0.0) + " s";
+        plans.put("ok-v2", List.of("format=etas-plan 2", "velocity_tol=1e-6", start, tick, vel, seg, tick2));
+        plans.put("v1-segment", List.of("format=etas-plan 1", start, tick, seg, tick2));
+        plans.put("v2-unknown-at", List.of("format=etas-plan 2", start, "@frob 1", tick));
+        plans.put("v2-no-velocity-tol", List.of("format=etas-plan 2", start, tick, vel, seg, tick2));
+        plans.put("v2-no-child", List.of("format=etas-plan 2", "velocity_tol=1e-6", start, tick, vel));
+        plans.put("v2-child-start", List.of("format=etas-plan 2", "velocity_tol=1e-6", start, tick, vel, "@segment s 3"));
+        plans.put("v2-unreachable", List.of("format=etas-plan 2", start, tick, seg, tick2));
+        plans.put("v2-ambiguous", List.of("format=etas-plan 2", "velocity_tol=1e-6", start, tick, vel,
+                "@branch 2 set_velocity " + hex(0.0) + " " + hex(0.5 + 1e-6) + " " + hex(0.0) + " t", seg, tick2, "@segment t 2", tick2));
+        plans.put("v2-server-line", List.of("format=etas-plan 2", start, "@server 1 glide_off", tick));
         plans.put("unknown-at", List.of("format=etas-plan 1", start, "@branch 1 2 x y", tick));
         plans.put("unknown-event", List.of("format=etas-plan 1", start, "@react 1 1 landing press_jump", tick));
         plans.put("plain-with-react", List.of(start, "@react 1 1 glide_off press_jump", tick));
@@ -273,7 +339,7 @@ public final class PlaybackGameTest implements FabricClientGameTest {
                 Playback.stop("refusal test");
                 return r;
             });
-            boolean shouldStart = alt && name.equals("ok");
+            boolean shouldStart = alt && name.startsWith("ok");
             check(shouldStart == (why == null), (alt ? "" : "not the alt: ") + "refuse-" + name + ": "
                     + (why == null ? "started" : why));
         }
@@ -464,6 +530,25 @@ public final class PlaybackGameTest implements FabricClientGameTest {
         check(abortTicks.size() == 2 && abortTicks.stream().allMatch(t -> t.endsWith("input 0")), "(c) logged abort ticks: " + abortTicks);
         summary.add("(c) " + describe(h.get(0)) + "; " + (h.size() > 1 ? describe(h.get(1)) : ""));
         summary.add("(c) log " + kept + ": " + recordCounts(kept));
+
+        // the same nudge after "Course complete!" (sent FINISH_BEFORE_END lines before the end) is a success
+        String after = "oracle-" + oc.name() + "-after-finish";
+        List<String> clean = planLines("oracle case " + oc.name() + ", nudged after the finish", oc.start(), oc.startYaw(),
+                oc.startPitch(), oc.yaw(), oc.pitch(), oc.keys(), oc.pos(), List.of(), -1, 0.0);
+        write(dir.resolve(after + ".tas"), clean);
+        write(out.resolve(after + ".tas"), clean);
+        removeOnLine1 = scenario.platform;
+        nudgeLine = oc.lines() - FINISH_BEFORE_END + 10;
+        nudgeAttempt = 1;
+        Playback.Status sa = play(context, sp, "etas play " + after + " runs=1 maxfail=1", oc.lines(), 4000, null);
+        int nudgedAt = nudgeLine;
+        nudgeLine = -1;
+        removeOnLine1 = null;
+        List<Playback.Attempt> ha = sa.history();
+        check(ha.size() == 1 && ha.get(0).ok() && ha.get(0).finishLine() >= 0 && ha.get(0).finishLine() < nudgedAt
+                        && ha.get(0).lines() <= nudgedAt + 1,
+                "(c) nudged after the finish, at line " + nudgedAt + ": " + (ha.isEmpty() ? "no attempt" : describe(ha.get(0))));
+        summary.add("(c) after the finish: " + (ha.isEmpty() ? "no attempt" : describe(ha.get(0))));
     }
 
     private static String describe(Playback.Attempt a) {
@@ -678,6 +763,246 @@ public final class PlaybackGameTest implements FabricClientGameTest {
                 + h.size() + " runs");
         summary.add("(b) log " + kept + ": " + recordCounts(kept));
         summary.add("(b) held case for port: " + caseDir);
+    }
+
+    // --- (d) branches ------------------------------------------------------------------------
+
+    /** A Driver run: the steps it took and the pose after each, line 1 first. */
+    private record Rec(List<Driver.Step> steps, List<double[]> pos) {
+    }
+
+    /** Records every step a policy takes. */
+    private static final class Recorded implements Driver.Policy {
+        final Driver.Policy inner;
+        final List<Driver.Step> steps = new ArrayList<>();
+
+        Recorded(Driver.Policy inner) {
+            this.inner = inner;
+        }
+
+        @Override
+        public Driver.Step next(LocalPlayer p, int i) {
+            Driver.Step s = inner.next(p, i);
+            steps.add(s);
+            return s;
+        }
+    }
+
+    /** From standing still at {@code start}: {@code n} steps of {@code pol}, with {@code inj} handed to the client. */
+    private Rec record(ClientGameTestContext context, TestSingleplayerContext sp, Vec3 start, float yaw, Driver.Policy pol, int n,
+                       List<Inject> inj) {
+        teleport(sp, start, yaw);
+        settle(context, sp, start, yaw);
+        Recorded r = new Recorded(pol);
+        injected.clear();
+        injects = inj;
+        recording = true;
+        context.runOnClient(c -> Driver.begin(r));
+        try {
+            for (int i = 0; i < n; i++) {
+                context.waitTick();
+                String err = context.computeOnClient(c -> Driver.error());
+                if (err != null) throw new IllegalStateException("(d) recording: " + err);
+            }
+        } finally {
+            context.runOnClient(c -> Driver.end());
+            recording = false;
+            injects = List.of();
+        }
+        return new Rec(List.copyOf(r.steps), List.copyOf(Driver.positions()));
+    }
+
+    /** Tick lines {@code from..to} of a recording. */
+    private static List<String> lines(Rec r, int from, int to) {
+        List<String> l = new ArrayList<>();
+        for (int t = from; t <= to; t++) {
+            Driver.Step s = r.steps().get(t - 1);
+            double[] p = r.pos().get(t - 1);
+            l.add(t + " " + hex(s.yaw()) + " " + hex(s.pitch()) + " " + Plan.keyString(s.keys() & ~Driver.SHIFT) + " "
+                    + hex(p[0]) + " " + hex(p[1]) + " " + hex(p[2]));
+        }
+        return l;
+    }
+
+    private static String velocityBranch(int t, double[] v, String child) {
+        return "@branch " + t + " set_velocity " + hex(v[0]) + " " + hex(v[1]) + " " + hex(v[2]) + " " + child;
+    }
+
+    /** First tick (from {@code from}) at which two recordings' poses differ, or -1. */
+    private static int firstDifference(Rec a, Rec b, int from, int to) {
+        for (int t = from; t <= to; t++) if (!java.util.Arrays.equals(a.pos().get(t - 1), b.pos().get(t - 1))) return t;
+        return -1;
+    }
+
+    /** One {@code /etas play NAME runs=1 maxfail=1} with {@code inj} handed to the client. */
+    private Playback.Attempt attemptWith(ClientGameTestContext context, TestSingleplayerContext sp, String name, int lines, List<Inject> inj) {
+        injected.clear();
+        injects = inj;
+        try {
+            Playback.Status s = play(context, sp, "etas play " + name + " runs=1 maxfail=1", lines, (lines + 200) * 2, null);
+            return s.history().isEmpty() ? null : s.history().getLast();
+        } finally {
+            injects = List.of();
+        }
+    }
+
+    private void expect(String what, Playback.Attempt a, boolean ok, String path, String abortKind, boolean exact) {
+        boolean good = a != null && a.ok() == ok && String.join(" ", a.path()).equals(path) && a.abortKind().equals(abortKind)
+                && (!exact || a.divergences() == 0);
+        String got = a == null ? "no attempt" : String.format("%s, path %s, %s, %d divergent (max %.3g), velocities before %s, glide-offs before %s",
+                a.ok() ? "ok" : "failed (" + a.abortKind() + ")", String.join(" ", a.path()), a.reason(), a.divergences(),
+                a.maxDev(), a.velocities(), a.glideOffs());
+        check(good, "(d) " + what + ": " + got + "; injected " + injected);
+        summary.add("(d) " + what + ": " + got);
+    }
+
+    /**
+     * Velocity branches, standing on the flat world's ground: up 0.6 or 0.4 before line 20,
+     * or 0.6 before 21 and again before 22 (a booster that re-sends), all rejoining J at
+     * line 50 once they have landed (then the states are the same bit for bit); the root
+     * is the path with nothing. J walks forward on lines 70-89 and ignores velocities
+     * before lines 60-69.
+     */
+    private void caseDVelocity(ClientGameTestContext context, TestSingleplayerContext sp, Path out) {
+        int n = 120, t1 = 20, join = 50;
+        Vec3 start = new Vec3(20.5, -60.0, -20.5);
+        float yaw0 = 0.0F;
+        target = new Target(start, yaw0, null);
+        Driver.Policy walk = (p, i) -> new Driver.Step(yaw0, 0.0F, i >= 70 && i < 90 ? Driver.W : 0);
+        double[] up6 = {0.0, 0.6, 0.0}, up4 = {0.0, 0.4, 0.0};
+        Rec r0 = record(context, sp, start, yaw0, walk, n, List.of());
+        Rec ra = record(context, sp, start, yaw0, walk, n, List.of(new Inject(t1, "velocity", up6)));
+        Rec rb = record(context, sp, start, yaw0, walk, n, List.of(new Inject(t1, "velocity", up4)));
+        Rec rc = record(context, sp, start, yaw0, walk, n, List.of(new Inject(t1 + 1, "velocity", up6), new Inject(t1 + 2, "velocity", up6)));
+        // what the plan's structure assumes: the same lines until the injection, the same from the rejoin
+        check(firstDifference(r0, ra, 1, t1 - 1) < 0 && firstDifference(r0, rc, 1, t1) < 0, "(d) recordings agree before the injections");
+        check(firstDifference(r0, ra, t1, t1) == t1 && firstDifference(ra, rb, t1, t1) == t1, "(d) the injections move the player");
+        int[] rejoin = {firstDifference(r0, ra, join, n), firstDifference(r0, rb, join, n), firstDifference(r0, rc, join, n)};
+        check(rejoin[0] < 0 && rejoin[1] < 0 && rejoin[2] < 0, "(d) A, B and C2 meet the root's poses from line " + join
+                + " (first difference, -1 = none): " + java.util.Arrays.toString(rejoin));
+        double air = 0;
+        for (int t = t1; t < join; t++) air = Math.max(air, ra.pos().get(t - 1)[1] - start.y);
+        summary.add(String.format("(d) velocity recordings: A rises %.3f blocks; all four stand still from line %d", air, join));
+
+        List<String> plan = new ArrayList<>(List.of("# written by the playback gametest, (d)", "format=etas-plan 2",
+                "account=" + Playback.ALT, "source=branches", "start=" + hex(start.x) + " " + hex(start.y) + " " + hex(start.z) + " "
+                        + hex(yaw0) + " " + hex(0.0F), "ticks=" + (n + 2 * (join - t1) + 1 + (join - t1 - 2) + (n - join + 1)),
+                "velocity_tol=1e-6"));
+        List<String> root = lines(r0, 1, n);
+        root.addAll(t1 - 1, List.of(velocityBranch(t1, up6, "A"), velocityBranch(t1, up4, "B"), velocityBranch(t1 + 1, up6, "C")));
+        plan.addAll(root);
+        plan.add("@segment A " + t1);
+        plan.addAll(lines(ra, t1, join - 1));
+        plan.add("@goto J");
+        plan.add("@segment B " + t1);
+        plan.addAll(lines(rb, t1, join - 1));
+        plan.add("@goto J");
+        plan.add("@segment C " + (t1 + 1));
+        plan.addAll(lines(rc, t1 + 1, t1 + 1));
+        plan.add(velocityBranch(t1 + 2, up6, "C2"));
+        plan.add("@segment C2 " + (t1 + 2));
+        plan.addAll(lines(rc, t1 + 2, join - 1));
+        plan.add("@goto J");
+        plan.add("@segment J " + join);
+        plan.add("@ignore 60 69 set_velocity");
+        plan.addAll(lines(r0, join, n));
+        Path dir = context.computeOnClient(Playback::dir);
+        write(dir.resolve("branches.tas"), plan);
+        write(out.resolve("branches.tas"), plan);
+
+        Path log = startLog(context);
+        expect("nothing", attemptWith(context, sp, "branches", n, List.of()), true, "root@1", "", true);
+        expect("0.6 before 20", attemptWith(context, sp, "branches", n, List.of(new Inject(t1, "velocity", up6))), true,
+                "root@1 A@20 J@50", "", true);
+        expect("0.4 before 20 (rejoins)", attemptWith(context, sp, "branches", n, List.of(new Inject(t1, "velocity", up4))), true,
+                "root@1 B@20 J@50", "", true);
+        expect("0.6 before 21 and 22", attemptWith(context, sp, "branches", n, List.of(new Inject(t1 + 1, "velocity", up6),
+                new Inject(t1 + 2, "velocity", up6))), true, "root@1 C@21 C2@22 J@50", "", true);
+        expect("0.6 + 5e-7 before 20 (within velocity_tol)", attemptWith(context, sp, "branches", n,
+                List.of(new Inject(t1, "velocity", new double[]{0.0, 0.6 + 5e-7, 0.0}))), true, "root@1 A@20 J@50", "", false);
+        expect("0.6 before 20, its own velocity before 65 (@ignore in J)", attemptWith(context, sp, "branches", n,
+                List.of(new Inject(t1, "velocity", up6), new Inject(65, "velocity", null))), true, "root@1 A@20 J@50", "", true);
+        expect("0.6 before 21 only (missing)", attemptWith(context, sp, "branches", n, List.of(new Inject(t1 + 1, "velocity", up6))),
+                false, "root@1 C@21", "missing", true);
+        expect("0.5 before 20 (unlisted payload)", attemptWith(context, sp, "branches", n, List.of(new Inject(t1, "velocity",
+                new double[]{0.0, 0.5, 0.0}))), false, "root@1", "unlisted", true);
+        expect("0.6 before 20, its own velocity before 55 (unlisted: J ignores 60-69)", attemptWith(context, sp, "branches", n,
+                List.of(new Inject(t1, "velocity", up6), new Inject(55, "velocity", null))), false, "root@1 A@20 J@50", "unlisted", true);
+        Path kept = keepLog(context, log, out.resolve("branches.log.tsv.gz"));
+        summary.add("(d) log " + kept + ": " + recordCounts(kept));
+    }
+
+    /** Glides off a pillar and around a circle. */
+    static final class Circle implements Driver.Policy {
+        static final float TURN = 3.0F, PITCH = 10.0F;
+        final float yaw0;
+        private float yaw;
+        private int air;
+
+        Circle(float yaw0) {
+            this.yaw0 = yaw0;
+            this.yaw = yaw0;
+        }
+
+        @Override
+        public Driver.Step next(LocalPlayer p, int i) {
+            if (i > 10) yaw += TURN;
+            if (p.isFallFlying()) return new Driver.Step(yaw, PITCH, 0);
+            // a jump press in air, 2 ticks after leaving the pillar, deploys; after a glide-off
+            // the count is past 2, so it walks on without redeploying
+            air = p.onGround() ? (air > 2 ? air : 0) : air + 1;
+            return new Driver.Step(yaw, 0.0F, Driver.W | Driver.SPRINT | (air == 2 ? Driver.J : 0));
+        }
+    }
+
+    /**
+     * Glide-off branches while gliding: the glide-off handed to the client before line 35
+     * or 36 goes to G or G2 (the fall without the glide); before 30 nothing takes it.
+     */
+    private void caseDGlide(ClientGameTestContext context, TestSingleplayerContext sp, Path out) {
+        int n = 80, g = 35, height = 80;
+        BlockPos base = new BlockPos(-40, -60, -40);
+        sp.getServer().runOnServer(server -> {
+            for (int y = 0; y < height; y++) server.overworld().setBlock(base.above(y), Blocks.GLASS.defaultBlockState(), Block.UPDATE_CLIENTS);
+        });
+        Vec3 start = new Vec3(base.getX() + 0.37, base.getY() + height, base.getZ() + 0.93);
+        float yaw0 = 0.0F;
+        target = new Target(start, yaw0, null);
+        context.waitFor(c -> c.level.getBlockState(base.above(height - 1)).is(Blocks.GLASS), 1200);
+        Rec r0 = record(context, sp, start, yaw0, new Circle(yaw0), n, List.of());
+        Rec rg = record(context, sp, start, yaw0, new Circle(yaw0), n, List.of(new Inject(g, "glide_off", null)));
+        Rec rg2 = record(context, sp, start, yaw0, new Circle(yaw0), n, List.of(new Inject(g + 1, "glide_off", null)));
+        check(firstDifference(r0, rg, 1, g - 1) < 0 && firstDifference(r0, rg2, 1, g) < 0 && firstDifference(r0, rg, g, g) == g,
+                "(d) glide recordings agree before the glide-off and part at it");
+        double lowest = 1e9;
+        for (double[] p : r0.pos()) lowest = Math.min(lowest, p[1]);
+        summary.add(String.format("(d) glide recordings: root lowest y %.2f; G at line %d y %.2f; injected %s", lowest, n,
+                rg.pos().get(n - 1)[1], injected));
+
+        List<String> plan = new ArrayList<>(List.of("# written by the playback gametest, (d)", "format=etas-plan 2",
+                "account=" + Playback.ALT, "source=glide branches", "start=" + hex(start.x) + " " + hex(start.y) + " " + hex(start.z)
+                        + " " + hex(yaw0) + " " + hex(0.0F), "ticks=" + (n + (n - g + 1) + (n - g))));
+        List<String> root = lines(r0, 1, n);
+        root.addAll(g - 1, List.of("@branch " + g + " glide_off G", "@branch " + (g + 1) + " glide_off G2"));
+        plan.addAll(root);
+        plan.add("@segment G " + g);
+        plan.addAll(lines(rg, g, n));
+        plan.add("@segment G2 " + (g + 1));
+        plan.addAll(lines(rg2, g + 1, n));
+        Path dir = context.computeOnClient(Playback::dir);
+        write(dir.resolve("glide-branches.tas"), plan);
+        write(out.resolve("glide-branches.tas"), plan);
+
+        Path log = startLog(context);
+        expect("no glide-off", attemptWith(context, sp, "glide-branches", n, List.of()), true, "root@1", "", true);
+        expect("glide-off before 35", attemptWith(context, sp, "glide-branches", n, List.of(new Inject(g, "glide_off", null))), true,
+                "root@1 G@35", "", true);
+        expect("glide-off before 36", attemptWith(context, sp, "glide-branches", n, List.of(new Inject(g + 1, "glide_off", null))), true,
+                "root@1 G2@36", "", true);
+        expect("glide-off before 30 (unlisted)", attemptWith(context, sp, "glide-branches", n, List.of(new Inject(30, "glide_off", null))),
+                false, "root@1", "unlisted", true);
+        Path kept = keepLog(context, log, out.resolve("glide-branches.log.tsv.gz"));
+        summary.add("(d) log " + kept + ": " + recordCounts(kept));
     }
 
     private static void teleport(TestSingleplayerContext sp, Vec3 pos, float yaw) {

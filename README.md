@@ -40,6 +40,10 @@ Flashback replays live in `<profile>/flashback/replays/`. `tas_play.pyj`,
   recorded` is the smoke test of the chain on the recorded run; `--bin resolve [A..B ...]`
   then re-solves stretches of it with DDP on the generic kernel, re-flies them under the
   faithful kernel and verifies the spliced run (`crates/etas/src/solve/`).
+  `cargo run --release -p super_classic_downtown --bin solve` makes a recorded run whose
+  ebounces lost the glide into a branching plan (`runs/downtown.tas`): perfect bounces
+  with `@react` windows, and a `@branch … glide_off` to a lost-glide flight wherever a
+  glide-off can come at a tick no jump press rescues.
 - `fit_course.py COURSE -o solver/courses/COURSE/course.json`: fits a course's timer
   start, finish and kill rules from the replays and logger logs its `COURSES` entry
   lists, each rule with the bracket its data allows; its docstring is the format spec.
@@ -64,7 +68,7 @@ up don't show what the client saw.
 
 ```
 cd mod && ./gradlew build
-cp build/libs/elytra-tas-0.4.0.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
+cp build/libs/elytra-tas-0.5.0.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
 ```
 
 Rename the previous version's jar in `mods/` to `.disabled`, as with emc-replay, and
@@ -154,23 +158,37 @@ work, and the tick interval. `/etas phase help` explains each row. The figures c
 ## Playback (`/etas play`)
 
 `/etas play PLAN [runs=N] [settle=T] [maxfail=K]` flies `<profile>/elytra-tas/plans/PLAN.tas`
-(solver/PLAN-FORMAT.md version 1, or a plain `.tas` tape) as `tas_play` does: reset with
-the slot-1 item, wait for the exact start pose (and the glide flag off), `settle` still
-ticks (default 10), then line 1; again after "Course complete!" plus 20 ticks or an abort,
-until N runs are done (default: until stopped) or K attempts in a row failed (default 3).
-`/etas stop` stops and hands the keyboard back; `/etas status` shows the line, divergences,
-reactions and the last attempts. While it plays, keys and mouse don't move you. The logger
-records it as `P` records (netlog.py). Tests: solver/oracle/README.md, "Playback tests".
+(solver/PLAN-FORMAT.md version 2 or 1, or a plain `.tas` tape) as `tas_play` does: reset
+with the slot-1 item, wait for the exact start pose (and the glide flag off), `settle`
+still ticks (default 10), then line 1; again after "Course complete!" plus 20 ticks or an
+abort (leaving the plan after "Course complete!" counts as done, not as an abort), until N runs are done (default: until stopped) or K attempts in a row failed
+(default 3). `/etas stop` stops and hands the keyboard back; `/etas status` shows the
+line, segment, divergences, reactions and the last attempts with the segments they flew.
+While it plays, keys and mouse don't move you. The logger records it as `P` records
+(netlog.py). Mod 0.5.0; 0.4.0 flies version 1 only. Tests: solver/oracle/README.md,
+"Playback tests".
 
+- **A version-2 plan branches on what the server sends.** Before each line, the
+  glide-offs and velocities (`set_entity_motion` for you; the last one counts) the client
+  handled since the last tick are matched against the current segment's `@branch` lines
+  for that tick, and a match switches to the child segment; segments can rejoin
+  (`@goto`). An observation nothing takes (no branch, `@react` or `@ignore`) aborts the
+  attempt ("unlisted": a wall-hit echo, a booster the plan didn't expect), and so does a
+  segment ending where a branch waited for an event that never came ("missing"). After
+  "Course complete!" an unlisted one ends the attempt as a success instead. Version 1 and
+  plain tapes keep version 1's behavior: nothing aborts on an observation.
 - **It refuses unless the account is `deftenvy`,** the plan's `account=` (if any) matches,
   and the server is whitelisted for the logger's own packets; singleplayer always counts.
-  It also refuses an unknown `@` line, another `format=`, plan keys or `@react` without
-  `format=etas-plan 1`, a `ticks=` that doesn't match, and a `press_jump` window whose
-  tick before holds `J`.
+  It also refuses what PLAN-FORMAT.md's "Checks" lists (an `@` line its version doesn't
+  have, another `format=`, plan keys or directives without `format=`, a `ticks=` that
+  doesn't count every tick line, a `press_jump` window whose tick before holds `J`, a
+  branch target that doesn't start at the branch's tick, `set_velocity` branches without
+  `velocity_tol=`, cycles, unreachable segments).
 - **Every nonzero pose difference is logged, and one over `diverge_tol` aborts:** checked
   before each tick's physics against the previous line, keys released on that tick.
-- **A glide-off is caught where the client handles it** (`handleSetEntityData`, at the
-  start of a frame, before its ticks), and `press_jump` goes in at the next
+- **A glide-off or velocity is caught where the client handles it**
+  (`handleSetEntityData` / `handleSetEntityMotion`, at the start of a frame, before its
+  ticks), so it counts as observed before the next line, and `press_jump` goes in at the next
   `START_LEVEL_TICK`, the same input path as the tape's keys, so it lands in the physics
   of the first tick to see the flag cleared. Not earlier: that tick's own keys would
   overwrite it. A jump pressed by a reaction counts as held on the next line.
@@ -253,8 +271,9 @@ records it as `P` records (netlog.py). Tests: solver/oracle/README.md, "Playback
   moves 27 ms apart. In the 2026-10-29 16:32 log, 6 of 9 kept glides in 132 bounces came
   during two freezes of the whole server (3.2 and 2.5 s: no set_health and no pongs), and
   the other 3 next to `set_health` gaps of 100–140 ms. Their landings' server waits
-  (37–42 ms) were the same as the other bounces'. So the extractor refuses runs whose glide ends before the finish.
-  The Burrowed Grove run (2026-10-19 replay) has none.
+  (37–42 ms) were the same as the other bounces'. So most recorded runs lose the glide
+  somewhere; the extractor writes the server's glide-offs into the tape as `@server`
+  lines, and `etas verify` replays them.
 
   ![A normal bounce and the two ways a bounce comes out perfect](docs/ebounce.svg)
 - Packet IDs in `flashback.py` are for protocol 776 (MC 26.2), read off `GameProtocols`
@@ -274,12 +293,27 @@ gives false contradictions.
   moves go out in pairs too. Server timing results from such a run don't carry over to
   focused play. why? the overnight 2026-10-20 log ran like this after its first minute.
 
-- **Boosters** set velocity to `speed × look`, where look is the rotation the server
-  last received (sent ~165–180 ms before the velocity arrives), and re-send it every
-  tick you are inside, so turning inside a ring steers. Alpine: 1.4 and 2.5 b/t; no
-  axis reached the ±3.9 clamp there. Ring frames are solid blocks. Standing on the second
-  alpine booster's gold blocks without gliding did not kill you for up to 8.7 s, so the
-  kill rule seems to exempt booster volumes (at least one other booster does the same).
+- **Boosters set your velocity to `speed × look` of one move you sent, bit for bit.**
+  The look is Bukkit's `getDirection` (double trig of the float rotation, yaw wrapped);
+  each axis is then clamped to ±3.9 and truncated to 1/8000 (the pre-1.21.9 velocity
+  packet), and LpVec3-quantized (ViaVersion re-encoding it for 26.2):
+  `etas::booster::payload`. All 206 booster velocities of the 2026-10-20 01:58 alpine
+  log reproduce exactly, 5 of them a tick or two late (lag); `python3 boosters.py scan`
+  found such boosts on 14 maps (logs and replays up to 2026-11-02), speeds 1.4–9.5 b/t,
+  and the clamp binds on classic urban slop's 5 b/t pads. The move is the one whose position was inside; the velocity acts on the
+  physics of the tick `delay` after that move's tick, one server tick after the move's
+  tick-end reply (which brings the booster sound on the first boost): 3 or 4 by session,
+  the two bands above. Near a server tick edge it can switch within one pass (3 of 265
+  alpine boosts). Ring frames are solid blocks.
+- **Which ticks of a pass boost is not a function of your moves.** In a pass (moves
+  inside the booster's box on consecutive ticks) the first boost comes within 3 ticks of
+  entering, the 2 ticks after it boost or not (78 of 124 did, alpine), and every later
+  tick inside does (all but 1 of 142) until you leave; no tick outside does. why it
+  matters: a plan can't know the 2 maybe ticks ahead, so it branches on them (the payload
+  of each is known). Standing in a booster doesn't follow this: it boosted every 10–25
+  ticks. Standing on the second alpine booster's gold blocks without gliding did not
+  kill you for up to 8.7 s, so the kill rule seems to exempt booster volumes (at least
+  one other booster does the same).
 - **Hard wall hits overwrite your velocity, ~3 ticks late (vanilla).** The server runs
   its own copy of your elytra physics; when it loses > 0.3 b/t of horizontal speed in a
   collision, `LivingEntity.handleFallFlyingCollisions` deals fly-into-wall damage,

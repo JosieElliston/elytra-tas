@@ -12,6 +12,18 @@
 //! (glide flag off and the server's pose before the tick, jump held for it) and
 //! requires it to fly the plan's poses. A gliding landing anywhere else fails: the
 //! glide ends there.
+//!
+//! **Server events.** A trajectory or tape may carry arrivals (`server::Arrival`):
+//! glide-offs and velocities the client handled, each applied before its tick's
+//! physics as the client's packet handler does (`server::apply`; a glide-off clears
+//! the flag and sets the server's pose). One that does is a record of real play, not
+//! a plan: its bounces are reported, not failed for lacking a reaction, and ground
+//! touches after a lost glide are judged like any other. [`verify_path`] replays a
+//! plan under arrivals supplied by the caller (a path through a branching plan, a
+//! booster's predicted velocities); there a glide-off inside a `@react` window fires
+//! the reaction on its tick, as playback would, and one in a bounce's range that no
+//! reaction takes loses that bounce's glide (`Bounce::lost`: a path through a
+//! `@branch … glide_off` to a lost-glide segment), which then needs no `@react`.
 
 use std::fmt;
 
@@ -19,8 +31,9 @@ use port::{LocalPlayer, TickInput, Unsupported, tick};
 use serde::Serialize;
 use world::{Aabb, World};
 
-use crate::course::{Course, Observed, Rule, Variant, rest_state};
+use crate::course::{Course, Observed, Rule, Variant};
 use crate::plan::{Action, Event, React};
+use crate::server::{self, Arrival, ServerEvent};
 use crate::state::FullState;
 use crate::tape::Tape;
 use crate::trajectory::Trajectory;
@@ -96,6 +109,10 @@ pub struct Bounce {
     pub not_rescuable: Vec<(usize, String)>,
     /// The plan's `@react` window for it, if the plan has one.
     pub window: Option<(usize, usize)>,
+    /// The tick of a glide-off this replay applied in the bounce's range that no
+    /// reaction answered: the glide is lost there (a record, or a plan's path through a
+    /// `@branch … glide_off` to a lost-glide segment). Such a bounce needs no `@react`.
+    pub lost: Option<usize>,
 }
 
 impl Bounce {
@@ -152,6 +169,9 @@ pub struct Report {
     pub starts_at_course_start: bool,
     /// The first tick whose recorded state port doesn't reproduce, and how.
     pub mismatch: Option<(usize, String)>,
+    /// A tape's first tick whose pose port reproduces only within [`RECORD_TOL`] (a
+    /// record), and the largest difference over the tape.
+    pub inexact: Option<(usize, f64)>,
     /// A tick port stopped at (unknown space, killing block, unsupported block).
     pub stopped: Option<(usize, String)>,
     /// Per variant (working, inner, outer).
@@ -161,6 +181,9 @@ pub struct Report {
     pub contacts: Vec<Contact>,
     pub ground: Vec<GroundTouch>,
     pub bounces: Vec<Bounce>,
+    /// The server events applied, and the reactions they fired (tick, directive).
+    pub arrivals: Vec<Arrival>,
+    pub reactions: Vec<(usize, String)>,
     pub kills: Vec<KillHit>,
     pub clearance: Option<Clearance>,
     pub roughness: Roughness,
@@ -169,6 +192,12 @@ pub struct Report {
 }
 
 pub const RADIUS: f64 = 2.0;
+/// How far a record's poses (a tape with `@server` lines) may be from port's, in
+/// blocks. why not 0? the game's `Math.cos` differs from port's fdlibm in the last
+/// place at about 0.5% of pitches (`crates/port/README.md`), and in a recorded run
+/// such an ulp then drifts on (alpine run 0: 4e-16 from tick 1316, at a pitch where
+/// they differ). Plans are port's own poses and stay exact.
+pub const RECORD_TOL: f64 = 1e-9;
 pub const CHATTER_DEG: f64 = 0.01;
 
 impl Report {
@@ -226,16 +255,47 @@ fn horizontal(v: port::Vec3) -> f64 {
     (v.x * v.x + v.z * v.z).sqrt()
 }
 
-/// Replay `plan` under `course` and `world`. Never panics on bad plans; everything
-/// wrong is in the report's `failures`.
+/// Replay `plan` under `course` and `world`, with the arrivals the plan carries (a
+/// trajectory's, or a recorded tape's `@server` lines). Never panics on bad plans;
+/// everything wrong is in the report's `failures`.
+pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
+    verify_with(course, world, plan, None)
+}
+
+/// [`verify`] with `arrivals` in place of the plan's own: one path through a plan
+/// that branches on server events, or a plan flown under predicted ones. `arrivals`
+/// must be sorted by tick. Reactions are required as for the plan alone, and a
+/// glide-off in a `@react` window fires it (first firing per directive).
+pub fn verify_path(course: &Course, world: &World, plan: Plan, arrivals: &[Arrival]) -> Report {
+    verify_with(course, world, plan, Some(arrivals))
+}
+
 // ticks index several parallel per-tick vectors
 #[allow(clippy::needless_range_loop)]
-pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
+fn verify_with(course: &Course, world: &World, plan: Plan, supplied: Option<&[Arrival]>) -> Report {
+    let own: &[Arrival] = match &plan {
+        Plan::Trajectory(t) => &t.arrivals,
+        Plan::Tape(t) => &t.arrivals,
+        Plan::Reactive(p) => &p.tape.arrivals,
+    };
+    // a source that carries its own arrivals is a record: no reactions required
+    let record = supplied.is_none() && !own.is_empty();
     let reacts: Option<&[React]> = match &plan {
         Plan::Trajectory(_) => None,
+        _ if supplied.is_none() && !own.is_empty() => None,
         Plan::Tape(_) => Some(&[]),
         Plan::Reactive(p) => Some(&p.reacts),
     };
+    let arrivals: Vec<Arrival> = supplied.unwrap_or(own).to_vec();
+    if let Some(w) = arrivals.windows(2).find(|w| w[1].tick < w[0].tick) {
+        return early(
+            course,
+            format!(
+                "arrivals out of order: tick {} after {}",
+                w[1].tick, w[0].tick
+            ),
+        );
+    }
     let plan = match plan {
         Plan::Reactive(p) => Plan::Tape(&p.tape),
         other => other,
@@ -279,12 +339,11 @@ pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
                     Err(e) => return early(course, format!("tick {}: keys: {e}", r.t)),
                 }
             }
-            (
-                rest_state(tape.start_pos, tape.start_yaw, tape.start_pitch),
-                inputs,
-                None,
-                Some(tape),
-            )
+            let start = match tape.start_player() {
+                Ok(p) => p,
+                Err(e) => return early(course, e),
+            };
+            (start, inputs, None, Some(tape))
         }
         Plan::Reactive(_) => unreachable!("turned into its tape above"),
     };
@@ -296,12 +355,37 @@ pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
     let mut players = vec![p.clone()];
     let mut mismatch = None;
     let mut stopped = None;
-    for (i, input) in inputs.iter().enumerate() {
+    let mut fired = vec![false; reacts.map_or(0, |r| r.len())];
+    // a record of real play is held to the game's own reproducibility, not bit
+    // identity (ARCHITECTURE.md, Testing the physics)
+    let tol = if record { RECORD_TOL } else { 0.0 };
+    let mut inexact: Option<(usize, f64)> = None;
+    let mut reactions = Vec::new();
+    let mut inputs = inputs;
+    for i in 0..inputs.len() {
         let t = i + 1;
+        server::apply_at(&mut p, &arrivals, t, world);
+        if let Some(reacts) = reacts
+            && arrivals
+                .iter()
+                .any(|a| a.tick == t && a.event == ServerEvent::GlideOff)
+        {
+            for (j, r) in reacts.iter().enumerate() {
+                if !fired[j] && r.event == Event::GlideOff && (r.t0..=r.t1).contains(&t) {
+                    fired[j] = true;
+                    match r.action {
+                        Action::PressJump => inputs[i].keys.jump = true,
+                    }
+                    reactions.push((t, r.line()));
+                }
+            }
+        }
+        let input = &inputs[i];
         if let Err(u) = tick(&mut p, input, world) {
             stopped = Some((t, unsupported(u)));
             break;
         }
+        server::end_tick(&mut p, &arrivals, t);
         if mismatch.is_none() {
             let got = FullState::from(&p);
             if let Some(rec) = &rec_full {
@@ -310,7 +394,18 @@ pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
                 }
             } else if let Some(tape) = rec_tape {
                 let r = &tape.rows[i];
-                if r.pos != got.position || r.ground != got.on_ground {
+                let d = (0..3).fold(0.0f64, |m, k| m.max((r.pos[k] - got.position[k]).abs()));
+                if d > 0.0 {
+                    inexact = Some(match inexact {
+                        None => (t, d),
+                        Some((t0, m)) => (t0, m.max(d)),
+                    });
+                }
+                let off = (0..3).any(|k| {
+                    let e = (r.pos[k] - got.position[k]).abs();
+                    e.is_nan() || e > tol
+                });
+                if off || r.ground != got.on_ground {
                     mismatch = Some((
                         t,
                         format!(
@@ -452,11 +547,19 @@ pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
         let mut rescuable = Vec::new();
         let mut not_rescuable = Vec::new();
         for t in l + GLIDE_OFF_MIN..=last {
-            match rescue(world, &players, &inputs, l, t) {
+            match rescue(world, &players, &inputs, &arrivals, l, t) {
                 Ok(()) => rescuable.push(t),
                 Err(why) => not_rescuable.push((t, why)),
             }
         }
+        let lost = arrivals
+            .iter()
+            .find(|a| {
+                a.event == ServerEvent::GlideOff
+                    && (l + GLIDE_OFF_MIN..=last).contains(&a.tick)
+                    && !reactions.iter().any(|(t, _)| *t == a.tick)
+            })
+            .map(|a| a.tick);
         bounces.push(Bounce {
             landing: l,
             jump,
@@ -464,6 +567,7 @@ pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
             rescuable,
             not_rescuable,
             window: None,
+            lost,
         });
     }
     let mut react_failures = Vec::new();
@@ -477,6 +581,7 @@ pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
                     && r.t0 <= b.landing + GLIDE_OFF_MAX
             });
             match found {
+                None if b.lost.is_some() => {}
                 None => react_failures.push(format!(
                     "bounce at tick {}: no @react glide_off press_jump within {} ticks after it",
                     b.landing, GLIDE_OFF_MAX
@@ -484,13 +589,16 @@ pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
                 Some((j, r)) => {
                     used[j] = true;
                     b.window = Some((r.t0, r.t1));
-                    for t in r.t0..=r.t1 {
+                    // on a path whose glide-off fired this window, the main line is
+                    // that branch, so the other ticks are not this path's question
+                    let fired_here = reactions.iter().any(|(_, l)| *l == r.line());
+                    for t in (r.t0..=r.t1).filter(|_| !fired_here) {
                         if b.rescuable.contains(&t) {
                             continue;
                         }
                         let why = match b.not_rescuable.iter().find(|(u, _)| *u == t) {
                             Some((_, w)) => w.clone(),
-                            None => rescue(world, &players, &inputs, b.landing, t)
+                            None => rescue(world, &players, &inputs, &arrivals, b.landing, t)
                                 .err()
                                 .unwrap_or_default(),
                         };
@@ -650,9 +758,11 @@ pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
             k.tick, k.rule, k.pos
         ));
     }
+    // a record's damage already happened, and its echo is one of its recorded velocities
+    // (damage is computed on the server and isn't modeled); a plan can't plan on it yet
     for c in contacts
         .iter()
-        .filter(|c| c.before_finish && c.damage > 0.0)
+        .filter(|c| !record && c.before_finish && c.damage > 0.0)
     {
         failures.push(format!(
             "tick {}: wall hit, predicted damage {:.2}",
@@ -664,6 +774,7 @@ pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
         ticks: n,
         starts_at_course_start,
         mismatch,
+        inexact,
         stopped,
         timer,
         finish,
@@ -671,6 +782,8 @@ pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
         contacts,
         ground,
         bounces,
+        arrivals,
+        reactions,
         kills,
         clearance,
         roughness,
@@ -679,27 +792,11 @@ pub fn verify(course: &Course, world: &World, plan: Plan) -> Report {
     }
 }
 
-/// The pose the server's glide-off carries: what its `updatePlayerPose` picks for a
-/// player on the ground at the landing position without the glide (standing if it
-/// fits, else crouching, else swimming; the client takes it with the flag).
-fn server_pose(world: &World, landed: &LocalPlayer) -> port::Pose {
-    let fits = |pose: port::Pose| {
-        port::level::no_collision(
-            world,
-            &pose.make_bounding_box(landed.position).deflate(1.0E-7),
-        )
-        .unwrap_or(false)
-    };
-    if !fits(port::Pose::Swimming) {
-        return landed.pose;
-    }
-    if fits(port::Pose::Standing) {
-        port::Pose::Standing
-    } else if fits(port::Pose::Crouching) {
-        port::Pose::Crouching
-    } else {
-        port::Pose::Swimming
-    }
+/// The pose the server's glide-off carries for a bounce: `server::server_pose` at
+/// the landing position (the server has seen the landing by the time it ends the
+/// glide).
+fn landing_pose(world: &World, landed: &LocalPlayer) -> port::Pose {
+    server::server_pose(world, landed.position, landed.pose)
 }
 
 /// Whether a glide-off first handled before tick `t` (of the bounce landing at
@@ -709,11 +806,13 @@ fn server_pose(world: &World, landed: &LocalPlayer) -> port::Pose {
 /// again or the plan ends. A press can't restart the glide on the ground
 /// (`canGlide`), nor when the tape already held jump the tick before (no edge); and a
 /// tick without the glide may start a sprint (`canStartSprinting`), which the plan's
-/// next jump would feel.
+/// next jump would feel. Velocity arrivals after `t` are applied as on the main line;
+/// glide-offs are not (this branch is the one where the glide-off came at `t`).
 fn rescue(
     world: &World,
     players: &[LocalPlayer],
     inputs: &[TickInput],
+    arrivals: &[Arrival],
     landing: usize,
     t: usize,
 ) -> Result<(), String> {
@@ -729,9 +828,14 @@ fn rescue(
     }
     let mut q = base.clone();
     q.fall_flying = false;
-    q.pose = server_pose(world, &players[landing]);
+    q.pose = landing_pose(world, &players[landing]);
     let mut sprint_started = false;
     for u in t..players.len() {
+        for a in arrivals.iter().filter(|a| a.tick == u) {
+            if let ServerEvent::SetVelocity { .. } = a.event {
+                server::apply(&mut q, &a.event, world);
+            }
+        }
         let mut input = inputs[u - 1];
         if u == t {
             input.keys.jump = true;
@@ -778,6 +882,7 @@ fn early(course: &Course, why: String) -> Report {
         ticks: 0,
         starts_at_course_start: false,
         mismatch: None,
+        inexact: None,
         stopped: None,
         timer: vec![],
         finish: vec![],
@@ -785,6 +890,8 @@ fn early(course: &Course, why: String) -> Report {
         contacts: vec![],
         ground: vec![],
         bounces: vec![],
+        arrivals: vec![],
+        reactions: vec![],
         kills: vec![],
         clearance: None,
         roughness: Roughness::default(),
@@ -809,6 +916,12 @@ impl fmt::Display for Report {
         match &self.mismatch {
             None => writeln!(f, "recorded states: reproduced")?,
             Some((t, m)) => writeln!(f, "recorded states: tick {t} differs: {m}")?,
+        }
+        if let Some((t, d)) = self.inexact {
+            writeln!(
+                f,
+                "recorded poses: inexact from tick {t}, by at most {d:.1e} (a record's tolerance is {RECORD_TOL:e})"
+            )?;
         }
         if let Some((t, m)) = &self.stopped {
             writeln!(f, "stopped at tick {t}: {m}")?;
@@ -922,10 +1035,42 @@ impl fmt::Display for Report {
                 match (b.window, b.covered()) {
                     (Some((t0, t1)), Some((d0, d1))) =>
                         format!("@react {t0} {t1} covers delays {d0}..{d1}"),
-                    _ => "no @react".into(),
+                    _ => match b.lost {
+                        Some(t) => format!("glide lost at {t} (delay {})", t - b.landing),
+                        None => "no @react".into(),
+                    },
                 },
                 delays(&mut b.rescuable.iter().copied()),
             )?;
+        }
+        if !self.arrivals.is_empty() {
+            let ticks = |glide: bool| -> Vec<String> {
+                self.arrivals
+                    .iter()
+                    .filter(|a| (a.event == ServerEvent::GlideOff) == glide)
+                    .map(|a| a.tick.to_string())
+                    .collect()
+            };
+            let (g, v) = (ticks(true), ticks(false));
+            writeln!(
+                f,
+                "server events: {} glide-offs{}, {} velocities{}",
+                g.len(),
+                if g.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", g.join(" "))
+                },
+                v.len(),
+                if v.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", v.join(" "))
+                },
+            )?;
+        }
+        for (t, r) in &self.reactions {
+            writeln!(f, "reaction fired at tick {t}: {r}")?;
         }
         if let Some(c) = &self.clearance {
             writeln!(

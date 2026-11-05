@@ -29,7 +29,11 @@ fn f64_at(k: &Generic, x: [f64; 8]) -> [f64; 6] {
     f(k, x)
 }
 
-/// A random point away from every branch switch (see the generic module's list).
+/// A random point away from every branch switch (see the generic module's list), and
+/// with horizontal speed over 0.1. why? the step's curvature grows like an inverse
+/// power of the horizontal speed, so at 0.012 the 1e-4 finite-difference step is off
+/// by 6e-5 relative while the hyperdual value is right (the differences converge to it
+/// as the step shrinks).
 fn smooth_point() -> impl Strategy<Value = [f64; 8]> {
     (
         prop::array::uniform3(-200.0..200.0f64),
@@ -41,7 +45,7 @@ fn smooth_point() -> impl Strategy<Value = [f64; 8]> {
         .prop_filter("away from branch switches", |x| {
             let lift = (x[7].to_radians().cos()).powi(2);
             let vy_g = x[4] + GRAVITY * (-1.0 + 0.75 * lift);
-            x[7].abs() > 0.01 && vy_g.abs() > 1e-3 && x[4].abs() > 0.01 && x[3].hypot(x[5]) > 0.01
+            x[7].abs() > 0.01 && vy_g.abs() > 1e-3 && x[4].abs() > 0.01 && x[3].hypot(x[5]) > 0.1
         })
 }
 

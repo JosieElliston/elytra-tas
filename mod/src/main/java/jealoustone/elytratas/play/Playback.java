@@ -16,11 +16,15 @@ import net.minecraft.world.phys.Vec2;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Set;
 
 /**
- * {@code /etas play}: flies a plan (solver/PLAN-FORMAT.md version 1) open loop, in a loop
- * of attempts, as tas_play.pyj does.
+ * {@code /etas play}: flies a plan (solver/PLAN-FORMAT.md version 2 or 1) open loop, in a
+ * loop of attempts, as tas_play.pyj does, switching segments on what the server sends
+ * (the spec's "Playback": {@link #play}).
  *
  * <ul>
  * <li>Inputs are set in {@code START_LEVEL_TICK} ({@link #step}), at the head of
@@ -31,6 +35,10 @@ import java.util.List;
  * with jump off: a plain ClientInput's {@code tick()} is empty, so {@code aiStep} would
  * read a jump set before it as {@code wasJumping} and never see an edge (README.md, "Things
  * that will bite"). The oracle's Driver does the same, and the oracle checks port against it.</li>
+ * <li>Observations come from {@code ClientPacketListenerMixin}: a glide-off ({@link #glideOff})
+ * or a velocity ({@link #setVelocity}) the client just handled, both at the start of a
+ * frame, before its ticks; the next {@link #step} takes them as observed before the line
+ * it sets.</li>
  * <li>The camera is smoothed without touching physics: {@link #frame} sets the rotation
  * every frame, before camera setup, to the lerp between the line physics just used and
  * the next one; {@link #tickStart} puts the exact value back at the head of every tick,
@@ -57,17 +65,22 @@ public final class Playback {
     }
 
     /**
-     * One finished attempt. {@code reactions} and {@code glideOffs} are plan lines:
-     * the line a reaction fired on (its directive index in {@code reactionDirectives}),
-     * and every line a glide-off was first seen before.
+     * One finished attempt. {@code reactions}, {@code glideOffs} and {@code velocities} are
+     * plan lines: the line a reaction fired on (its index among the plan's reactions in
+     * {@code reactionDirectives}), and every line a glide-off or a velocity was first seen
+     * before. {@code path} is the segments flown, each as {@code name@line} with the line
+     * it was entered on. {@code abortKind} is "" for a success or a plan that ended
+     * without the finish, else diverge, rotation, unlisted or missing.
      */
     public record Attempt(int n, boolean ok, String reason, int lines, int divergences, double maxDev,
                           int firstDivergence, int abortLine, double abortDev, List<Integer> reactions,
-                          List<Integer> reactionDirectives, List<Integer> glideOffs, int finishLine) {
+                          List<Integer> reactionDirectives, List<Integer> glideOffs, int finishLine,
+                          List<Integer> velocities, List<String> path, String abortKind) {
     }
 
     public record Status(Phase phase, String plan, int lines, int line, int attempt, int done, int runs, int fails,
-                         int divergences, double maxDev, int reactions, String stopReason, List<Attempt> history) {
+                         int divergences, double maxDev, int reactions, String stopReason, List<Attempt> history,
+                         String segment) {
     }
 
     private static Phase phase = Phase.IDLE;
@@ -85,12 +98,18 @@ public final class Playback {
     private static int applied;
     private static boolean jumpDown;
     private static boolean pendingGlideOff;
-    private static boolean[] fired;
+    /** The last velocity handled since the last step, and how many. */
+    private static double[] pendingVelocity;
+    private static int pendingVelocities;
+    /** The segment that flies the next line, and the one that flew line {@code applied}. */
+    private static Plan.Segment seg;
+    private static Set<Plan.React> fired;
     private static int divergences, firstDivergence;
     private static double maxDev;
     private static int finishLine;
     private static String finishText = "";
-    private static List<Integer> reactions, reactionDirectives, glideOffs;
+    private static List<Integer> reactions, reactionDirectives, glideOffs, velocities;
+    private static List<String> path;
     // camera
     private static boolean camera;
     private static boolean moved;
@@ -108,9 +127,9 @@ public final class Playback {
     }
 
     public static Status status() {
-        return new Status(phase, plan == null ? null : plan.name, plan == null ? 0 : plan.lines, applied, attempt,
+        return new Status(phase, plan == null ? null : plan.name, plan == null ? 0 : plan.lastTick, applied, attempt,
                 done, opts.runs(), fails, divergences, maxDev, reactions == null ? 0 : reactions.size(), stopReason,
-                List.copyOf(HISTORY));
+                List.copyOf(HISTORY), seg == null ? null : seg.name);
     }
 
     /** Starts playing; null on success, else why it refused. */
@@ -157,10 +176,13 @@ public final class Playback {
         divergences = 0;
         maxDev = 0.0;
         reactions = new ArrayList<>();
-        NetLog.playback("start", "plan=" + stem, "lines=" + pl.lines, "reactions=" + pl.reactions.size(),
+        NetLog.playback("start", "plan=" + stem, "lines=" + pl.lastTick, "reactions=" + pl.reactions.size(),
                 "tol=" + pl.tol, "runs=" + o.runs(), "settle=" + o.settle(), "maxfail=" + o.maxFail(),
-                "format=" + (pl.versioned ? Plan.FORMAT : "tas"));
-        say("playing " + stem + ": " + pl.lines + " ticks, " + pl.reactions.size() + " reactions, tolerance " + pl.tol
+                "format=" + pl.format(), "segments=" + pl.segments.size(), "branches=" + pl.branchCount,
+                "tick_lines=" + pl.tickLines, "velocity_tol=" + pl.velocityTol);
+        say("playing " + stem + ": " + pl.lastTick + " ticks, " + pl.reactions.size() + " reactions"
+                + (pl.segments.size() > 1 ? ", " + pl.segments.size() + " segments, " + pl.branchCount + " branches" : "")
+                + ", tolerance " + pl.tol
                 + (NetLog.active() ? "" : " (the logger is off: nothing is recorded)") + ". The keyboard and mouse don't move you; /etas stop.");
         beginAttempt(mc);
         return null;
@@ -197,9 +219,10 @@ public final class Playback {
         try {
             checkMoved();
             float alpha = Math.min(mc.getDeltaTracker().getGameTimeDeltaPartialTick(false), 1.0F);
-            int k = applied;
-            int n = Math.min(k + 1, plan.lines);
-            setRot(plan.yaw[k] + (plan.yaw[n] - plan.yaw[k]) * alpha, plan.pitch[k] + (plan.pitch[n] - plan.pitch[k]) * alpha);
+            // toward the segment's next line; the first line of a branch not taken yet isn't known
+            Plan.Segment g = seg;
+            int k = g.i(applied), n = g.has(applied + 1) ? k + 1 : k;
+            setRot(g.yaw[k] + (g.yaw[n] - g.yaw[k]) * alpha, g.pitch[k] + (g.pitch[n] - g.pitch[k]) * alpha);
         } catch (RuntimeException e) {
             // never into the render loop; step() stops on the flag
             moved = true;
@@ -238,7 +261,7 @@ public final class Playback {
 
         switch (phase) {
             case RESET -> {
-                pendingGlideOff = false;
+                clearPending();
                 if (atStart(p)) {
                     phase = Phase.SETTLE;
                     wait = 0;
@@ -248,7 +271,7 @@ public final class Playback {
                 if (++wait % RESET_RETRY == 0) useResetItem(mc);
             }
             case SETTLE -> {
-                pendingGlideOff = false;
+                clearPending();
                 if (!atStart(p)) {
                     phase = Phase.RESET;
                     wait = 0;
@@ -257,12 +280,15 @@ public final class Playback {
                 }
                 if (++wait < opts.settle()) return;
                 // the plan assumes the reset's rotation for its first still ticks
-                if (p.getYRot() != plan.yaw[0] || p.getXRot() != plan.pitch[0]) setRot(plan.yaw[0], plan.pitch[0]);
+                if (p.getYRot() != plan.yaw0 || p.getXRot() != plan.pitch0) setRot(plan.yaw0, plan.pitch0);
                 phase = Phase.PLAY;
                 applied = 0;
                 jumpDown = false;
+                seg = plan.root;
+                path.add(seg.name + "@1");
                 NetLog.playback("play", "attempt=" + attempt);
-                apply(1, false);
+                // line 1: nothing observed yet, but a root that branches or ends at 1 says so here
+                if (!advance(1)) return;
                 moved = false;
                 camera = true;
             }
@@ -273,55 +299,151 @@ public final class Playback {
     }
 
     private static void play(LocalPlayer p) {
-        // the last physics tick ran line `applied`; check its pose
+        // the last physics tick ran line `applied` of `seg`; check its pose
         int i = applied;
-        double dx = p.getX() - plan.x[i], dy = p.getY() - plan.y[i], dz = p.getZ() - plan.z[i];
+        double dx = p.getX() - seg.x[seg.i(i)], dy = p.getY() - seg.y[seg.i(i)], dz = p.getZ() - seg.z[seg.i(i)];
         double d = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (d != 0.0) {
             divergences++;
             if (firstDivergence < 0) firstDivergence = i;
-            NetLog.playback("diverge", "line=" + i, "dx=" + dx, "dy=" + dy, "dz=" + dz, "d=" + d);
+            NetLog.playback("diverge", "line=" + i, "dx=" + dx, "dy=" + dy, "dz=" + dz, "d=" + d, "seg=" + seg.name);
         }
         maxDev = Math.max(maxDev, d);
+        // the run is timed: a landing or wall echo after it isn't the plan's, and isn't a failure
+        if (finishLine >= 0 && (d > plan.tol || moved || p.getYRot() != exactYaw || p.getXRot() != exactPitch)) {
+            NetLog.playback("post_finish", "line=" + i, "dx=" + dx, "dy=" + dy, "dz=" + dz, "d=" + d, "seg=" + seg.name);
+            endAttempt(true, "complete", -1, 0.0, "");
+            return;
+        }
         if (moved || p.getYRot() != exactYaw || p.getXRot() != exactPitch) {
-            endAttempt(false, "rotation changed outside playback at line " + i, i, d);
+            endAttempt(false, "rotation changed outside playback at line " + i, i, d, "rotation");
             return;
         }
         if (d > plan.tol) {
             NetLog.playback("abort", "line=" + i, "dx=" + dx, "dy=" + dy, "dz=" + dz, "d=" + d, "tol=" + plan.tol);
-            endAttempt(false, String.format("off the plan by %.3g blocks after line %d (tolerance %.3g)", d, i, plan.tol), i, d);
+            endAttempt(false, String.format("off the plan by %.3g blocks after line %d (tolerance %.3g)", d, i, plan.tol), i, d,
+                    "diverge");
             return;
         }
         if (finishLine >= 0 && i >= finishLine + POST_FINISH) {
-            endAttempt(true, "complete", -1, 0.0);
+            endAttempt(true, "complete", -1, 0.0, "");
             return;
         }
-        if (i >= plan.lines) {
-            if (finishLine >= 0) endAttempt(true, "complete", -1, 0.0);
-            else endAttempt(false, "plan ended without \"Course complete!\"", -1, 0.0);
-            return;
+        advance(i + 1);
+    }
+
+    /**
+     * Steps 2-5 of the spec's Playback for line {@code t}: the observations since the last
+     * tick choose the segment, then line {@code t} is set. False if the attempt ended.
+     */
+    private static boolean advance(int t) {
+        boolean glide = pendingGlideOff;
+        double[] vel = pendingVelocity;
+        int nvel = pendingVelocities;
+        clearPending();
+        if (glide) glideOffs.add(t);
+        if (vel != null) {
+            velocities.add(t);
+            NetLog.playback("set_velocity", "line=" + t, "vx=" + vel[0], "vy=" + vel[1], "vz=" + vel[2], "n=" + nvel,
+                    "seg=" + seg.name);
         }
-        int line = i + 1;
-        int react = -1;
-        if (pendingGlideOff) {
-            pendingGlideOff = false;
-            glideOffs.add(line);
-            for (int k = 0; k < plan.reactions.size(); k++) {
-                Plan.React r = plan.reactions.get(k);
-                if (!fired[k] && r.event().equals("glide_off") && r.t0() <= line && line <= r.t1()) {
-                    fired[k] = true;
-                    react = k;
+        // branches, then the goto at the segment's end, as long as one applies
+        while (true) {
+            Plan.Branch b = match(t, glide, vel);
+            if (b != null) {
+                if (b.event() == Plan.Event.GLIDE_OFF) glide = false;
+                else vel = null;
+                NetLog.playback("branch", "line=" + t, "event=" + b.event().id, "from=" + seg.name, "to=" + b.child());
+                seg = seg.child(b);
+                path.add(seg.name + "@" + t);
+                continue;
+            }
+            if (t == seg.end() && seg.next != null) {
+                NetLog.playback("goto", "line=" + t, "from=" + seg.name, "to=" + seg.next.name);
+                seg = seg.next;
+                path.add(seg.name + "@" + t);
+                continue;
+            }
+            break;
+        }
+        // what no branch took: a reaction, an @ignore, or (version 2) an abort
+        Plan.React react = null;
+        String unlisted = null;
+        if (glide) {
+            for (Plan.React r : seg.reactions) {
+                if (!fired.contains(r) && r.event().equals("glide_off") && r.t0() <= t && t <= r.t1()) {
+                    fired.add(r);
+                    react = r;
                     break;
                 }
             }
-            NetLog.playback("glide_off", "line=" + line, "react=" + (react < 0 ? "-" : Integer.toString(react)));
-            if (react >= 0) {
-                reactions.add(line);
-                reactionDirectives.add(react);
-                NetLog.playback("react", "line=" + line, "directive=" + react, "event=glide_off", "action=press_jump");
+            boolean ignored = react == null && ignored(Plan.Event.GLIDE_OFF, t);
+            NetLog.playback("glide_off", "line=" + t, "react=" + (react == null ? "-" : Integer.toString(react.index())),
+                    "seg=" + seg.name, "taken=" + (react != null ? "react" : ignored ? "ignore" : "-"));
+            if (react != null) {
+                reactions.add(t);
+                reactionDirectives.add(react.index());
+                NetLog.playback("react", "line=" + t, "directive=" + react.index(), "event=glide_off", "action=press_jump");
+            } else if (!ignored) {
+                unlisted = "glide_off";
             }
         }
-        apply(line, react >= 0);
+        if (vel != null && !ignored(Plan.Event.SET_VELOCITY, t)) {
+            unlisted = unlisted == null ? "set_velocity " + vel[0] + "," + vel[1] + "," + vel[2]
+                    : unlisted + " and set_velocity " + vel[0] + "," + vel[1] + "," + vel[2];
+        } else if (vel != null) {
+            NetLog.playback("ignore", "line=" + t, "event=set_velocity", "seg=" + seg.name);
+        }
+        if (unlisted != null && plan.version == 2) {
+            if (finishLine >= 0) {
+                // the run is over and timed; what the server does after that isn't the plan's
+                endAttempt(true, "complete", -1, 0.0, "");
+                return false;
+            }
+            NetLog.playback("unlisted", "line=" + t, "event=" + unlisted, "seg=" + seg.name);
+            endAttempt(false, "unlisted " + unlisted + " before line " + t + " in segment " + seg.name, t - 1, 0.0, "unlisted");
+            return false;
+        }
+        if (t == seg.end()) {
+            if (seg.branchesAt(t)) {
+                StringBuilder want = new StringBuilder();
+                for (Plan.Branch b : seg.branches) if (b.tick() == t) want.append(want.isEmpty() ? "" : " or ").append(b.event().id);
+                NetLog.playback("missing", "line=" + t, "seg=" + seg.name, "want=" + want);
+                endAttempt(false, "no " + want + " before line " + t + " in segment " + seg.name, t - 1, 0.0, "missing");
+            } else if (finishLine >= 0) {
+                endAttempt(true, "complete", -1, 0.0, "");
+            } else {
+                endAttempt(false, "plan ended without \"Course complete!\"", -1, 0.0, "");
+            }
+            return false;
+        }
+        apply(t, react != null);
+        return true;
+    }
+
+    /** The current segment's branch at {@code t} that an untaken observation matches, or null. */
+    private static Plan.Branch match(int t, boolean glide, double[] vel) {
+        for (Plan.Branch b : seg.branches) {
+            if (b.tick() != t) continue;
+            if (b.event() == Plan.Event.GLIDE_OFF && glide) return b;
+            if (b.event() == Plan.Event.SET_VELOCITY && vel != null) {
+                boolean ok = true;
+                for (int k = 0; k < 3; k++) ok &= Math.abs(vel[k] - b.v()[k]) <= plan.velocityTol;
+                if (ok) return b;
+            }
+        }
+        return null;
+    }
+
+    private static boolean ignored(Plan.Event e, int t) {
+        for (Plan.Ignore g : seg.ignores) if (g.event() == e && g.t0() <= t && t <= g.t1()) return true;
+        return false;
+    }
+
+    private static void clearPending() {
+        pendingGlideOff = false;
+        pendingVelocity = null;
+        pendingVelocities = 0;
     }
 
     /**
@@ -330,11 +452,12 @@ public final class Playback {
      * next line is a hold, not another press.
      */
     private static void apply(int line, boolean pressJump) {
-        setRot(plan.yaw[line], plan.pitch[line]);
+        int j = seg.i(line);
+        setRot(seg.yaw[j], seg.pitch[j]);
         exactYaw = shownYaw;
         exactPitch = shownPitch;
         applied = line;
-        int k = plan.keys[line];
+        int k = seg.keys[j];
         boolean press = pressJump || ((k & Plan.J) != 0 && !jumpDown);
         setKeys(press ? k & ~Plan.J : k, press);
         jumpDown = press || (k & Plan.J) != 0;
@@ -354,24 +477,28 @@ public final class Playback {
         maxDev = 0.0;
         finishLine = -1;
         finishText = "";
-        fired = new boolean[plan.reactions.size()];
+        fired = Collections.newSetFromMap(new IdentityHashMap<>());
         reactions = new ArrayList<>();
         reactionDirectives = new ArrayList<>();
         glideOffs = new ArrayList<>();
-        pendingGlideOff = false;
+        velocities = new ArrayList<>();
+        path = new ArrayList<>();
+        seg = plan.root;
+        clearPending();
         NetLog.playback("attempt", "n=" + attempt);
         useResetItem(mc);
     }
 
-    private static void endAttempt(boolean ok, String reason, int abortLine, double abortDev) {
+    private static void endAttempt(boolean ok, String reason, int abortLine, double abortDev, String abortKind) {
         camera = false;
         setKeys(0, false);
         jumpDown = false;
         HISTORY.add(new Attempt(attempt, ok, reason, applied, divergences, maxDev, firstDivergence, abortLine, abortDev,
-                List.copyOf(reactions), List.copyOf(reactionDirectives), List.copyOf(glideOffs), finishLine));
+                List.copyOf(reactions), List.copyOf(reactionDirectives), List.copyOf(glideOffs), finishLine,
+                List.copyOf(velocities), List.copyOf(path), abortKind));
         NetLog.playback("end", "attempt=" + attempt, "result=" + (ok ? "ok" : "fail"), "reason=" + reason,
                 "line=" + applied, "divergences=" + divergences, "max_dev=" + maxDev, "reactions=" + reactions.size(),
-                "finish_line=" + finishLine);
+                "finish_line=" + finishLine, "path=" + String.join(",", path));
         if (ok) {
             done++;
             fails = 0;
@@ -388,7 +515,7 @@ public final class Playback {
 
     private static boolean atStart(LocalPlayer p) {
         // not gliding either: a reset mid-glide keeps the client's flag until the server's glide-off
-        return p.getX() == plan.x[0] && p.getY() == plan.y[0] && p.getZ() == plan.z[0] && !p.isFallFlying();
+        return p.getX() == plan.x0 && p.getY() == plan.y0 && p.getZ() == plan.z0 && !p.isFallFlying();
     }
 
     /** The slot-1 item: on EMC, "Go Back to Last Checkpoint", which with no checkpoint set is the course start. */
@@ -418,6 +545,18 @@ public final class Playback {
      */
     public static void glideOff() {
         if (phase == Phase.PLAY) pendingGlideOff = true;
+    }
+
+    /**
+     * The client just handled {@code set_entity_motion} for the local player, which set its
+     * velocity to {@code v} ({@code Entity.lerpMotion}). Handled where {@link #glideOff} is,
+     * so the same timing holds: the next {@link #step} is before the first physics to use it.
+     * Only the last one before a tick counts; the earlier ones were overwritten unflown.
+     */
+    public static void setVelocity(double vx, double vy, double vz) {
+        if (phase != Phase.PLAY) return;
+        pendingVelocity = new double[]{vx, vy, vz};
+        pendingVelocities++;
     }
 
     /** A server system message (not an overlay) the client just handled. */

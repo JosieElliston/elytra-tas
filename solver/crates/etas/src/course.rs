@@ -9,10 +9,12 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use world::World;
 
+use crate::booster::Booster;
 use crate::state::keys_of;
 
 const FORMAT: &str = "etas-course";
-const VERSION: u32 = 1;
+/// Version 1 is version 2 with no boosters.
+const VERSION: u32 = 2;
 
 /// A box over the observed position, `min <= p <= max`; `None` is unbounded.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -189,7 +191,7 @@ pub struct Course {
     pub rules: Rules,
     pub ground_allowed: Vec<String>,
     #[serde(default)]
-    pub boosters: Vec<serde_json::Value>,
+    pub boosters: Vec<Booster>,
     /// The directory the course file is in (not in the file).
     #[serde(skip)]
     pub dir: PathBuf,
@@ -227,9 +229,9 @@ impl Course {
         let bytes = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
         let mut c: Course =
             serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", file.display()))?;
-        if c.format != FORMAT || c.version != VERSION {
+        if c.format != FORMAT || !(1..=VERSION).contains(&c.version) {
             return Err(format!(
-                "{}: format {} version {}, reader knows {FORMAT} {VERSION}",
+                "{}: format {} version {}, reader knows {FORMAT} 1..={VERSION}",
                 file.display(),
                 c.format,
                 c.version

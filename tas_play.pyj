@@ -12,6 +12,10 @@ Stops after N completed runs (default: forever), or with \killjob.
   smooth=0   turn the camera at 20 Hz instead of smoothing it per frame
   trace      also log every tick's deviation from the recording
 
+A record's `@server` lines (extract_run.py) are skipped: the server sends its own
+events, and a glide the recording lost may not be lost again, so such a tape plays
+only as far as the server repeats itself.
+
 Logs go to minescript/tas_logs/<time>_NAME.csv (one row per attempt) and
 .trace.csv. Deviation 0 means the playback was bit-identical to the recording.
 
@@ -120,6 +124,7 @@ if not tape_file.exists():
 header = {}
 # Line t is the tick t after the reset; index 0 is the arrival tick.
 T_YAW, T_PITCH, T_KEYS, T_X, T_Y, T_Z = [None], [None], [None], [None], [None], [None]
+server_lines = 0
 for raw in Files.readAllLines(tape_file.toPath()):
   line = raw.split("#")[0].strip()
   if line == "":
@@ -128,6 +133,15 @@ for raw in Files.readAllLines(tape_file.toPath()):
     k = line.split("=")[0]
     header[k] = line[len(k) + 1:].strip()
     continue
+  if line.startswith("@server "):
+    # A recorded server event (extract_run.py's docstring). Not replayed: on EMC the
+    # server sends its own (a booster's velocity), or a lost glide recurs or doesn't,
+    # and then the run diverges and is abandoned like any other desync.
+    server_lines += 1
+    continue
+  if line.startswith("@"):
+    echo(f"tas_play: unknown directive {line.split()[0]} (a plan for /etas play?)")
+    sys.exit(1)
   f = line.split()
   if int(f[0]) != len(T_YAW):
     echo(f"tas_play: tape line {f[0]} out of order")
@@ -143,6 +157,8 @@ s = header["start"].split()
 START = [dbits(s[0]), dbits(s[1]), dbits(s[2])]
 START_YAW, START_PITCH = fbits(s[3]), fbits(s[4])
 FINISH_TICK = int(header["finish_tick"])
+if server_lines > 0:
+  echo(f"tas_play: the tape records {server_lines} server events; they are not replayed")
 POST_FINISH = 20  # ticks to keep flying the tape after "Course complete!"
 
 # --- logs -------------------------------------------------------------------
@@ -193,7 +209,7 @@ def set_keys(keys, prev_keys=None):
   fwd = ("W" in keys) != ("S" in keys)
   side = ("A" in keys) != ("D" in keys)
   keys_field.set(tas_input, Input("W" in keys, "S" in keys, "A" in keys, "D" in keys,
-                                  "J" in keys, False, "R" in keys))
+                                  "J" in keys, "C" in keys, "R" in keys))
   # Same as KeyboardInput.tick: Vec2(left impulse, forward impulse).normalized().
   fi = 0.0 if not fwd else (1.0 if "W" in keys else -1.0)
   li = 0.0 if not side else (1.0 if "A" in keys else -1.0)

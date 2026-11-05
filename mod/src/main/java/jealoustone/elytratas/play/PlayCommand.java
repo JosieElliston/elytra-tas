@@ -98,17 +98,18 @@ public final class PlayCommand {
             case IDLE -> "stopped" + (s.stopReason().isEmpty() ? "" : ": " + s.stopReason());
             case RESET -> "resetting to the start";
             case SETTLE -> "at the start, settling";
-            case PLAY -> String.format("line %d of %d, %d divergent ticks (max %.2e), %d reactions", s.line(), s.lines(),
-                    s.divergences(), s.maxDev(), s.reactions());
+            case PLAY -> String.format("line %d of %d (segment %s), %d divergent ticks (max %.2e), %d reactions", s.line(),
+                    s.lines(), s.segment(), s.divergences(), s.maxDev(), s.reactions());
         };
         out.append(" " + s.plan() + ": " + state);
         out.append("\n  attempt " + s.attempt() + ", " + s.done() + (s.runs() > 0 ? " of " + s.runs() : "") + " runs done, "
                 + s.fails() + " failed in a row");
         List<Playback.Attempt> h = s.history();
         for (Playback.Attempt a : h.subList(Math.max(0, h.size() - 5), h.size())) {
-            out.append(Component.literal(String.format("\n  #%d %s at line %d: %s; %d divergent, max %.2e; %d reactions",
+            out.append(Component.literal(String.format("\n  #%d %s at line %d: %s; %d divergent, max %.2e; %d reactions%s",
                     a.n(), a.ok() ? "ok" : "failed", a.lines(), a.reason(), a.divergences(), a.maxDev(),
-                    a.reactions().size())).withStyle(a.ok() ? ChatFormatting.GRAY : ChatFormatting.RED));
+                    a.reactions().size(), a.path().size() > 1 ? "; path " + String.join(" ", a.path()) : ""))
+                    .withStyle(a.ok() ? ChatFormatting.GRAY : ChatFormatting.RED));
         }
         src.sendFeedback(out);
         return 1;

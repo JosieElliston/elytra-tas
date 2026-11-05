@@ -10,7 +10,8 @@
     "LocalPlayerAccessor",
     "LocalPlayerMixin",
     "GlideHoldMixin",
-    "MinecraftAccessor"
+    "MinecraftAccessor",
+    "ServerMoveMixin"
   ],
   "injectors": {
     "defaultRequire": 1

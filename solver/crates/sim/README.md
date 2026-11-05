@@ -4,7 +4,8 @@ Flight kernels for the solver tools ([ARCHITECTURE.md](../../ARCHITECTURE.md), "
 No globals: a kernel is a value. `sim::state` has the full state, the flight state
 (position and velocity) and the rules between them: `FlightState::lift`,
 `FullState::flight` (which says what normal flight is); and `GlideState`, a glide
-that may be on the ground, for perfect ebounces.
+that may be on the ground, for perfect ebounces. `FullState` is what the faithful
+kernel's full mode steps.
 
 ## Faithful kernel (`sim::faithful`)
 
@@ -64,6 +65,24 @@ holds the rotation terms; reuse it across velocities.
   jump) and the last keys. So carry the `GlideState` through a flight that bounces
   again; `FlightState::lift_glide` fills them neutral (no sprint boost).
 
+- **The full mode: `Faithful::step_full`**, any client tick from a `FullState` and
+  the tick's keys: ticks without the glide (walking with the ground's friction and
+  speed factor, falling, jumping with the sprint boost, air control, the sprint
+  double tap and sprint key, sneak backing off ledges, crouching under a ceiling),
+  the jump edge that starts a glide, gliding in any pose (the standing box on the
+  tick after the server's glide-off), and the pose update. The server's packets go
+  on the state between ticks: `FullState::apply_glide_off(Faithful::server_pose(..))`
+  and `apply_velocity`. It is port's `LocalPlayer.tick` in this kernel's terms, the
+  other modes' collision and block checks for the pose's box. Exact against port,
+  full state included (2026-11-03 10:57 EST, `tests/faithful_walk.rs`): every tick
+  of the two recorded runs with server events in `etas`'s `tests/data`, from port's
+  state and flown alone (ebounce run 1: 295 ticks, 4 glide-offs, 5 glide starts, 6
+  ticks without the glide after the deploy, a sneak tap; alpine run 0: 1520 ticks,
+  1058 on the ground, 8 booster and echo velocities), and ~45k random ticks per run
+  over box worlds (holes, walls, low ceilings, slabs, ice, soul sand, honey,
+  fences; ~9.5k on the ground, ~1.4k of them sneaking, ~2.5k wall contacts, ~2.7k
+  jumps). Not optimized: it recomputes the pose fits every tick.
+
 ## Generic kernel (`sim::generic`)
 
 `Generic::step` is one contact-free gliding tick (`LivingEntity.aiStep`'s small-velocity
@@ -84,6 +103,13 @@ the gliding box to `world::Aabb`s, and the points of the L-shaped move.
 - **Pitch -90 is a dead tick**, as in the game: no conversion, nose-up or turning.
   +90 turns, as the game's does. Bound pitch above -90 in a solver, or meet a cliff.
   The other non-smooth points are listed in `generic/mod.rs`.
+- **Flight only.** It has no ground, no keys and no glide-off: a solver that needs
+  a lost glide or a walk uses the faithful full mode. Making it cover them would
+  take `travelInAir` (the input along the yaw, gravity after the move, friction),
+  the jump with its sprint boost, and the sprint and crouch bookkeeping, all smooth
+  except where the game branches (on the ground or not, jump delay, sneak at
+  ledges), plus a collision model that keeps `onGround`; the branches would need
+  the same care as the zeroing below.
 - **Ablations** are fields of `Hooks`; `LiftShape::Pow(k)` is the first (the
   conversion's lift factor). The default is the game.
 - **Ghost points are corners, not segments**: a move can pass through a box thinner

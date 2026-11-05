@@ -12,11 +12,16 @@
 //!
 //! [`Faithful::step_glide`] is the perfect-ebounce mode (the `glide` module): the same
 //! tick with the ground allowed, from a [`crate::state::GlideState`].
+//! [`Faithful::step_full`] is the full mode (the `walk` module): any tick from a
+//! [`crate::state::FullState`], with or without the glide, keys mattering, and the
+//! server's events applied to the state between ticks.
 
 mod collide;
 mod glide;
+mod walk;
 
 pub use glide::GlideTick;
+pub use walk::FullTick;
 
 use port::mth;
 use world::{BlockPos, World};

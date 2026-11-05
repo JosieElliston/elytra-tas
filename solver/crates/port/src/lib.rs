@@ -19,6 +19,7 @@
 // `Vec3::add` etc. are the Java method names.
 #![allow(clippy::should_implement_trait)]
 
+mod client_packet_listener;
 mod entity;
 pub mod level;
 mod living_entity;

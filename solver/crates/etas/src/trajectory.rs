@@ -1,14 +1,20 @@
 //! Trajectory artifacts: JSON lines, the common currency between tools.
 //!
 //! ```text
-//! line 1   header: {"format": "etas-trajectory", "version": 1, "state": "port::LocalPlayer",
+//! line 1   header: {"format": "etas-trajectory", "version": 2, "state": "port::LocalPlayer",
 //!                   "course": {"name", "sha256"} | null, "world_sha256": hex | null,
 //!                   "kernel": "port", "ablation": null, "objective": name,
 //!                   "commit": hex | "unknown", "dirty": bool, "source": free text,
 //!                   "tas_header": [[key, value], ...] | null}
 //! line 2   {"initial": state}               the state at the end of tick 0
+//! line 3   {"arrivals": [{"tick": n, "event": {"kind": "glide_off"}
+//!                                        | {"kind": "set_velocity", "v": [x, y, z]}}, ...]}
 //! then     {"t": n, "input": {"yaw": f, "pitch": f, "keys": "WR"}, "state": state}
 //! ```
+//!
+//! `arrivals` are the server events the trajectory flew through (`server::Arrival`),
+//! each applied before tick `tick`'s physics, sorted by tick; empty for a plan's path
+//! with none. Version 1 had no line 3 and reads as no arrivals.
 //!
 //! Row `t` is the `.tas` tape's line `t`: the input of tick `t` and the state at its
 //! end, after physics. `t` counts from 1 without gaps. The state is [`FullState`]
@@ -24,11 +30,12 @@ use serde::{Deserialize, Serialize};
 use world::World;
 
 use crate::course::{Course, rest_state};
+use crate::server::{self, Arrival, ServerEvent};
 use crate::state::{FullState, keys_of, keys_to_string};
 use crate::tape::{Tape, TapeRow};
 
 pub const FORMAT: &str = "etas-trajectory";
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CourseRef {
@@ -106,12 +113,19 @@ pub struct Row {
 pub struct Trajectory {
     pub header: Header,
     pub initial: FullState,
+    /// Applied before their tick's physics; sorted by tick.
+    pub arrivals: Vec<Arrival>,
     pub rows: Vec<Row>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct InitialLine {
     initial: FullState,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ArrivalsLine {
+    arrivals: Vec<Arrival>,
 }
 
 impl Trajectory {
@@ -130,6 +144,13 @@ impl Trajectory {
             })
             .map_err(j)?,
         )?;
+        line(
+            &mut w,
+            serde_json::to_string(&ArrivalsLine {
+                arrivals: self.arrivals.clone(),
+            })
+            .map_err(j)?,
+        )?;
         for r in &self.rows {
             line(&mut w, serde_json::to_string(r).map_err(j)?)?;
         }
@@ -145,9 +166,9 @@ impl Trajectory {
         let at = |n: usize, e: serde_json::Error| format!("{} line {}: {e}", path.display(), n + 1);
         let (n, l) = lines.next().ok_or(format!("{}: empty", path.display()))?;
         let header: Header = serde_json::from_str(l).map_err(|e| at(n, e))?;
-        if header.format != FORMAT || header.version != VERSION {
+        if header.format != FORMAT || !(1..=VERSION).contains(&header.version) {
             return Err(format!(
-                "{}: format {} version {}, reader knows {FORMAT} {VERSION}",
+                "{}: format {} version {}, reader knows {FORMAT} 1..={VERSION}",
                 path.display(),
                 header.format,
                 header.version
@@ -157,6 +178,14 @@ impl Trajectory {
             .next()
             .ok_or(format!("{}: no initial state", path.display()))?;
         let init: InitialLine = serde_json::from_str(l).map_err(|e| at(n, e))?;
+        let mut arrivals = Vec::new();
+        if header.version >= 2 {
+            let (n, l) = lines
+                .next()
+                .ok_or(format!("{}: no arrivals line", path.display()))?;
+            let a: ArrivalsLine = serde_json::from_str(l).map_err(|e| at(n, e))?;
+            arrivals = a.arrivals;
+        }
         let mut rows = Vec::new();
         for (n, l) in lines {
             let r: Row = serde_json::from_str(l).map_err(|e| at(n, e))?;
@@ -174,6 +203,7 @@ impl Trajectory {
         Ok(Trajectory {
             header,
             initial: init.initial,
+            arrivals,
             rows,
         })
     }
@@ -201,6 +231,7 @@ impl Trajectory {
                     ground: r.state.on_ground,
                 })
                 .collect(),
+            arrivals: self.arrivals.clone(),
         };
         if tape.get("source").is_none() {
             tape.set("source", self.header.source.clone());
@@ -214,16 +245,17 @@ impl Trajectory {
     }
 }
 
-/// A tape replayed with port from rest at its start pose (`rest_state`): the
-/// trajectory port flies, as far as it gets, and the error that stopped it. The tape's
-/// own poses are not compared here; `verify` does that.
+/// A tape replayed with port from rest at its start pose (`rest_state`), its
+/// `@server` arrivals applied before their ticks: the trajectory port flies, as far as
+/// it gets, and the error that stopped it. The tape's own poses are not compared
+/// here; `verify` does that.
 pub fn from_tape(
     tape: &Tape,
     world: &World,
     course: Option<&Course>,
     source: &str,
 ) -> (Trajectory, Option<(usize, Unsupported)>) {
-    fly_tape(tape, world, course, source, "recorded", |_, k| k)
+    fly_tape(tape, world, course, source, "recorded", true, |_, k| k)
 }
 
 /// A recorded tape with ebounces, as perfect bounces: its rotations and keys, except
@@ -233,7 +265,8 @@ pub fn from_tape(
 /// missing, and its jump presses in the air are the recording's answers to its
 /// glide-offs, which a perfect bounce doesn't get; held, they would also take the
 /// edge a plan's reaction needs. The seeder for ebounce starts: the recorded inputs,
-/// flown with no glide-off.
+/// flown with no glide-off. The tape's velocity arrivals are kept as recorded, though
+/// a booster's would differ on the changed path; its glide-offs are dropped.
 pub fn seed_perfect_bounces(
     tape: &Tape,
     world: &World,
@@ -246,6 +279,7 @@ pub fn seed_perfect_bounces(
         course,
         source,
         "perfect_bounces",
+        false,
         |p, mut k| {
             if p.fall_flying {
                 k.jump = p.on_ground;
@@ -256,22 +290,33 @@ pub fn seed_perfect_bounces(
 }
 
 /// Fly a tape's rotations with port from rest, the keys of each tick passed through
-/// `keys(player before the tick, tape keys)`.
+/// `keys(player before the tick, tape keys)`, with the tape's arrivals (its
+/// glide-offs only if `glide_offs`).
 fn fly_tape(
     tape: &Tape,
     world: &World,
     course: Option<&Course>,
     source: &str,
     objective: &str,
+    glide_offs: bool,
     keys: impl Fn(&LocalPlayer, port::Input) -> port::Input,
 ) -> (Trajectory, Option<(usize, Unsupported)>) {
-    let mut p: LocalPlayer = rest_state(tape.start_pos, tape.start_yaw, tape.start_pitch);
+    let mut p: LocalPlayer = tape
+        .start_player()
+        .unwrap_or_else(|_| rest_state(tape.start_pos, tape.start_yaw, tape.start_pitch));
     let mut header = Header::new(course, objective, source);
     header.tas_header = Some(tape.header.clone());
     let initial = FullState::from(&p);
+    let arrivals: Vec<Arrival> = tape
+        .arrivals
+        .iter()
+        .filter(|a| glide_offs || a.event != ServerEvent::GlideOff)
+        .copied()
+        .collect();
     let mut rows = Vec::new();
     let mut err = None;
     for r in &tape.rows {
+        server::apply_at(&mut p, &arrivals, r.t, world);
         let Ok(k) = keys_of(&r.keys) else { break };
         let k = keys(&p, k);
         let input = InputRow {
@@ -291,6 +336,7 @@ fn fly_tape(
             err = Some((r.t, u));
             break;
         }
+        server::end_tick(&mut p, &arrivals, r.t);
         rows.push(Row {
             t: r.t,
             input,
@@ -301,6 +347,7 @@ fn fly_tape(
         Trajectory {
             header,
             initial,
+            arrivals,
             rows,
         },
         err,

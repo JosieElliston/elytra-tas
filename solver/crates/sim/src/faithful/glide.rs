@@ -40,7 +40,7 @@ pub struct GlideTick {
 }
 
 /// `ClientInput.moveVector` as `KeyboardInput.tick()` sets it.
-fn move_vector(k: Keys) -> [f32; 2] {
+pub(super) fn move_vector(k: Keys) -> [f32; 2] {
     let imp = |p: bool, n: bool| {
         if p == n {
             0.0f32
@@ -61,7 +61,7 @@ fn move_vector(k: Keys) -> [f32; 2] {
 }
 
 /// `LocalPlayer.modifyInput` (no item in use), the applied `xxa`, `zza`.
-fn modify_input(v: [f32; 2], slowly: bool) -> [f32; 2] {
+pub(super) fn modify_input(v: [f32; 2], slowly: bool) -> [f32; 2] {
     if v[0] * v[0] + v[1] * v[1] == 0.0 {
         return v;
     }
@@ -85,7 +85,7 @@ fn modify_input(v: [f32; 2], slowly: bool) -> [f32; 2] {
 
 /// `LocalPlayer.isHorizontalCollisionMinor`: the move is within 8 degrees of the
 /// applied input's direction.
-fn collision_minor(yaw: f32, input: [f32; 2], movement: [f64; 3]) -> bool {
+pub(super) fn collision_minor(yaw: f32, input: [f32; 2], movement: [f64; 3]) -> bool {
     let r = yaw * mth::DEG_TO_RAD;
     let (s, c) = (mth::sin(r as f64) as f64, mth::cos(r as f64) as f64);
     let (xa, za) = (input[0] as f64, input[1] as f64);
@@ -264,19 +264,7 @@ fn jump(
     yaw: f32,
     sprinting: bool,
 ) -> Result<[f64; 3], Event> {
-    // `getBlockJumpFactor`: the block at the position, else the one under it
-    let here = BlockPos {
-        x: mth::floor(s.pos[0]),
-        y: mth::floor(s.pos[1]),
-        z: mth::floor(s.pos[2]),
-    };
-    let mut factor = world.info(collide::state_at(world, here)?).jump_factor;
-    let below = collide::on_pos(world, s.pos, s.supporting_block, 0.500001)?;
-    let below = world.info(collide::state_at(world, below)?).jump_factor;
-    if factor as f64 == 1.0 {
-        factor = below;
-    }
-    let power = JUMP_STRENGTH * 1.0 * factor + 0.0;
+    let power = jump_power(world, s.pos, s.supporting_block)?;
     if power <= 1.0E-5 {
         return Ok(v);
     }
@@ -290,6 +278,27 @@ fn jump(
         ];
     }
     Ok(v)
+}
+
+/// `LivingEntity.getJumpPower()`: the jump strength times `getBlockJumpFactor` (the
+/// block at the position, else the one under it).
+pub(super) fn jump_power(
+    world: &World,
+    pos: [f64; 3],
+    supporting_block: Option<BlockPos>,
+) -> Result<f32, Event> {
+    let here = BlockPos {
+        x: mth::floor(pos[0]),
+        y: mth::floor(pos[1]),
+        z: mth::floor(pos[2]),
+    };
+    let mut factor = world.info(collide::state_at(world, here)?).jump_factor;
+    let below = collide::on_pos(world, pos, supporting_block, 0.500001)?;
+    let below = world.info(collide::state_at(world, below)?).jump_factor;
+    if factor as f64 == 1.0 {
+        factor = below;
+    }
+    Ok(JUMP_STRENGTH * 1.0 * factor + 0.0)
 }
 
 /// Gravity is the game's default here as in the rest of the kernel.

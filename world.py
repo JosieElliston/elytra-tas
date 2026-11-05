@@ -368,22 +368,26 @@ class World:
         self.report = Report()
 
     @classmethod
-    def from_replay(cls, r: fb.Replay, tick: int | None = None, min_y: int | None = None) -> "World":
-        """The world as the client had it at the end of `tick` (default: the whole replay)."""
+    def from_replay(cls, r: fb.Replay, tick: int | None = None, min_y: int | None = None,
+                    keep_forgotten: bool = False) -> "World":
+        """The world as the client had it at the end of `tick` (default: the whole replay).
+        `keep_forgotten` keeps columns the client unloaded, with their last blocks. why?
+        a long course leaves its start behind, and a check of a whole run needs it."""
         tick = r.total_ticks if tick is None else tick
         scan = scan_replay(Path(r.path))
-        w = cls._build(r, scan, tick, min_y)
+        w = cls._build(r, scan, tick, min_y, keep_forgotten=keep_forgotten)
         if w.min_y_method == "vote":
             # the vote reads blocks only; updates need the right min_y to land
             vote = w._vote_min_y(r, w.report.since_tick, tick)
-            w = cls._build(r, scan, tick, vote, "vote")
+            w = cls._build(r, scan, tick, vote, "vote", keep_forgotten=keep_forgotten)
             w.report.min_y_vote = vote
         else:
             w.report.min_y_vote = w._vote_min_y(r, w.report.since_tick, tick, keep=True)
         return w
 
     @classmethod
-    def _build(cls, r, scan: Scan, tick: int, min_y: int | None, method: str = "given") -> "World":
+    def _build(cls, r, scan: Scan, tick: int, min_y: int | None, method: str = "given",
+               keep_forgotten: bool = False) -> "World":
         dim = dim_type = since = start = None
         dim_types: list = []
         for i, (t, kind, data) in enumerate(scan.events):
@@ -438,6 +442,8 @@ class World:
                     else:
                         rep.updates_unloaded += 1
                 elif kind == "forget":
+                    if keep_forgotten:
+                        continue
                     pending.pop(data, None)
                     if w.chunks.pop(data, None) is not None:
                         rep.forgotten += 1

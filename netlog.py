@@ -56,15 +56,25 @@ handed=; pose_dropped), server_off / server_on (a change of the server's bit),
 start_sent / start_held / start_released / start_answered / start_refused /
 start_timeout / start_dropped (START_FALL_FLYING; a held one has an S record but never
 reaches the wire), reset, respawn, active / inactive.
-P kinds: start (plan, lines, reactions, tol, runs, settle, maxfail, format); attempt n
-(reset item used); play attempt (line 1 set on this tick); diverge line dx dy dz d (pose
-before this tick's physics minus line `line`'s expected pose, every nonzero one); abort
-line dx dy dz d tol (the same, over tolerance: keys released on this tick); glide_off
-line react (the client handled a glide-off since the last tick; `line` is the line set on
-this tick, react the directive index or -); react line directive event action (a
-reaction fired: jump pressed on this tick); finish line text / timer line ("Course
-complete!" / "Timer started!" handled after line `line` flew); end attempt result reason
-line divergences max_dev reactions finish_line; stop reason done attempts.
+P kinds (solver/PLAN-FORMAT.md, "Playback"; seg= is the segment, root for the lines
+before the first @segment): start (plan, lines = the last tick, reactions, tol, runs,
+settle, maxfail, format, segments, branches, tick_lines, velocity_tol); attempt n (reset
+item used); play attempt (line 1 set on this tick); diverge line dx dy dz d seg (pose
+before this tick's physics minus line `line`'s expected pose, every nonzero one);
+post_finish line dx dy dz d seg (off the plan after "Course complete!": a success); abort
+line dx dy dz d tol (the same, over tolerance: keys released on this tick); set_velocity
+line vx vy vz n seg (the client handled n set_entity_motion for itself since the last
+tick, the last with this payload; `line` is the line about to be set, seg the segment
+before branching); branch line event from to (an observation taken by a @branch); goto
+line from to; glide_off line react seg taken (a glide-off no branch took; react the
+reaction's index or -, taken react/ignore/-); react line directive event action (a
+reaction fired: jump pressed on this tick); ignore line event seg (a velocity an @ignore
+took); unlisted line event seg / missing line seg want (version 2 aborts: an observation
+nothing took, or a segment's end where a branch waited for an event that never came;
+keys released on this tick); finish line text / timer line ("Course complete!" / "Timer
+started!" handled after line `line` flew); end attempt result reason line divergences
+max_dev reactions finish_line path (path = the segments flown, name@line entered); stop
+reason done attempts.
 X events: tick_start / tick_end (ServerPlayer.doTick), move (handleMovePlayer done;
 extra = packet name, packet onGround, hColl), command (handlePlayerCommand; action),
 glide_end (extra = updateFallFlying or stopFallFlying), start_refused (START_FALL_FLYING

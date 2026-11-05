@@ -1,0 +1,515 @@
+{
+ "format": "etas-course",
+ "version": 2,
+ "name": "super_classic_downtown",
+ "dimension": "minecraft:cesuperclassicdowntown",
+ "world": {
+  "path": "super_classic_downtown.world.gz",
+  "content_sha256": "820e3cb2448637fc77e62c6e7be9258c6638076d6c5828288af9f5d1d7c26164",
+  "extract": "python3 extract_world.py <replays>/2026-10-19T23_25_42_ebounce.zip --tick 10900 --bounds -96 0 -128 47 143 -17 -o solver/courses/super_classic_downtown/super_classic_downtown.world.gz"
+ },
+ "fitted_from": {
+  "replays": [
+   {
+    "name": "2026-10-19T23_25_42_ebounce.zip",
+    "sha256": "bd4f5d63034315088fa45e633597441fdfd9823564413d4048dd31d2797f40a3"
+   }
+  ],
+  "logs": [
+   {
+    "name": "2026-10-20_01-45-07.tsv.gz",
+    "sha256": "a4a9b571dd636be7cde03e8e99fe4c6bd2c4afd0964da8a2a4511e7d8d5e995b",
+    "same_session_as": "2026-10-20T01_49_25_super_classic_downtown.zip"
+   },
+   {
+    "name": "2026-10-20_01-50-02.tsv.gz",
+    "sha256": "94b13764f6f2fb4a5fdc8592831caa43310b9176162aeb972846556e4dc329d9",
+    "same_session_as": null
+   },
+   {
+    "name": "2026-10-30_01-58-29.tsv.gz",
+    "sha256": "74552afd3a8bd22657a59cd875dc433450360a1521ecc632c7232396102e2882",
+    "same_session_as": "2026-10-30T02_08_05.zip"
+   },
+   {
+    "name": "2026-10-31_18-52-03.tsv.gz",
+    "sha256": "1f673ba8c66c61e4f9a3799e2312c8dc8b74528528150456296a3068c61e05f7",
+    "same_session_as": null
+   },
+   {
+    "name": "2026-10-31_20-06-39.tsv.gz",
+    "sha256": "e433609d7512a4634ac95bf66220a68b76dd80780ddf7e6ebd2032daccf2a577",
+    "same_session_as": "2026-10-31T20_34_14.zip"
+   }
+  ],
+  "excluded": [],
+  "tool": "fit_course.py",
+  "commit": "46583a7d7e5703de4ebb82ba9767a351db4fde45",
+  "dirty": true,
+  "fitted_at": "2026-11-03 16:00:27 EST"
+ },
+ "observation": {
+  "tick_chat_lag": [
+   2,
+   3
+  ],
+  "note": "Logged sessions (2026-10-20, ~70-85 ms round trip): a tick-end chat on tape tick C judged the pose of C-3, or C-2 when the server tick started late; replays without a log are fitted with [2, 5]. Kill messages are sent from a packet handler, not at a tick end.",
+  "sessions": [
+   {
+    "session": "2026-10-19T23_25_42_ebounce.zip",
+    "kind": "replay",
+    "note": "replay band (2, 5)"
+   },
+   {
+    "session": "2026-10-20_01-45-07.tsv.gz",
+    "kind": "log",
+    "note": "use_item replies: handler 26 (min 56 ms), tick end 26 (max 143 ms); band 56..203 ms"
+   },
+   {
+    "session": "2026-10-20_01-50-02.tsv.gz",
+    "kind": "log",
+    "note": "use_item replies: handler 0 (min 56 ms), tick end 0 (max nan ms); band 56..160 ms"
+   },
+   {
+    "session": "2026-10-30_01-58-29.tsv.gz",
+    "kind": "log",
+    "note": "use_item replies: handler 1 (min 55 ms), tick end 1 (max 104 ms); band 55..164 ms"
+   },
+   {
+    "session": "2026-10-31_18-52-03.tsv.gz",
+    "kind": "log",
+    "note": "use_item replies: handler 0 (min 56 ms), tick end 0 (max nan ms); band 56..160 ms"
+   },
+   {
+    "session": "2026-10-31_20-06-39.tsv.gz",
+    "kind": "log",
+    "note": "use_item replies: handler 95 (min 53 ms), tick end 96 (max 232 ms); band 53..292 ms"
+   }
+  ]
+ },
+ "start": {
+  "source": {
+   "path": "solver/courses/super_classic_downtown/ebounce_run4.tas",
+   "sha256": "198bb0d37bc3049e10b1145ee2d05b52a599bcdfe9df73c538119239305f8682"
+  },
+  "pose": [
+   "c043400000000000",
+   "4057400000000000",
+   "c052a00000000000",
+   "00000000",
+   "00000000"
+  ],
+  "inputs": [
+   [
+    "bfae7502",
+    "3fae7502",
+    "-"
+   ],
+   [
+    "c1a6ab36",
+    "40cd9c30",
+    "-"
+   ],
+   [
+    "c29a3524",
+    "41476126",
+    "-"
+   ],
+   [
+    "c30a0c04",
+    "417f747a",
+    "-"
+   ],
+   [
+    "c321feef",
+    "417f747a",
+    "-"
+   ],
+   [
+    "c321cd17",
+    "417f747a",
+    "WR"
+   ],
+   [
+    "c321cd17",
+    "417f747a",
+    "WR"
+   ],
+   [
+    "c321cd17",
+    "417f747a",
+    "WR"
+   ],
+   [
+    "c321cd17",
+    "417f747a",
+    "WR"
+   ],
+   [
+    "c321cd17",
+    "417f747a",
+    "WR"
+   ],
+   [
+    "c3219b3f",
+    "418912cc",
+    "WR"
+   ],
+   [
+    "c317ad29",
+    "41f48d29",
+    "WR"
+   ],
+   [
+    "c3087d41",
+    "4241261d",
+    "WJR"
+   ],
+   [
+    "c2fd8206",
+    "425f85eb",
+    "WR"
+   ],
+   [
+    "c2f67f9b",
+    "426bfbfb",
+    "WR"
+   ],
+   [
+    "c2f61bea",
+    "426bfbfb",
+    "WRJ"
+   ]
+  ],
+  "glide_tick": 16,
+  "timer_tick": 148,
+  "finish_tick": 275,
+  "finish_text": "Course complete! Your time: 6.340 seconds (-0.200)"
+ },
+ "regions": {
+  "start_area": {
+   "working": {
+    "min": [
+     -51.6786640275548,
+     85.97435881201474,
+     -93.69999998807907
+    ],
+    "max": [
+     -27.048552143736746,
+     99.06194261657032,
+     -64.07124206350647
+    ]
+   },
+   "inner": {
+    "min": [
+     -51.118664027554914,
+     86.52935881201502,
+     -92.69999998807907
+    ],
+    "max": [
+     -27.14855214373676,
+     99.0469426165703,
+     -64.55124206350658
+    ]
+   },
+   "outer": {
+    "min": [
+     -52.23866402755469,
+     85.41935881201445,
+     -156.69999998807103
+    ],
+    "max": [
+     -26.94855214373673,
+     99.07694261657032,
+     -63.59124206350638
+    ]
+   },
+   "faces": {
+    "x_min": "fitted",
+    "x_max": "fitted",
+    "y_min": "fitted",
+    "y_max": "fitted",
+    "z_min": "assumed",
+    "z_max": "fitted"
+   },
+   "status": "provisional",
+   "note": "Timer starts on the first observed pose outside. Inside: poses judged before each timer start, and every pose of attempts that never started it; outside: each timer start's latest band pose. 1 inside points were dropped as contradicted (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped.",
+   "evidence": {
+    "inside": 21628,
+    "outside": 97,
+    "dropped": [
+     {
+      "pos": [
+       -41.338,
+       99.119,
+       -91.761
+      ],
+      "source": "2026-10-19T23_25_42_ebounce.zip@11646",
+      "against": "2026-10-20_01-45-07.tsv.gz@1355 (timer chat @1356)"
+     }
+    ]
+   }
+  },
+  "finish": {
+   "working": {
+    "min": [
+     12.42221688273971,
+     19.0,
+     -101.69999998807907
+    ],
+    "max": [
+     16.649405914482923,
+     24.339533091088555,
+     -90.23743238106442
+    ]
+   },
+   "inner": {
+    "min": [
+     13.42221688273971,
+     20.0,
+     -100.69999998807907
+    ],
+    "max": [
+     15.649405914482923,
+     23.339533091088555,
+     -90.26243238106443
+    ]
+   },
+   "outer": {
+    "min": [
+     -50.577783117258555,
+     -44.00000000000014,
+     -164.69999998805966
+    ],
+    "max": [
+     79.64940591448705,
+     87.33953309109548,
+     -90.2124323810644
+    ]
+   },
+   "faces": {
+    "x_min": "assumed",
+    "x_max": "assumed",
+    "y_min": "assumed",
+    "y_max": "assumed",
+    "z_min": "assumed",
+    "z_max": "fitted"
+   },
+   "status": "provisional",
+   "note": "Finish on the first observed pose inside, timer running. Inside: each finish's latest band pose, or its timer-anchored pose; runs that all approach one way leave inner small and the faces they don't reach assumed; outside: poses judged with the timer running before a finish or attempt end. 6 outside points were dropped as contradicted (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped.",
+   "evidence": {
+    "inside": 29,
+    "outside": 5088,
+    "dropped": [
+     {
+      "pos": [
+       13.806,
+       22.936,
+       -90.7
+      ],
+      "source": "2026-10-19T23_25_42_ebounce.zip@10976",
+      "against": "the hull of the inside points"
+     },
+     {
+      "pos": [
+       14.057,
+       20.644,
+       -91.563
+      ],
+      "source": "2026-10-31_20-06-39.tsv.gz@8475",
+      "against": "the hull of the inside points"
+     },
+     {
+      "pos": [
+       14.299,
+       20.062,
+       -93.016
+      ],
+      "source": "2026-10-31_20-06-39.tsv.gz@8476",
+      "against": "the hull of the inside points"
+     },
+     {
+      "pos": [
+       14.506,
+       20.062,
+       -94.458
+      ],
+      "source": "2026-10-31_20-06-39.tsv.gz@8477",
+      "against": "the hull of the inside points"
+     },
+     {
+      "pos": [
+       13.553,
+       22.657,
+       -90.64
+      ],
+      "source": "2026-10-19T23_25_42_ebounce.zip@10693 (timer-anchored)",
+      "against": "the hull of the inside points"
+     },
+     {
+      "pos": [
+       13.976,
+       21.776,
+       -90.959
+      ],
+      "source": "2026-10-31_20-06-39.tsv.gz@10213 (timer-anchored)",
+      "against": "the hull of the inside points"
+     }
+    ]
+   }
+  }
+ },
+ "rules": {
+  "timer_start": {
+   "event": "first",
+   "when": {
+    "not": {
+     "in": "start_area"
+    }
+   },
+   "after": "start",
+   "status": "provisional",
+   "note": "see regions.start_area",
+   "evidence": {
+    "timer_starts": 97,
+    "attempts": 178
+   }
+  },
+  "finish": {
+   "event": "first",
+   "when": {
+    "in": "finish"
+   },
+   "after": "timer_start",
+   "status": "provisional",
+   "note": "see regions.finish",
+   "evidence": {
+    "finishes": 29
+   }
+  },
+  "kill": [
+   {
+    "name": "ground",
+    "event": "any",
+    "when": {
+     "and": [
+      {
+       "field": "on_ground"
+      },
+      {
+       "not": {
+        "in": "start_area"
+       }
+      }
+     ]
+    },
+    "after": "timer_start",
+    "until": "finish",
+    "status": "provisional",
+    "note": "Conservative: any observed ground touch outside the start area kills. Logged touches with the timer running: 7 killed (reset with no item use, arriving with the glide-off), 3 survived; which touches kill isn't pinned down (single-tick bounces survived in some places and killed in others; a kill may need the server to have ended the glide). Touches before the timer start (start area) never killed or started the timer.",
+    "evidence": {
+     "killed": [
+      {
+       "pos": [
+        2.737,
+        65.5,
+        -59.646
+       ],
+       "source": "2026-10-20_01-45-07.tsv.gz@1982",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -12.384,
+        79.0,
+        -47.277
+       ],
+       "source": "2026-10-30_01-58-29.tsv.gz@11231",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        -9.09,
+        95.0,
+        -45.076
+       ],
+       "source": "2026-10-30_01-58-29.tsv.gz@11478",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -8.996,
+        95.0,
+        -45.29
+       ],
+       "source": "2026-10-31_20-06-39.tsv.gz@5034",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -9.104,
+        95.0,
+        -45.689
+       ],
+       "source": "2026-10-31_20-06-39.tsv.gz@7532",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -9.367,
+        95.0,
+        -44.944
+       ],
+       "source": "2026-10-31_20-06-39.tsv.gz@16521",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        0.881,
+        66.5,
+        -59.549
+       ],
+       "source": "2026-10-31_20-06-39.tsv.gz@21316",
+       "ticks": 1
+      }
+     ],
+     "survived": [
+      {
+       "pos": [
+        -45.547,
+        93.0,
+        -87.754
+       ],
+       "source": "2026-10-20_01-45-07.tsv.gz@1396",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -41.35,
+        93.0,
+        -77.445
+       ],
+       "source": "2026-10-20_01-45-07.tsv.gz@1418",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        14.299,
+        20.062,
+        -93.016
+       ],
+       "source": "2026-10-31_20-06-39.tsv.gz@8476",
+       "ticks": 3
+      }
+     ],
+     "unknown": 0,
+     "start_area_touches": 990
+    }
+   }
+  ]
+ },
+ "ground_allowed": [
+  "start_area"
+ ],
+ "boosters": []
+}

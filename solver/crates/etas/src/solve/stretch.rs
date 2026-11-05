@@ -143,6 +143,7 @@ pub fn splice(
         Trajectory {
             header,
             initial: rec.initial.clone(),
+            arrivals: Vec::new(),
             rows,
         },
         err,

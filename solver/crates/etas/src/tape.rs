@@ -1,9 +1,16 @@
 //! `.tas` tapes (format in `extract_run.py`'s docstring): the recorded runs, and the
 //! branchless plan `tas_play` flies. A plan with reactions is `plan::Plan`, which
 //! parses its `@` lines and hands the rest here.
+//!
+//! A recorded tape may carry `@server` lines: what the server did to the player
+//! (`server::Arrival`). Such a tape is a record, not a plan: playback doesn't send
+//! the server's packets, so `verify` replays it as a record (arrivals applied, no
+//! reactions required), and plan readers refuse it.
 
 use std::fmt::Write as _;
 use std::path::Path;
+
+use crate::server::Arrival;
 
 /// One tape line: tick `t`'s input and the pose at its end, as float/double bits.
 #[derive(Debug, Clone, PartialEq)]
@@ -28,6 +35,8 @@ pub struct Tape {
     pub start_pitch: f32,
     /// `rows[0]` is tick 1.
     pub rows: Vec<TapeRow>,
+    /// The `@server` lines, sorted by tick (file order within a tick).
+    pub arrivals: Vec<Arrival>,
 }
 
 fn f32_hex(s: &str) -> Result<f32, String> {
@@ -79,6 +88,7 @@ impl Tape {
     pub fn parse(text: &str) -> Result<Tape, String> {
         let mut header = Vec::new();
         let mut rows = Vec::new();
+        let mut arrivals = Vec::new();
         for (n, line) in text.lines().enumerate() {
             let (data, comment) = match line.split_once('#') {
                 Some((d, c)) => (d.trim(), c),
@@ -86,6 +96,26 @@ impl Tape {
             };
             if data.is_empty() {
                 continue;
+            }
+            if let Some(rest) = data.strip_prefix("@server ") {
+                let f: Vec<&str> = rest.split_whitespace().collect();
+                let a: Arrival = Arrival::parse(&f).map_err(|e| format!("line {}: {e}", n + 1))?;
+                if a.tick != rows.len() + 1 {
+                    return Err(format!(
+                        "line {}: @server for tick {} before tick line {}",
+                        n + 1,
+                        a.tick,
+                        rows.len() + 1
+                    ));
+                }
+                arrivals.push(a);
+                continue;
+            }
+            if data.starts_with('@') {
+                return Err(format!(
+                    "line {}: a plan directive in a tape (read it as a plan)",
+                    n + 1
+                ));
             }
             if let Some((k, v)) = data.split_once('=') {
                 header.push((k.to_string(), v.trim().to_string()));
@@ -108,6 +138,12 @@ impl Tape {
                 ground: comment.split_whitespace().any(|w| w == "ground"),
             });
         }
+        if let Some(a) = arrivals.iter().find(|a| a.tick > rows.len()) {
+            return Err(format!(
+                "@server for tick {} after the last tick line",
+                a.tick
+            ));
+        }
         let start = header
             .iter()
             .find(|(k, _)| k == "start")
@@ -118,13 +154,48 @@ impl Tape {
         if s.len() != 5 {
             return Err(format!("start= has {} fields, want 5", s.len()));
         }
-        Ok(Tape {
+        let tape = Tape {
             start_pos: [f64_hex(s[0])?, f64_hex(s[1])?, f64_hex(s[2])?],
             start_yaw: f32_hex(s[3])?,
             start_pitch: f32_hex(s[4])?,
             header,
             rows,
-        })
+            arrivals,
+        };
+        // `start_flags=` is checked here, so a read tape always has a start player
+        tape.start_player()?;
+        Ok(tape)
+    }
+
+    /// The player at the end of tick 0: at rest at `start=` (`course::rest_state`),
+    /// with `start_flags=` (a recorded run's shared flags at the reset, hex; absent is
+    /// 0): 0x80 gliding (a reset mid-glide keeps the flag until the server's
+    /// glide-off), 0x08 sprinting. `start_ground=0`: tick 0 ended in the air (a tape whose
+    /// line 1 is a teleport, `extract_run.py`).
+    pub fn start_player(&self) -> Result<port::LocalPlayer, String> {
+        let mut p = crate::course::rest_state(self.start_pos, self.start_yaw, self.start_pitch);
+        if let Some(v) = self.get("start_flags") {
+            let f = u8::from_str_radix(v, 16).map_err(|e| format!("start_flags={v}: {e}"))?;
+            if f & 0x80 != 0 {
+                p.fall_flying = true;
+                p.pose = port::Pose::FallFlying;
+            }
+            if f & 0x08 != 0 {
+                p.set_sprinting(true);
+            }
+            if f & !0x88 != 0 {
+                return Err(format!("start_flags={v}: only 0x80 and 0x08 are modeled"));
+            }
+        }
+        if self.get("start_ground") == Some("0") {
+            p.on_ground = false;
+        }
+        Ok(p)
+    }
+
+    /// Whether this tape records server events: a record, not a plan.
+    pub fn is_record(&self) -> bool {
+        !self.arrivals.is_empty()
     }
 
     /// The tape as `extract_run.py` writes it, human-readable comments included.
@@ -133,7 +204,7 @@ impl Tape {
     }
 
     /// [`Tape::write`], with `before(t)`'s lines written before tick line `t` (a
-    /// plan's directives).
+    /// plan's directives), after the tape's own `@server` lines for `t`.
     pub fn write_with(&self, before: impl Fn(usize) -> String) -> String {
         let mut out = String::new();
         for (k, v) in &self.header {
@@ -154,6 +225,17 @@ impl Tape {
             }
         }
         for r in &self.rows {
+            for a in self.arrivals.iter().filter(|a| a.tick == r.t) {
+                let _ = match a.event {
+                    crate::server::ServerEvent::SetVelocity { v } => {
+                        writeln!(out, "{}    # {:.6} {:.6} {:.6}", a.line(), v[0], v[1], v[2])
+                    }
+                    crate::server::ServerEvent::Teleport { pos: v } => {
+                        writeln!(out, "{}    # {:.6} {:.6} {:.6}", a.line(), v[0], v[1], v[2])
+                    }
+                    _ => writeln!(out, "{}", a.line()),
+                };
+            }
             out.push_str(&before(r.t));
             let _ = writeln!(
                 out,

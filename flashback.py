@@ -16,17 +16,25 @@ Facts about what gets recorded (Recorder.endTick, Flashback 0.43.6):
 - once per client tick, at end of tick: `move_entities` with exact doubles
   x/y/z and floats yaw/pitch/headYaw/onGround for every entity whose position
   changed, *including the local player*; then a SetEntityMotion game packet for
-  the local player (lossy LpVec3 encoding, don't use it for physics); then
-  `next_tick`.
+  the local player (lossy LpVec3 encoding of the velocity, don't use it for
+  physics); then `next_tick`. A tick where the player didn't move has no pose, so
+  the last one's onGround stands in for it.
 - inbound server packets are recorded as `game_packet` actions as the client
   handles them, all before that tick's `move_entities`; Flashback's own packets
   come after it, ending with a SetEntityMotion for the local player that is written
   every tick. So any earlier local SetEntityMotion in a tick came from the server
-  (a booster). `move_entities` itself is skipped on ticks where nothing moved.
+  (a booster, the wall-hit echo): `motion` events. Those are exact: the client
+  applies the packet's LpVec3 decoding as is (`Entity.lerpMotion`), and handled
+  them before that tick's physics. `move_entities` itself is skipped on ticks where nothing moved.
 - the server's SetEntityData for the local player is dropped; the shared flags
   (glide, sprint) are the *client's* own, written once per tick when they change.
-  A server-ended glide shows up on the tick the client applies the server's flag.
+  A server-ended glide shows up on the tick the client applies the server's flag,
+  unless a redeploy press in that tick's physics set it again.
 - ClientboundPlayerPositionPacket (server teleports) and keep-alives are dropped.
+- ClientboundSetHealthPacket is Flashback's own, written when the value changes, so
+  it is the client's health over time and absent while that holds still. The server's
+  ClientboundDamageEventPacket is kept: `damage` events, the local player's damage type
+  (registry id; 16 is minecraft:fly_into_wall in every replay so far).
 - `real_time_clock_optional`, at the start of each tick: wall-clock ms as a signed
   byte delta from (previous + 50), or a 0 byte and an absolute epoch-ms long.
 - keypresses are NOT recorded. Inputs must be reconstructed from the trajectory.
@@ -362,12 +370,25 @@ class Replay:
         if pid == CB["LOGIN"]:
             self.local_id = p.i32()
             self.events.append(Event(tick, "login", self.local_id))
+            p.bool()
+            for _ in range(p.varint()):
+                p.string()
+            p.varint(), p.varint(), p.varint(), p.bool(), p.bool(), p.bool()
+            p.varint()  # dimension type
+            self.events.append(Event(tick, "dimension", p.string()))
         elif in_snap:
             return
         elif pid == CB["PLAYER_POSITION"]:
             self.events.append(Event(tick, "teleport", PlayerPosition.decode(p)))
         elif pid == CB["RESPAWN"]:
             self.events.append(Event(tick, "respawn", None))
+            p.varint()  # dimension type
+            self.events.append(Event(tick, "dimension", p.string()))
+        elif pid == CB["SET_HEALTH"]:
+            self.events.append(Event(tick, "health", p.f32()))
+        elif pid == CB["DAMAGE_EVENT"]:
+            if p.varint() == self.local_id:
+                self.events.append(Event(tick, "damage", p.varint()))
         elif decode_text and pid in (CB["SYSTEM_CHAT"], CB["SET_TITLE_TEXT"], CB["SET_SUBTITLE_TEXT"], CB["SET_ACTION_BAR_TEXT"]):
             try:
                 text = component_text(read_nbt(p))

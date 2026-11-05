@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "courses/burrowed_grove"]
+members = ["crates/*", "courses/*"]
 # course crates are added here as they are created: "courses/<name>"
 
 [workspace.package]

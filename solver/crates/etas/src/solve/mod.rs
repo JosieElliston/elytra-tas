@@ -9,8 +9,15 @@
 //! - [`refly`]: a plan under the faithful kernel, where it parts from the generic one,
 //!   and the repair by re-solving from the flown state each tick
 //! - [`stretch`]: a stretch of a trajectory as a problem, and the splice back
+//! - [`reach`]: the least ticks from a state to a point, velocity free (into a booster)
+//! - [`cases`]: a booster pass's outcomes and how often each comes, for branching plans
+//! - [`bounces`]: a recording's lost-glide bounces re-solved as perfect ones, and the
+//!   lost-glide flights a plan branches to
 
+pub mod bounces;
+pub mod cases;
 pub mod ddp;
+pub mod reach;
 pub mod refly;
 pub mod stretch;
 pub mod walls;

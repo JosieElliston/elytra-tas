@@ -9,19 +9,26 @@ each experiment owns its own copy of the problem: nothing composes. So the share
 is kept small and strict (physics, world, course, artifacts, verify), and everything
 else is a tool that may come and go.
 
-Status as of 2026-11-03 06:24 EST: build-order steps 1–6 exist.
+Status as of 2026-11-04 19:40 EST: build-order steps 1–7 exist; nothing has flown on EMC.
 - Steps 1–4 work end to end on Burrowed Grove: port, world, course, and `verify` of the
   recorded tape. The client-gametest oracle runs, and port matches it on all but 3 of
   9455 ticks (the JVM's `Math.cos`, see `crates/port/README.md`).
-- Kernels: the faithful kernel covers normal flight with collision and perfect-ebounce
-  ground glides, bit-exact against port. The generic kernel covers flight.
-- The first solver (DDP through ghost walls, `crates/etas/src/solve/`) re-solves
-  stretches of the recorded run: six spliced stretches take it from 647 to 615 ticks
-  and it verifies, though it chatters (no roughness price yet).
-- Plans (PLAN-FORMAT.md) are written and verified by `etas plan` and played by
-  `/etas play` (mod 0.4.0), so far only in singleplayer gametests.
-- Not yet: boosters, branching plans, a Rust-written plan flown by the mod, any
-  playback on EMC.
+- Kernels: the faithful kernel flies any tick, with or without the glide, bit-exact
+  against port (`step_full`). The generic kernel covers flight.
+- Solvers (`crates/etas/src/solve/`): DDP through ghost walls re-solves stretches between
+  cuts. Burrowed Grove goes from 647 to 615 ticks, though it chatters (no roughness price
+  yet). Super classic downtown goes from 124 to 119 timed ticks, seeded from a recorded
+  run with lost glides, with a branched plan of 4 paths. Alpine has a branched plan over
+  its boosters whose coverage and expected time haven't been assessed.
+- Plans (PLAN-FORMAT.md, version 2 with branches) are checked path by path by `etas
+  verify` and played by `/etas play` (mod 0.5.0), so far only in singleplayer gametests
+  and only with plans the gametests wrote.
+- Recorded runs carry what the server did as `@server` events and replay under port. A
+  velocity the model doesn't explain is just such an event, so a recording that took
+  damage replays and verifies. `check_runs.py` sweeps the replays for runs that don't;
+  it hasn't been run to completion.
+- Not yet: a solver-written plan flown by the mod, any playback on EMC, plans that take
+  damage on purpose, fireworks.
 
 ## Layout
 
@@ -279,16 +286,17 @@ reference; a last pass stitches and refines; `verify`; emit the plan.
    making it so is the mod's job, through a reactive key. Most map starts need this.
 3. Boosters. The first event whose observation (arrival tick and payload) makes plans
    branch, and the first that needs a check against recorded server behavior.
-4. Collision with damage. The server's velocity overwrite arrives a few ticks late at a
-   time that varies.
+4. Collision with damage. Recordings that take damage are in model: the server's velocity
+   overwrite is recorded as an out-of-model velocity event. Plans can't take damage yet.
+   why not model it? the server computes it on its own copy of the physics, which
+   disagrees slightly, and it arrives a few ticks late at a time that varies.
 5. Fireworks, in the single-rocket mode.
 6. Imperfect ebounces.
 
-3, 4 and 6 are deferred, but the architecture has room for them now: a kernel step can
-raise an event, a plan can branch on an observation and rejoin, and a problem's entry
-can be a set of cases. They don't share one shape (a booster's payload depends on the
-uplink, damage on the server's simulation, an imperfect bounce on neither), so each
-gets its own event type when it is built.
+Boosters (`crates/etas/src/booster.rs`) and imperfect ebounces are built: a booster's or
+a lost glide's arrival is a plan branch. They don't share one shape (a booster's payload
+depends on the uplink, damage on the server's simulation, an imperfect bounce on
+neither), so each kind of event gets its own handling.
 
 ## Build order
 
@@ -312,6 +320,7 @@ scripts in the course crate.
 
 ## Open
 
-- The plan format's exact grammar, and how the mod observes each branch event.
+- The timer's start and finish offsets against ping: predicted and shown times differ
+  by up to 0.14 s on super classic downtown, cause not settled.
 - The second curvature ablation's hook.
 - Route search: what proposes routes when no recording exists.

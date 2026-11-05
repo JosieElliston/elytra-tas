@@ -5,7 +5,9 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;
+import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
 import net.minecraft.network.protocol.game.ClientboundSystemChatPacket;
+import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -36,6 +38,15 @@ public abstract class ClientPacketListenerMixin {
         LocalPlayer p = Minecraft.getInstance().player;
         if (elytraTas$wasFallFlying && p != null && !p.isFallFlying()) Playback.glideOff();
         elytraTas$wasFallFlying = false;
+    }
+
+    @Inject(method = "handleSetEntityMotion", at = @At("RETURN"))
+    private void elytraTas$entityMotion(ClientboundSetEntityMotionPacket packet, CallbackInfo ci) {
+        LocalPlayer p = Minecraft.getInstance().player;
+        if (p == null || packet.id() != p.getId()) return;
+        // what lerpMotion set: the decoded payload, which a plan's branch compares against
+        Vec3 v = packet.movement();
+        Playback.setVelocity(v.x, v.y, v.z);
     }
 
     @Inject(method = "handleSystemChat", at = @At("RETURN"))

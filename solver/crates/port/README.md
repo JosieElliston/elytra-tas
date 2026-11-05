@@ -49,9 +49,11 @@ marked fixed:
   vehicle, auto-jump off, default attributes, sprint window 7. Creative flight,
   swimming, riding are not ported.
 - No entity collisions (boats, shulkers) and no world border.
-- The glide ends only when the server says so: the caller clears `fall_flying`.
-  Wall damage and the server's velocity echo are server-side and not here, nor are
-  fireworks, boosters or knockback.
+- The glide ends only when the server says so, and boosters and the wall-hit echo
+  are the server's velocity: the caller applies those packets before a tick, with
+  `LocalPlayer::handle_glide_off(pose)` and `handle_set_entity_motion(v)`
+  (`client_packet_listener.rs`; `etas::server::apply` picks the glide-off's pose).
+  Wall damage, fireworks and knockback are not here.
 - `isSuffocating` (for `moveTowardsClosestSpace`) is the table's value at an empty
   origin; world-dependent cases (shulker boxes) aren't covered.
 - Block shapes are rebuilt from the block table's boxes as `VoxelShape.optimize()`
