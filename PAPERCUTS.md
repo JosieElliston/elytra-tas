@@ -64,9 +64,17 @@ missing tools / poorly configured tools / missing docs / general frictions / gen
   tracker's windows every 24 ticks, smoothing cuts, and a join's end (pitch 27, 24, 0, 17 on academy,
   2026-11-05). `track` now flies only the first half of each solve, and `smooth_pass` prices the
   change out of a window too (`Rate::to`). Other callers of `Goal::Reach` still need to think of it.
-- **The approach to academy's finish stays unsmoothed.** Pitch holds 0 to t645, then goes -23, -28,
-  -23, -6, about 0.004 off the floor (2026-11-05). My guess is that `smooth_pass` rejects those
-  windows, since 0.004 is under its 0.017 clearance. Not checked.
+- **A server hit left in a window blocks all smoothing over it.** Academy's tail ended on the floor
+  heading down, so every window over it was rejected, which is what left its approach unsmoothed
+  (2026-11-05). `tas` lets go of the last state's velocity for this. `smooth_pass` could report why it
+  rejects a window: finding this took a debug print.
+- **Some reaches stop short of their pin by about 3e-4 blocks, whatever the schedule.** Restarts and
+  other prices land on the same point, under `Opts::tol`'s 1e-6 (2026-11-05), so a good solve reads as
+  a failure. `tas`'s server windows accept 1e-3 and let the tracker take it up. Why they stop is
+  unknown.
+- **`verify` doesn't model the server's copy,** so a plan can PASS and be thrown off by a wall only the
+  server hits. `tas` checks this itself, and only for `p_t + v_t`: a server a tick behind still hits at
+  t267, t519, t584 and t617 of the 2026-11-05 plan.
 - **`first_plan` can't always seed a splice.** 12 of 15 route hybrids failed with `last piece:
   clearance -0.5`, since a failed piece merges forward until the whole tail is one solve. So those
   routes are untested, not slower: both z = 178 x = -23 classes among them.

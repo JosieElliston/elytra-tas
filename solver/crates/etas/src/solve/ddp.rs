@@ -38,6 +38,8 @@ pub type U = [f64; 2];
 const D2R: f64 = PI / 180.0;
 /// Constraints per tick: the legs of the L-shaped move.
 pub const NP: usize = 3;
+/// Legs priced per tick: the move's, then the server's ([`Opts::server`]).
+pub const NL: usize = 2 * NP;
 /// The plane goal's floor on the rate toward the plane, so a horizon that never
 /// reaches it and turns away isn't worth minus a lot.
 const RATE_MIN: f64 = 0.05;
@@ -134,6 +136,14 @@ pub struct Opts {
     /// Reach: done when every scaled error is under this.
     pub tol: f64,
     pub rate: Rate,
+    /// Keep the server's copy of the player clear too. The server moves its copy once per
+    /// tick, from the pose the client just sent, by a velocity it evolves itself, which in a
+    /// clean flight is the client's: `p_t + v_t` (singleplayer log, to 2e-4), a box the client
+    /// never flies through in a turn. A hit there zeroes that axis of its velocity, and one
+    /// losing over 0.3 b/t of horizontal speed comes back as damage and a `set_entity_motion`
+    /// that throws the client off the plan (academy, 2026-11-05: all three aborts). The
+    /// horizon's last tick isn't held: its end is a pin or past the finish.
+    pub server: bool,
 }
 
 impl Default for Opts {
@@ -147,6 +157,7 @@ impl Default for Opts {
             goal_weight: 100.0,
             tol: 1e-7,
             rate: Rate::default(),
+            server: false,
         }
     }
 }
@@ -166,7 +177,7 @@ pub struct Problem<'a> {
 pub struct Multipliers {
     pub rho: f64,
     /// Per tick, per leg.
-    pub walls: Vec<[f64; NP]>,
+    pub walls: Vec<[f64; NL]>,
     /// Reach: per coordinate.
     pub goal: X,
 }
@@ -175,7 +186,7 @@ impl Multipliers {
     pub fn new(rho: f64, n: usize) -> Self {
         Multipliers {
             rho,
-            walls: vec![[0.0; NP]; n],
+            walls: vec![[0.0; NL]; n],
             goal: [0.0; 6],
         }
     }
@@ -242,6 +253,45 @@ pub fn step<D: DualNum<Primitive = f64> + Copy>(
     let v = vel_next(k, [x[3], x[4], x[5]], u);
     let [a, b, e] = l_move(pos, v);
     ([e[0], e[1], e[2], v[0], v[1], v[2]], [pos, a, b, e])
+}
+
+/// The legs of the server's move from `pos` by `v`: [`step`]'s shape, the same L.
+fn server_legs<D: DualNum<Primitive = f64> + Copy>(pos: [D; 3], v: [D; 3]) -> [[[D; 3]; 2]; NP] {
+    let [a, b, e] = l_move(pos, v);
+    [[pos, a], [a, b], [b, e]]
+}
+
+/// The legs of a tick: the move's, then the server's from where the move ended.
+fn tick_legs<D: DualNum<Primitive = f64> + Copy>(
+    k: &Generic,
+    x: &[D; 6],
+    u: [D; 2],
+) -> ([D; 6], [[[D; 3]; 2]; NL]) {
+    let (n, c) = step(k, x, u);
+    let server = server_legs([n[0], n[1], n[2]], [n[3], n[4], n[5]]);
+    let legs = std::array::from_fn(|l| {
+        if l < NP {
+            [c[l], c[l + 1]]
+        } else {
+            server[l - NP]
+        }
+    });
+    (n, legs)
+}
+
+/// The states the server's box would hit a wall from, and the clearance: what
+/// [`Opts::server`] keeps away from.
+pub fn server_hits(walls: &Walls, x: &[X]) -> Vec<(usize, f64)> {
+    x.iter()
+        .enumerate()
+        .filter_map(|(t, s)| {
+            let c = server_legs([s[0], s[1], s[2]], [s[3], s[4], s[5]])
+                .iter()
+                .map(|[a, b]| walls.clearance(*a, *b).0)
+                .fold(f64::INFINITY, f64::min);
+            (c < 0.0).then_some((t, c))
+        })
+        .collect()
 }
 
 /// The PHR price of clearance `c` under `margin`, and `a`, its derivative in `-c`.
@@ -404,16 +454,27 @@ impl<'a> Problem<'a> {
         x
     }
 
-    /// The clearance of each leg of the move from `x` under `u`, and the nearest box.
-    fn clearances(&self, x: &X, u: U) -> [(f64, Option<usize>); NP] {
-        let (_, c) = step(&self.kernel, x, u);
-        std::array::from_fn(|l| self.walls.clearance(c[l], c[l + 1]))
+    /// Whether a leg of tick `k` of `n` is held.
+    fn leg_held(&self, l: usize, k: usize, n: usize) -> bool {
+        l < NP || (self.opts.server && k + 1 < n)
+    }
+
+    /// The clearance of each leg of tick `k` of `n` from `x` under `u`, and the nearest box.
+    fn clearances(&self, k: usize, n: usize, x: &X, u: U) -> [(f64, Option<usize>); NL] {
+        let (_, legs) = tick_legs(&self.kernel, x, u);
+        std::array::from_fn(|l| {
+            if self.leg_held(l, k, n) {
+                self.walls.clearance(legs[l][0], legs[l][1])
+            } else {
+                (f64::INFINITY, None)
+            }
+        })
     }
 
     /// The least clearance over every leg of the plan's moves.
     pub fn worst(&self, x: &[X], u: &[U]) -> f64 {
         (0..u.len())
-            .flat_map(|k| self.clearances(&x[k], u[k]))
+            .flat_map(|k| self.clearances(k, u.len(), &x[k], u[k]))
             .map(|c| c.0)
             .fold(f64::INFINITY, f64::min)
     }
@@ -499,7 +560,7 @@ impl<'a> Problem<'a> {
         let n = u.len();
         let mut j = self.goal_cost(m, &x[n], n);
         for k in 0..n {
-            for (p, (c, _)) in self.clearances(&x[k], u[k]).iter().enumerate() {
+            for (p, (c, _)) in self.clearances(k, n, &x[k], u[k]).iter().enumerate() {
                 j += phr(*c, m.walls[k][p], m.rho, self.opts.margin).0;
             }
             for d in self.rate_changes(k, x, u).into_iter().flatten() {
@@ -621,11 +682,12 @@ impl<'a> Problem<'a> {
             DualSVec64::<8>::from_re(v).derivative(i)
         });
         let xd: [DualSVec64<8>; 6] = std::array::from_fn(|i| z[i]);
-        let (next, corners) = step(&self.kernel, &xd, [z[6], z[7]]);
+        let (next, legs) = tick_legs(&self.kernel, &xd, [z[6], z[7]]);
         let fz = next.map(|d| grad(&d));
-        let walls = (0..NP)
+        let walls = (0..NL)
+            .filter(|&l| self.leg_held(l, k, m.walls.len()))
             .map(|l| {
-                let (from, to) = (corners[l], corners[l + 1]);
+                let [from, to] = legs[l];
                 let (c, nearest) = self.walls.clearance(from.map(|d| d.re), to.map(|d| d.re));
                 let (_, a) = phr(c, m.walls[k][l], m.rho, self.opts.margin);
                 match nearest {
@@ -871,7 +933,7 @@ impl<'a> Problem<'a> {
                 }
             }
         }
-        m.walls.resize(u.len(), [0.0; NP]);
+        m.walls.resize(u.len(), [0.0; NL]);
         x
     }
 
@@ -928,7 +990,11 @@ impl<'a> Problem<'a> {
     fn update(&self, m: &mut Multipliers, plan: &Plan) {
         let n = plan.u.len();
         for k in 0..n {
-            for (p, (c, _)) in self.clearances(&plan.x[k], plan.u[k]).iter().enumerate() {
+            for (p, (c, _)) in self
+                .clearances(k, n, &plan.x[k], plan.u[k])
+                .iter()
+                .enumerate()
+            {
                 let l = &mut m.walls[k][p];
                 *l = (*l + m.rho * (self.opts.margin - c)).max(0.0);
             }

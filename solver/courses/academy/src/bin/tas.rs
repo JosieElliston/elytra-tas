@@ -22,8 +22,10 @@ use std::process::ExitCode;
 
 use etas::course::Course;
 use etas::plan::{Plan, plan_from, verify_paths};
-use etas::solve::bounces::{SCALE, flight, fly, state_at};
-use etas::solve::ddp::{Goal, Opts, Plan as DPlan, Problem, Rate, U, X, control, lead_of};
+use etas::solve::bounces::{FREE_VELOCITY, SCALE, flight, fly, state_at};
+use etas::solve::ddp::{
+    Goal, Opts, Plan as DPlan, Problem, Rate, U, X, control, lead_of, server_hits,
+};
 use etas::solve::refly::track;
 use etas::solve::smooth::{DELTA, WINDOWS, smooth_pass};
 use etas::solve::stretch::resample;
@@ -57,6 +59,12 @@ const SEED_PITCH_CAP: f64 = 89.0;
 const SMOOTH: [(f64, f64); 3] = [(1.0, DELTA), (0.1, DELTA), (0.1, 0.5)];
 /// The clearance a smoothing solve is taken at, short of `MARGIN`.
 const LOOSE: f64 = 0.003;
+/// Clearing [`Opts::server`]'s hits: windows, what's kept of a pin and of the margin.
+const SERVER_WINDOWS: [(usize, usize); 5] = [(40, 15), (100, 95), (30, 5), (30, 20), (60, 30)];
+const SERVER_TOL: f64 = 1e-3;
+/// How far back to try letting go of the tail's end velocity from, in ticks.
+const TAILS: [usize; 4] = [15, 25, 40, 70];
+const SERVER_LOOSE: f64 = 0.015;
 
 fn finish_goal(course: &Course, cap: usize) -> Result<Goal, String> {
     let f = &course.region("finish")?.working;
@@ -245,12 +253,60 @@ fn run() -> Result<bool, String> {
         rest.rows[deploy - 1].input.yaw.to_radians(),
         rest.rows[deploy - 1].input.pitch.to_radians(),
     ]);
+    // the server's hits first, unpriced: a price holds a window on its hit, and these solves
+    // stop about 3e-4 blocks short of their pin, which the tracker takes up. why not 1e-6? they
+    // never get there, whatever the schedule or restarts.
+    let repair = Opts {
+        server: true,
+        tol: SERVER_TOL,
+        ..opts(MARGIN)
+    };
+    for (w, off) in SERVER_WINDOWS {
+        let (new, kept) = smooth_pass(&walls, &plan, w, off, &repair, SERVER_LOOSE);
+        if exit_of(&new) >= exit {
+            plan = new;
+        }
+        println!(
+            "server window {w} {off}: kept {kept}, hits {:?}",
+            server_hits(&walls, &plan.x)
+        );
+    }
+    // the tail ends on the floor heading down, so its last hits need that velocity let go;
+    // it's past the finish by then, and a hit left in it would reject every window over it
+    let n = plan.u.len();
+    for a in TAILS.map(|back| n - back) {
+        let q = Problem {
+            kernel: pb.kernel,
+            walls: &walls,
+            x0: plan.x[a],
+            goal: Goal::Reach {
+                target: plan.x[n],
+                scale: FREE_VELOCITY,
+            },
+            opts: repair.clone(),
+        };
+        let s = q.solve(&plan.u[a..n]);
+        let judge = Problem {
+            opts: Opts {
+                margin: MARGIN - SERVER_LOOSE,
+                ..q.opts.clone()
+            },
+            ..q.clone()
+        };
+        if judge.feasible(&s.plan) {
+            plan.u[a..n].copy_from_slice(&s.plan.u);
+            plan.x[a + 1..=n].copy_from_slice(&s.plan.x[1..]);
+            println!("tail from {a}: hits {:?}", server_hits(&walls, &plan.x));
+            break;
+        }
+    }
     for (weight, delta) in SMOOTH {
         let priced = Opts {
             rate: Rate {
                 from,
                 ..Rate::new(weight, delta)
             },
+            server: true,
             ..opts(MARGIN)
         };
         for (w, off) in WINDOWS {
@@ -261,18 +317,22 @@ fn run() -> Result<bool, String> {
         }
         let t = pb.travel(&plan.x, &plan.u);
         println!(
-            "smooth {weight} {delta}: yaw {:.0}>{:.0} pitch {:.0}>{:.0}, exit {:?}",
+            "smooth {weight} {delta}: yaw {:.0}>{:.0} pitch {:.0}>{:.0}, exit {:?}, server hits {:?}",
             before[0],
             t[0],
             before[1],
             t[1],
-            exit_of(&plan)
+            exit_of(&plan),
+            server_hits(&walls, &plan.x)
         );
     }
 
     // faithful, from rest
     let tracker = Problem {
-        opts: opts(0.004),
+        opts: Opts {
+            server: true,
+            ..opts(0.004)
+        },
         ..pb.clone()
     };
     let yaw_from = start.y_rot;
@@ -328,10 +388,28 @@ fn run() -> Result<bool, String> {
             .first()
             .map_or(String::new(), |e| format!(": {e}"))
     );
+    // what the server would do to the flight itself: its copy hitting a wall comes back as
+    // a velocity that throws the client off the plan. Not the prefix, whose bounce is planned,
+    // nor from the finish on.
+    let flown: Vec<X> = traj
+        .rows
+        .iter()
+        .map(|r| {
+            let (p, v) = (r.state.position, r.state.delta_movement);
+            [p[0], p[1], p[2], v[0], v[1], v[2]]
+        })
+        .collect();
+    let finish = report.finish_tick().unwrap_or(flown.len());
+    let hits: Vec<_> = server_hits(&walls, &flown)
+        .into_iter()
+        .map(|(i, c)| (traj.rows[i].t, c))
+        .filter(|&(t, _)| t > deploy && t < finish)
+        .collect();
+    println!("server hits flown, deploy to finish: {hits:?}");
     let file = out.join("academy.tas");
     std::fs::write(&file, plan.write()).map_err(|e| e.to_string())?;
     let read = Plan::read(&file)?;
-    let mut ok = report.ok();
+    let mut ok = report.ok() && hits.is_empty();
     for (p, r) in verify_paths(&course, &world, &read) {
         let timed = r.timer_tick().zip(r.finish_tick()).map(|(s, f)| f - s);
         println!(

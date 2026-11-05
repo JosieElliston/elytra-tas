@@ -2,7 +2,7 @@
 //! goal plane slanted toward the wall, so the fastest way there leans on it), and the
 //! swept-leg distance its wall constraints use.
 
-use etas::solve::ddp::{Goal, Multipliers, Opts, Problem, Rate, U, X, control};
+use etas::solve::ddp::{Goal, Multipliers, Opts, Problem, Rate, U, X, control, server_hits};
 use etas::solve::refly::refly;
 use etas::solve::walls::Walls;
 use sim::generic::Generic;
@@ -98,6 +98,19 @@ fn beats_straight_seed_and_clears_the_wall_under_faithful() {
     assert!((ft - time).abs() < 1e-2, "faithful {ft} vs generic {time}");
 }
 
+#[test]
+fn the_servers_box_is_where_the_velocity_would_carry_it() {
+    let (w, ..) = toy();
+    let walls = walls(&w);
+    // the wall's face is at 3.0 and the box reaches 0.3 past the feet
+    let hit = [2.0, 100.0, 10.0, 0.9, 0.0, 0.0];
+    let clear = [2.0, 100.0, 10.0, 0.5, 0.0, 0.0];
+    let hits = server_hits(&walls, &[clear, hit]);
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].0, 1);
+    assert!((hits[0].1 + 0.2).abs() < 1e-6, "{hits:?}");
+}
+
 /// A control schedule near the wall, away from the kernel's kinks.
 fn wavy(n: usize) -> Vec<U> {
     (0..n)
@@ -138,8 +151,8 @@ fn gradient_through_a_rollout_matches_finite_differences() {
     };
     let plane = pb.goal.clone();
     let rates = [
-        (plane.clone(), Rate::default()),
-        (reach, Rate::default()),
+        (plane.clone(), Rate::default(), false),
+        (reach.clone(), Rate::default(), false),
         (
             plane,
             Rate {
@@ -148,11 +161,14 @@ fn gradient_through_a_rollout_matches_finite_differences() {
                 from: Some([0.3, -0.2]),
                 to: Some([-0.1, 0.4]),
             },
+            false,
         ),
+        (reach, Rate::default(), true),
     ];
-    for (goal, rate) in rates {
+    for (goal, rate, server) in rates {
         pb.goal = goal;
         pb.opts.rate = rate;
+        pb.opts.server = server;
         let (j, g) = pb.gradient(&m, &u);
         let active = (0..n).any(|k| pb.worst(&x[k..k + 2], &u[k..k + 1]) < pb.opts.margin);
         assert!(active, "the walls should be active somewhere");

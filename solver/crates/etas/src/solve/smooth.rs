@@ -17,8 +17,8 @@ pub const DELTA: f64 = 0.087;
 pub const WINDOWS: [(usize, usize); 6] = [(40, 0), (40, 20), (25, 12), (60, 30), (25, 0), (40, 10)];
 
 /// One pass of windows of `w` ticks, the first cut at `off`, priced at `opts.rate`: each piece
-/// flown between the plan's own states in the same ticks. A piece is kept if it solves at a lower
-/// price, its clearance judged at `opts.margin - loose`. The last piece ends on the plan's last
+/// flown between the plan's own states in the same ticks. A piece is kept if it's clear, judged
+/// at `opts.margin - loose`, and either solves at a lower price or replaces one that wasn't clear. The last piece ends on the plan's last
 /// state, so a finish crossed there is crossed the same. `opts.rate.from` prices the first tick.
 ///
 /// The change into a piece and out of it are both priced, against its neighbors' rotations.
@@ -78,15 +78,16 @@ pub fn smooth_pass(
                 let s = pb.solve(seed);
                 let lower =
                     pb.rate_price(&s.plan.x, &s.plan.u) < pb.rate_price(&out.x[a..=b], seed);
-                let clear = Problem {
+                let judge = Problem {
                     opts: Opts {
                         margin: opts.margin - loose,
                         ..pb.opts.clone()
                     },
                     ..pb.clone()
-                }
-                .feasible(&s.plan);
-                (clear && lower).then_some((a, b, s.plan))
+                };
+                let clear = judge.feasible(&s.plan);
+                let was_clear = judge.worst(&out.x[a..=b], seed) >= judge.opts.margin - 1e-9;
+                (clear && (lower || !was_clear)).then_some((a, b, s.plan))
             })
             .collect();
         kept += pieces.len();

@@ -292,6 +292,13 @@ gives false contradictions.
   were knockback. The client applies it on arrival, so with ping it replaces the
   velocity of a later tick. Alpine log: 24 of 36 such hits echoed (the misses fit the
   10-tick damage cooldown), 4 of 21 smaller ones. A physics replay has to apply it.
+- **A plan can hit a wall only on the server.** The server's copy moves from the pose you
+  just sent by its own velocity, about `p_t + v_t`, where you fly to `p_t + v_(t+1)`, so in a
+  turn past a corner its box can hit what yours clears. A smaller loss is silent: that axis of
+  its velocity zeroes and stays wrong, so later hits vary by attempt. Creative takes no damage
+  and gets no echo, so singleplayer won't show it unless you read the `X` records. Academy's
+  aborts of 2026-11-05 02:39 were this, at plan ticks 267, 584 and 617. `Opts::server` keeps
+  that box clear; `tas` prints any hit left.
 - **Timer** is wall-clock time between the "Timer started!" and "Course complete!"
   server ticks, rounded to 0.02 s: five identical 647-tick runs gave 32.34 or 32.36
   depending on whether that interval was under or over 32.35 s.

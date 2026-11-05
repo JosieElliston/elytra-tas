@@ -294,6 +294,11 @@ public final class Playback {
             stop("sent to hub");
             return;
         }
+        // why? creative flight sits still at the start pose, looks ready, and flies line 2 off the plan
+        if (phase != Phase.PLAY && p.getAbilities().flying) {
+            stop("creative flight is on: land, then play again");
+            return;
+        }
 
         switch (phase) {
             case RESET -> {
