@@ -105,6 +105,28 @@ fn keep_and_clip_remove_blocks() {
 }
 
 #[test]
+fn barriers_are_hidden_unless_asked_for() {
+    let mut w = small();
+    w.set(p(0, 2, 0), "minecraft:stone");
+    w.set(p(0, 5, 0), "minecraft:barrier");
+    let s = Scene::with_jar(&w, None).unwrap();
+    let height = |style: &WorldStyle| down(&s, style, 0.5, 0.5).unwrap();
+    assert!((height(&WorldStyle::new().collision()) - 3.0).abs() < 1e-6);
+    assert!((height(&WorldStyle::new().collision().show_barriers()) - 6.0).abs() < 1e-6);
+    // translucent when shown, so a visual ray goes on to the stone either way
+    assert!((height(&WorldStyle::new()) - 3.0).abs() < 1e-6);
+    assert!((height(&WorldStyle::new().show_barriers()) - 3.0).abs() < 1e-6);
+    // a clip through a hidden barrier doesn't hatch it
+    let top = |style: WorldStyle| {
+        let mut f = s.frame(&Camera::top(&[[-4.0, 0.0, -4.0], [4.0, 0.0, 4.0]]), 64, 64);
+        f.style(style.below_y(5.5));
+        f.samples(1);
+        f.finish()
+    };
+    assert!(top(WorldStyle::new()).rgba == top(WorldStyle::new().keep(|q, _| q.y != 5)).rgba);
+}
+
+#[test]
 fn trench_cuts_down_to_the_lowest_pass() {
     let m = CellMask::trench(&[[0.5, 50.0, 0.5], [1.5, 10.0, 0.5]], 3.0, 2.0);
     assert!(m.not_above(p(0, 12, 0)));

@@ -33,7 +33,8 @@
 //! them: entities (boats, shulkers) and biome colors (tints are plains' constants).
 //! Block entities whose model has no geometry (chests, beds, shulker boxes) are their
 //! collision boxes in their particle texture; one with neither a model nor collision
-//! doesn't appear.
+//! doesn't appear. Barriers are hidden unless a style asks for them
+//! ([`WorldStyle::show_barriers`]), and they still collide.
 
 // colors and axes are fixed-size arrays indexed together
 #![allow(clippy::needless_range_loop)]

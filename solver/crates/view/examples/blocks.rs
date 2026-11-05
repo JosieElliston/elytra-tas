@@ -75,8 +75,8 @@ fn main() -> Result<(), String> {
     for (name, cam, style) in [
         ("orientations: stairs, top stairs, furnace, trapdoor, ladder, door; N E S W, x grows right. from the south", Camera::fit(&orient).from(180.0, 35.0).fov(35.0).margin(10.0), WorldStyle::new().desaturate(0.0)),
         ("shapes: logs xyz, slabs, fences, walls, plants, chest, sign", Camera::fit(&shapes).from(180.0, 35.0).fov(35.0).margin(10.0), WorldStyle::new().desaturate(0.0)),
-        ("glass, stained glass, barrier, pane, vine, bell, lantern, torches, fluids", Camera::fit(&clear).from(205.0, 35.0).fov(35.0).margin(10.0), WorldStyle::new().desaturate(0.0)),
-        ("collision", Camera::fit(&pts).from(150.0, 40.0).fov(35.0), WorldStyle::new().collision().desaturate(0.0)),
+        ("glass, stained glass, barrier, pane, vine, bell, lantern, torches, fluids", Camera::fit(&clear).from(205.0, 35.0).fov(35.0).margin(10.0), WorldStyle::new().show_barriers().desaturate(0.0)),
+        ("collision", Camera::fit(&pts).from(150.0, 40.0).fov(35.0), WorldStyle::new().collision().show_barriers().desaturate(0.0)),
         ("cut at y=1.5 with a clip", Camera::fit(&orient).from(180.0, 55.0).fov(35.0).margin(10.0), WorldStyle::new().below_y(1.5).desaturate(0.0)),
     ] {
         let mut f = scene.frame(&cam, 1200, 760);

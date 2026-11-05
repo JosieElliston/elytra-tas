@@ -281,6 +281,9 @@ impl<'a> Tracer<'a> {
 
     #[inline]
     fn kept(&self, x: i32, y: i32, z: i32, st: u16) -> bool {
+        if self.style.barriers.is_none() && self.s.baked[st as usize].barrier {
+            return false;
+        }
         match &self.style.keep {
             Some(k) => k(BlockPos { x, y, z }, self.s.world.info(st as u32)),
             None => true,

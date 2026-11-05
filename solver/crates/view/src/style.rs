@@ -25,6 +25,9 @@ pub struct WorldStyle<'a> {
     pub(crate) clips: Vec<([f64; 3], f64)>,
     pub(crate) keep: Option<Keep<'a>>,
     pub(crate) tint: Option<Tint<'a>>,
+    /// None hides barriers, in collision views too. why by default? many maps sit in a
+    /// hull of them, which would tint every view and roof every collision view. Hidden
+    /// ones still collide: open space in a picture doesn't mean a run can fly there.
     pub barriers: Option<Color>,
     pub unknown: Option<Color>,
     pub background: Color,
@@ -44,7 +47,7 @@ impl Default for WorldStyle<'_> {
             clips: Vec::new(),
             keep: None,
             tint: None,
-            barriers: Some(Color::rgba(0.95, 0.12, 0.18, 0.28)),
+            barriers: None,
             unknown: None,
             background: Color::hex(0xB9CAD8),
             fog: None,
@@ -114,6 +117,11 @@ impl<'a> WorldStyle<'a> {
     pub fn barriers(mut self, c: Option<Color>) -> Self {
         self.barriers = c;
         self
+    }
+
+    /// Draw barriers: tinted faces, or their solid boxes in a collision view.
+    pub fn show_barriers(self) -> Self {
+        self.barriers(Some(Color::rgba(0.95, 0.12, 0.18, 0.28)))
     }
 
     /// Fill unknown space (what `verify` rejects) with this translucent color, per cell.

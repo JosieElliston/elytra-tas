@@ -425,6 +425,8 @@ pub struct SheetOptions {
     /// Frame this tick range.
     pub ticks: Option<(usize, usize)>,
     pub collision: bool,
+    /// Draw barriers, which are hidden otherwise. They collide either way.
+    pub barriers: bool,
     /// Join ticks with the physics' L-shaped move.
     pub l_step: bool,
     /// Pixels per panel.
@@ -443,6 +445,7 @@ impl Default for SheetOptions {
         SheetOptions {
             ticks: None,
             collision: false,
+            barriers: false,
             l_step: false,
             width: 1100,
             height: 720,
@@ -597,6 +600,9 @@ pub fn sheet(scene: &Scene, c: Option<&Course>, runs: &[SheetRun], o: &SheetOpti
         if o.collision {
             style = style.collision();
         }
+        if o.barriers {
+            style = style.show_barriers();
+        }
         if keep_slice {
             style.keep(|p, _| backdrop.keeps(p))
         } else {
@@ -649,7 +655,8 @@ pub fn sheet(scene: &Scene, c: Option<&Course>, runs: &[SheetRun], o: &SheetOpti
     let (persp, seen) = tools::clearest_view(scene, &framed, &make_style(false), o.width, o.height, 50.0);
     // the text gets its own strip, so it can't cover the start of a run
     let lines: Vec<String> = runs.iter().map(summary).collect();
-    let text = format!("{}\n{}", lines.join("\n"), EVENTS_LEGEND);
+    let barriers = if o.barriers { "" } else { "\nbarriers hidden, but they still collide" };
+    let text = format!("{}\n{}{barriers}", lines.join("\n"), EVENTS_LEGEND);
     let header = {
         let height = text.lines().count() as u32 * 17 + 14;
         let mut f = scene.frame(&Camera::look_at([0.0; 3], [0.0, 0.0, 1.0]), o.width, height);
