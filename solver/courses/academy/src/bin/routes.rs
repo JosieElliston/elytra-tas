@@ -10,10 +10,13 @@
 //!   crossings; writes the best whole flights as `runs/hybrid/SET_N.traj.jsonl` for
 //!   `optimize --hybrid`.
 //!
+//! - `flat`: `forward` with no tables, each stretch reaching its gate soonest, as
+//!   `runs/hybrid/SET_flat_N`. why? a table's read didn't rank flights: academy's forecast best
+//!   polished to 552 and one near its worst to 540 (2026-11-05).
 //! - `start`: `tools/start_states.py`'s states against the first gate's table, with the ticks before
 //!   the timer free.
 //!
-//! `cargo run --release -p academy --bin routes -- SET tables|forward|start [FLIGHT]`
+//! `cargo run --release -p academy --bin routes -- SET tables|forward|flat|start [FLIGHT]`
 
 use std::collections::BinaryHeap;
 use std::path::Path;
@@ -63,8 +66,12 @@ const WORTH: f64 = 0.01;
 /// The most a cell reads over a neighbor, ticks. A cell's own answer can be poor as easily as the
 /// cell is: 90 ticks apart on academy's `t487`, with neighbors within a few.
 const STEP_LIMIT: f64 = 6.0;
-const BEAM: usize = 4;
+const BEAM: usize = 24;
+/// The most of a beam that may share a stretch's route.
+const PER_ROUTE: usize = 6;
 const COAST: usize = 5;
+/// Routes a beam entry goes on by.
+const BRANCH: usize = 5;
 
 #[derive(Deserialize)]
 struct GateJ {
@@ -823,6 +830,7 @@ fn forward(
     course: &Course,
     world: &World,
     flight_name: &str,
+    flat: bool,
 ) -> Result<(), String> {
     let out = dir.join("runs/routes").join(name);
     let file = dir.join(format!("runs/{flight_name}.traj.jsonl"));
@@ -833,6 +841,11 @@ fn forward(
         .ok_or("the flight never leaves the start area")?;
     let x0 = flight(state_at(&rec, exit));
     println!("from {flight_name}, tick {exit}: {x0:?}");
+    let tag = if flat {
+        format!("{name}_flat")
+    } else {
+        name.to_string()
+    };
     let mut beam = vec![Partial {
         x: vec![x0],
         u: Vec::new(),
@@ -840,14 +853,27 @@ fn forward(
         predicted: 0.0,
     }];
     for i in 0..set.segments.len() {
-        let next = if i + 1 < set.gates.len() {
+        let next = if i + 1 >= set.gates.len() {
+            None
+        } else if flat {
+            // one cell: just the gate, soonest
+            Some(Arc::new(ValueTable {
+                gate: set.gates[i + 1].gate(),
+                nodes: std::array::from_fn(|_| vec![0.0]),
+                values: vec![0.0],
+            }))
+        } else {
             let done = load(&out.join(format!("seg_{}.json", i + 1)))?.ok_or("run tables first")?;
             Some(Arc::new(table_of(&set.gates[i + 1], &done)))
-        } else {
-            None
         };
         let st = stretch(world, course, set, i, next)?;
-        let mine = load(&out.join(format!("seg_{i}.json")))?.ok_or("run tables first")?;
+        let classes = if flat {
+            Vec::new()
+        } else {
+            load(&out.join(format!("seg_{i}.json")))?
+                .ok_or("run tables first")?
+                .classes
+        };
         let t0 = Instant::now();
         let mut found: Vec<(String, f64, Partial)> = beam
             .par_iter()
@@ -855,8 +881,7 @@ fn forward(
                 let s = *b.x.last().unwrap();
                 let flown = b.u.len() as f64;
                 // the table's seeds and every route's
-                let mut got: Vec<(String, f64, Plan)> = mine
-                    .classes
+                let mut got: Vec<(String, f64, Plan)> = classes
                     .par_iter()
                     .filter_map(|c| solve_from(&st, s, &c.u).map(|(v, p)| (c.label.clone(), v, p)))
                     .collect();
@@ -865,7 +890,7 @@ fn forward(
                         .into_iter()
                         .filter_map(|(l, b, _, _)| b.map(|(v, p)| (l, v, p))),
                 );
-                let got = distinct(got, BEAM);
+                let got = distinct(got, BRANCH);
                 got.into_iter()
                     .map(|(l, v, p)| {
                         let mut n = b.clone();
@@ -879,6 +904,14 @@ fn forward(
             })
             .collect();
         found.sort_by(|a, b| a.1.total_cmp(&b.1));
+        // no route takes the whole beam. why? a table's read is too rough to rank by (a stitched flight
+        // polishes about 100 ticks shorter, by unequal amounts), so what's kept is variety for `optimize`
+        let mut per_route = std::collections::HashMap::<String, usize>::new();
+        found.retain(|f| {
+            let n = per_route.entry(f.0.clone()).or_default();
+            *n += 1;
+            *n <= PER_ROUTE
+        });
         found.truncate(BEAM);
         let seg = &set.segments[i];
         println!(
@@ -936,8 +969,8 @@ fn forward(
             arrivals: Vec::new(),
             rows,
         };
-        traj.write(&dir_h.join(format!("{name}_{k}.traj.jsonl")))?;
-        println!("{name}_{k}: {:.2} timed, {:?}", b.predicted, b.labels);
+        traj.write(&dir_h.join(format!("{tag}_{k}.traj.jsonl")))?;
+        println!("{tag}_{k}: {:.2} timed, {:?}", b.predicted, b.labels);
     }
     Ok(())
 }
@@ -1055,9 +1088,9 @@ fn run() -> Result<(), String> {
     let (course, world) = Course::load(dir)?;
     match phase.as_str() {
         "tables" => tables(dir, name, &set, &course, &world),
-        "forward" => {
+        "forward" | "flat" => {
             let f = args.get(2).map_or("relax/fullrange2", |s| s.as_str());
-            forward(dir, name, &set, &course, &world, f)
+            forward(dir, name, &set, &course, &world, f, phase == "flat")
         }
         "start" => start(dir, name, &set, &world),
         p => Err(format!("{p}?")),

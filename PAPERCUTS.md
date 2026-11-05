@@ -80,6 +80,13 @@ missing tools / poorly configured tools / missing docs / general frictions / gen
   route, with a plan that also hits on `p_t + v_t` (2026-11-05). So `runs/tas/academy.tas`, as flown
   (17 of 25, 26.84-26.86 s), is from f2dd3cf, which holds only `p_t + v_t`. Not proof: nothing tried
   spending ticks or another route.
+- **A seed inside a wall stays there.** Pure pursuit seeds along a route all failed at clearance -0.2 to
+  -0.7, whatever the price (2026-11-05), so `routes` uses `guided`, which looks ahead and won't hit
+  anything. A solve's `Stage` still doesn't say it's stuck.
+- **A table's read doesn't rank flights.** Academy's forecast best polished to 552 and one near its worst
+  to 540, and a stitched flight's own time, 620 to 656, doesn't either (2026-11-05). `optimize --hybrid`
+  takes 2 to 5 minutes a flight, so polish and compare. Tables gained about 2 ticks over none, for hours
+  of compute.
 - **`first_plan` can't always seed a splice.** 12 of 15 route hybrids failed with `last piece:
   clearance -0.5`, since a failed piece merges forward until the whole tail is one solve. So those
   routes are untested, not slower: both z = 178 x = -23 classes among them.

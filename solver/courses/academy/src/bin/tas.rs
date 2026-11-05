@@ -15,7 +15,9 @@
 //!
 //! Writes `runs/tas/academy.tas`, the plan to copy to `<profile>/elytra-tas/plans/`.
 //!
-//! `cargo run --release -p academy --bin tas -- FLIGHT_NAME [PREFIX_TAPE]`
+//! `OUT_DIR` under `runs/`, for trying a flight without replacing the plan in `runs/tas`.
+//!
+//! `cargo run --release -p academy --bin tas -- FLIGHT_NAME [PREFIX_TAPE [OUT_DIR]]`
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -373,7 +375,7 @@ fn run() -> Result<bool, String> {
     if let Some((t, u)) = stopped {
         return Err(format!("port stopped at {t}: {u:?}"));
     }
-    let out = dir.join("runs/tas");
+    let out = dir.join("runs").join(std::env::args().nth(3).unwrap_or("tas".to_string()));
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
     traj.write(&out.join("academy.traj.jsonl"))?;
 
