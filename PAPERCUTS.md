@@ -56,10 +56,10 @@ missing tools / poorly configured tools / missing docs / general frictions / gen
 
 ### Smoothing and routes (2026-11-05)
 
-- **A whole-run solve can't take a rate price.** On academy, weight 1 moved rotation travel by
-  under 1%: every stage spent its iterations on steps that barely change the cost. The same price
-  on windows pinned at both ends cut yaw travel about a third, at no cost in time. `optimize
-  --relax` uses windows for this reason.
+- **A whole-run solve takes a rate price poorly.** On academy, weight 1 cut yaw travel 9% (2544 to
+  2325) and pitch 13%, then lower weights moved it about 1% more, most stages accepting no step.
+  The same price on windows pinned at both ends cut both about a third, at no cost in time.
+  `optimize --relax` uses windows for this reason.
 - **`first_plan` can't always seed a splice.** 12 of 15 route hybrids failed with `last piece:
   clearance -0.5`, since a failed piece merges forward until the whole tail is one solve. So those
   routes are untested, not slower: both z = 178 x = -23 classes among them.
