@@ -11,7 +11,8 @@
 //! - The rest: the flight's own states as targets for `refly::track`, flown with port from
 //!   rest, then `plan_from`.
 //! - The early glide-off: a `@branch` for a glide-off two ticks after the prefix's landing,
-//!   which singleplayer always sends. why a branch? jump is held for the bounce the tick before,
+//!   as all 5 landings of the first singleplayer attempts got (2026-11-05 00:27 EST; other
+//!   singleplayer logs also show 1 and 3, or none). why a branch? jump is held for the bounce the tick before,
 //!   so pressing it has no edge and `@react` can't answer; the branch flies the tick unglided,
 //!   redeploys, and rejoins the main line. `verify_paths` then checks every path.
 //!
