@@ -52,7 +52,7 @@ missing tools / poorly configured tools / missing docs / general frictions / gen
 - **A PASS doesn't say which glide-off delays a plan survives.** `etas verify` passed the first
   plan with `@react 24 29` for a landing at 21, and a singleplayer glide-off 2 ticks after the landing
   aborted it on line 23 (2026-11-05 00:27 EST; other singleplayer logs show 1 to 3 ticks, or none). `verify` could print "delays covered: 3..8, aborts on 2" beside
-  the PASS. `tas` now adds a branch for delay 2.
+  the PASS. To test a plan's main line there, `/etas play hold_glide=1`.
 
 ### Docs and tools
 

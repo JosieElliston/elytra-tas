@@ -16,7 +16,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.stream.Stream;
 
-/** {@code /etas play <plan> [runs=N] [settle=T] [maxfail=K]}, {@code /etas stop}, {@code /etas status}. */
+/** {@code /etas play <plan> [runs=N] [settle=T] [maxfail=K] [hold_glide=1]}, {@code /etas stop}, {@code /etas status}. */
 public final class PlayCommand {
     private PlayCommand() {
     }
@@ -24,7 +24,7 @@ public final class PlayCommand {
     public static void register(CommandDispatcher<FabricClientCommandSource> dispatcher) {
         LiteralArgumentBuilder<FabricClientCommandSource> play = ClientCommands.literal("play")
                 .executes(c -> {
-                    c.getSource().sendFeedback(Component.literal("usage: /etas play <plan> [runs=N] [settle=T] [maxfail=K]; plans are "
+                    c.getSource().sendFeedback(Component.literal("usage: /etas play <plan> [runs=N] [settle=T] [maxfail=K] [hold_glide=1: singleplayer test only]; plans are "
                             + "<name>.tas in " + Playback.dir(c.getSource().getClient())));
                     return 1;
                 })
@@ -66,15 +66,22 @@ public final class PlayCommand {
             }
             String key = eq < 0 ? opt : opt.substring(0, eq);
             if (v < 0 || (v == 0 && !key.equals("runs"))) {
-                src.sendError(Component.literal("etas play: bad option " + opt + " (runs=N, settle=T, maxfail=K)"));
+                src.sendError(Component.literal("etas play: bad option " + opt + " (runs=N, settle=T, maxfail=K, hold_glide=1)"));
                 return 0;
             }
             switch (key) {
-                case "runs" -> o = new Playback.Options(v, o.settle(), o.maxFail());
-                case "settle" -> o = new Playback.Options(o.runs(), v, o.maxFail());
-                case "maxfail" -> o = new Playback.Options(o.runs(), o.settle(), v);
+                case "runs" -> o = new Playback.Options(v, o.settle(), o.maxFail(), o.holdGlide());
+                case "settle" -> o = new Playback.Options(o.runs(), v, o.maxFail(), o.holdGlide());
+                case "maxfail" -> o = new Playback.Options(o.runs(), o.settle(), v, o.holdGlide());
+                case "hold_glide" -> {
+                    if (v != 1) {
+                        src.sendError(Component.literal("etas play: bad option " + opt + " (hold_glide=1)"));
+                        return 0;
+                    }
+                    o = new Playback.Options(o.runs(), o.settle(), o.maxFail(), true);
+                }
                 default -> {
-                    src.sendError(Component.literal("etas play: unknown option " + opt + " (runs=N, settle=T, maxfail=K)"));
+                    src.sendError(Component.literal("etas play: unknown option " + opt + " (runs=N, settle=T, maxfail=K, hold_glide=1)"));
                     return 0;
                 }
             }

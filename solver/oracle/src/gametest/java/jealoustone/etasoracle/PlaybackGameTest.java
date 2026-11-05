@@ -755,7 +755,13 @@ public final class PlaybackGameTest implements FabricClientGameTest {
                 "(b) without reactions: " + (b0 == null ? "no attempt" : describe(b0) + "; glide-offs before lines " + b0.glideOffs())
                         + "; first landing " + first);
 
-        // with them, several runs
+        // the mod's own hold: the same plan flies with no glide-off to react to
+        Playback.Status c1 = play(context, sp, "etas play ebounce-bare runs=1 maxfail=1 hold_glide=1", lines, 2000, null);
+        Playback.Attempt b1 = c1.history().isEmpty() ? null : c1.history().getFirst();
+        check(b1 != null && b1.ok() && b1.divergences() == 0 && b1.glideOffs().isEmpty(),
+                "(b) hold_glide without reactions: " + (b1 == null ? "no attempt" : describe(b1) + "; glide-offs before lines " + b1.glideOffs()));
+
+        // with them, several runs (which also shows the hold is gone: they need the vanilla glide-off)
         Path log = startLog(context);
         Playback.Status s = play(context, sp, "etas play ebounce runs=" + runs + " maxfail=2", lines, (lines + 80) * (runs + 2), null);
         Path kept = keepLog(context, log, out.resolve("ebounce.log.tsv.gz"));

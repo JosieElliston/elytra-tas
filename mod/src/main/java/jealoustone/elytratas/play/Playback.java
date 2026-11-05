@@ -9,6 +9,7 @@ import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.client.player.ClientInput;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Input;
 import net.minecraft.world.phys.Vec2;
@@ -63,9 +64,16 @@ public final class Playback {
 
     public enum Phase { IDLE, RESET, SETTLE, PLAY }
 
-    /** runs 0 = until stopped; settle = still ticks at the start before line 1; maxFail = failed attempts in a row before stopping. */
-    public record Options(int runs, int settle, int maxFail) {
+    /**
+     * runs 0 = until stopped; settle = still ticks at the start before line 1; maxFail = failed attempts in a row before
+     * stopping. holdGlide is a test hack, never for a real run: see {@link #holdsGlide}.
+     */
+    public record Options(int runs, int settle, int maxFail, boolean holdGlide) {
         public static final Options DEFAULT = new Options(0, 10, 3);
+
+        public Options(int runs, int settle, int maxFail) {
+            this(runs, settle, maxFail, false);
+        }
     }
 
     /**
@@ -87,7 +95,8 @@ public final class Playback {
                          String segment) {
     }
 
-    private static Phase phase = Phase.IDLE;
+    /** Volatile: {@link #holdsGlide} reads it on the integrated server's thread. */
+    private static volatile Phase phase = Phase.IDLE;
     private static Plan plan;
     private static Options opts = Options.DEFAULT;
     private static LocalPlayer player;
@@ -126,6 +135,17 @@ public final class Playback {
         return mc.gameDirectory.toPath().resolve("elytra-tas").resolve("plans");
     }
 
+    /**
+     * Integrated server's thread: whether to keep this player's glide through a landing,
+     * which is what port models, so a plan's main line flies with no glide-off to react to.
+     * A test hack: {@link #start} refuses it outside an unpublished singleplayer world, and
+     * only the attempt itself holds, since a reset has to wait for the glide flag to clear.
+     */
+    public static boolean holdsGlide(ServerPlayer p) {
+        LocalPlayer local = player;
+        return phase == Phase.PLAY && opts.holdGlide() && local != null && p.getUUID().equals(local.getUUID());
+    }
+
     public static boolean active() {
         return phase != Phase.IDLE;
     }
@@ -143,6 +163,10 @@ public final class Playback {
         if (p == null || mc.gameMode == null || mc.getConnection() == null) return "not in a world";
         String user = mc.getUser().getName();
         boolean singleplayer = mc.getSingleplayerServer() != null;
+        // why? the hold is nonvanilla movement on the server: only ever on our own unpublished world
+        if (o.holdGlide() && (!singleplayer || mc.getSingleplayerServer().isPublished())) {
+            return "hold_glide is for testing in an unpublished singleplayer world only";
+        }
         if (!accountAllowed(user, singleplayer)) return "refusing to drive " + user
                 + ": playback only drives " + ALT + " in multiplayer, or lqmbda in singleplayer (AGENTS.md)";
         // why? plans come from port, which has no double-tap sprint; another window can sprint a tape's W presses
@@ -190,10 +214,11 @@ public final class Playback {
         NetLog.playback("start", "plan=" + stem, "lines=" + pl.lastTick, "reactions=" + pl.reactions.size(),
                 "tol=" + pl.tol, "runs=" + o.runs(), "settle=" + o.settle(), "maxfail=" + o.maxFail(),
                 "format=" + pl.format(), "segments=" + pl.segments.size(), "branches=" + pl.branchCount,
-                "tick_lines=" + pl.tickLines, "velocity_tol=" + pl.velocityTol);
+                "tick_lines=" + pl.tickLines, "velocity_tol=" + pl.velocityTol, "hold_glide=" + (o.holdGlide() ? 1 : 0));
         say("playing " + stem + ": " + pl.lastTick + " ticks, " + pl.reactions.size() + " reactions"
                 + (pl.segments.size() > 1 ? ", " + pl.segments.size() + " segments, " + pl.branchCount + " branches" : "")
                 + ", tolerance " + pl.tol
+                + (o.holdGlide() ? " (hold_glide: test only, the server keeps the glide, not a real run)" : "")
                 + (NetLog.active() ? "" : " (the logger is off: nothing is recorded)") + ". The keyboard and mouse don't move you; /etas stop.");
         beginAttempt(mc);
         return null;
@@ -513,8 +538,8 @@ public final class Playback {
         if (ok) {
             done++;
             fails = 0;
-            say(String.format("run %d ok (%s), %d divergent ticks, max %.2e, %d reactions", done, finishText, divergences,
-                    maxDev, reactions.size()));
+            say(String.format("run %d ok (%s), %d divergent ticks, max %.2e, %d reactions%s", done, finishText, divergences,
+                    maxDev, reactions.size(), opts.holdGlide() ? " (hold_glide: test only)" : ""));
         } else {
             fails++;
             say("attempt " + attempt + " failed: " + reason);

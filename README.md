@@ -167,6 +167,12 @@ While it plays, keys and mouse don't move you. The logger records it as `P` reco
   segment ending where a branch waited for an event that never came ("missing"). After
   "Course complete!" an unlisted one ends the attempt as a success instead. Version 1 and
   plain tapes keep version 1's behavior: nothing aborts on an observation.
+- **`hold_glide=1` is a singleplayer test hack, never for a real run, singleplayer TASes included.**
+  During each attempt the integrated server doesn't end the player's glide, which is what `port`
+  models, so a plan's main line flies with no glide-off to react to. why? singleplayer's
+  glide-off can come too early for a perfect bounce, and this tests the rest of the plan
+  anyway. It's nonvanilla movement on the server, so `/etas play` refuses it anywhere but an
+  unpublished singleplayer world, and the log's `start` record and the chat mark such runs.
 - **It allows `deftenvy`, plus `lqmbda` in singleplayer.** The plan's `account=` (if any) must match
   (singleplayer also lets `lqmbda` play a plan for `deftenvy`),
   and the server is whitelisted for the logger's own packets; singleplayer always counts.

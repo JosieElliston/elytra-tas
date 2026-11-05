@@ -144,7 +144,7 @@ cd .. && ORACLE_CASES_DIR=$PWD/oracle/build/playback/cases CARGO_TARGET_DIR=targ
   first longer contact. Playback flies it 9 times with the vanilla glide-off: 36 of 36
   reactions fired, 0 divergent ticks, and the glide-off was first seen before line L+3 in
   all 36 (2026-11-03 06:15 EST). The same plan without reactions aborts at the first
-  landing's L+3.
+  landing's L+3, and flies clean with `hold_glide=1`.
 - (c) the air case's plan with line 150's x off by 0.01, and the player moved 1e-3 in x
   on the tick line 120 is set in attempt 1 (`maxfail=2`): the aborts come after lines 120
   and 150, each tick's physics runs with no keys, and the input is handed back at the stop.

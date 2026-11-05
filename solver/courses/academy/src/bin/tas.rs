@@ -9,12 +9,7 @@
 //!   joins are searched for the fewest timed ticks over the whole run. why timed? ticks before
 //!   the timer starts cost nothing, so the least ticks to the join isn't the goal.
 //! - The rest: the flight's own states as targets for `refly::track`, flown with port from
-//!   rest, then `plan_from`.
-//! - The early glide-off: a `@branch` for a glide-off two ticks after the prefix's landing,
-//!   as all 5 landings of the first singleplayer attempts got (2026-11-05 00:27 EST; other
-//!   singleplayer logs also show 1 and 3, or none). why a branch? jump is held for the bounce the tick before,
-//!   so pressing it has no edge and `@react` can't answer; the branch flies the tick unglided,
-//!   redeploys, and rejoins the main line. `verify_paths` then checks every path.
+//!   rest, then `plan_from` and `verify_paths`.
 //!
 //! Writes `runs/tas/academy.tas`, the plan to copy to `<profile>/elytra-tas/plans/`.
 //!
@@ -24,9 +19,8 @@ use std::path::Path;
 use std::process::ExitCode;
 
 use etas::course::Course;
-use etas::plan::{self, PathTape, Plan, branched, plan_from, verify_paths};
-use etas::server::{Arrival, ServerEvent};
-use etas::solve::bounces::{Lost, SCALE, flight, fly, lost_glide, state_at};
+use etas::plan::{Plan, plan_from, verify_paths};
+use etas::solve::bounces::{SCALE, flight, fly, state_at};
 use etas::solve::ddp::{
     Goal, Opts, Plan as DPlan, Problem, U, X, control, lead_of,
 };
@@ -47,9 +41,6 @@ const TAIL: usize = 7;
 const MARGIN: f64 = 0.02;
 const JOINS: [usize; 6] = [15, 25, 40, 60, 80, 110];
 const TRACK_WINDOWS: [usize; 4] = [24, 12, 6, 3];
-/// Main-line ticks the early glide-off's path may rejoin at, in order of preference:
-/// before the timer starts, a late rejoin costs nothing.
-const REJOINS: [usize; 8] = [40, 45, 60, 80, 100, 120, 160, 220];
 
 fn finish_goal(course: &Course, cap: usize) -> Result<Goal, String> {
     let f = &course.region("finish")?.working;
@@ -245,7 +236,7 @@ fn run() -> Result<bool, String> {
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
     traj.write(&out.join("academy.traj.jsonl"))?;
 
-    let (flat, report) = plan_from(&course, &world, &traj);
+    let (plan, report) = plan_from(&course, &world, &traj);
     println!(
         "trajectory: {}, timer {:?}, finish {:?}{}",
         if report.ok() { "PASS" } else { "FAIL" },
@@ -253,7 +244,6 @@ fn run() -> Result<bool, String> {
         report.finish_tick(),
         report.failures.first().map_or(String::new(), |e| format!(": {e}"))
     );
-    let plan = with_early_glide_off(&course, &world, &traj, flat, &report)?;
     let file = out.join("academy.tas");
     std::fs::write(&file, plan.write()).map_err(|e| e.to_string())?;
     let read = Plan::read(&file)?;
@@ -271,81 +261,6 @@ fn run() -> Result<bool, String> {
     }
     println!("{}", file.display());
     Ok(ok)
-}
-
-/// `flat` with a branch for a glide-off two ticks after its first bounce's landing, the
-/// fewest timed ticks of the rejoins that verify. A plan with no bounce comes back as it is.
-fn with_early_glide_off(
-    course: &Course,
-    world: &world::World,
-    main: &Trajectory,
-    flat: Plan,
-    report: &etas::verify::Report,
-) -> Result<Plan, String> {
-    let Some(bounce) = report.bounces.first() else {
-        return Ok(flat);
-    };
-    let t = bounce.landing + 2;
-    let lost: Vec<Lost> = REJOINS
-        .par_iter()
-        .filter_map(|&rejoin| {
-            let h = Header::new(Some(course), OBJECTIVE, "tas: early glide-off");
-            let o = opts(0.004);
-            match lost_glide(world, main, t, rejoin, false, false, -8..=8, &o, h) {
-                Ok(l) if l.stopped.is_none() => Some(l),
-                Ok(l) => {
-                    println!("rejoin {rejoin}: port stopped: {:?}", l.stopped);
-                    None
-                }
-                Err(e) => {
-                    println!("rejoin {rejoin}: {e}");
-                    None
-                }
-            }
-        })
-        .collect();
-    let mut best: Option<(usize, Lost)> = None;
-    for l in lost {
-        let r = verify(course, world, VPlan::Trajectory(&l.traj));
-        let timed = r.timer_tick().zip(r.finish_tick()).map(|(s, f)| f - s);
-        println!(
-            "rejoin {} at {}: {} timed {timed:?}{}",
-            l.rejoin,
-            l.rejoined_at,
-            if r.ok() { "PASS" } else { "FAIL" },
-            r.failures.first().map_or(String::new(), |e| format!(": {e}"))
-        );
-        if let (true, Some(n)) = (r.ok(), timed)
-            && best.as_ref().is_none_or(|b| n < b.0)
-        {
-            best = Some((n, l));
-        }
-    }
-    let (_, l) = best.ok_or(format!("no path answers a glide-off at {t}"))?;
-    let mut header = flat.tape.clone();
-    header.rows.clear();
-    for (k, v) in header.header.iter_mut() {
-        if k == "format" {
-            *v = plan::FORMAT.to_string();
-        }
-    }
-    header
-        .header
-        .push(("velocity_tol".to_string(), "1e-6".to_string()));
-    let paths = [
-        PathTape {
-            rows: main.to_tape().rows,
-            arrivals: vec![],
-        },
-        PathTape {
-            rows: l.traj.to_tape().rows,
-            arrivals: vec![Arrival {
-                tick: t,
-                event: ServerEvent::GlideOff,
-            }],
-        },
-    ];
-    branched(&header, flat.reacts, &paths)
 }
 
 fn main() -> ExitCode {

@@ -1,6 +1,7 @@
 package jealoustone.elytratas.mixin;
 
 import jealoustone.elytratas.netlog.NetLog;
+import jealoustone.elytratas.play.Playback;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 import org.spongepowered.asm.mixin.Mixin;
@@ -14,6 +15,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class LivingEntityMixin {
     @Unique
     private boolean elytraTas$wasFallFlying;
+
+    // /etas play hold_glide=1, a singleplayer test hack: see Playback.holdsGlide
+    @Inject(method = "updateFallFlying", at = @At("HEAD"), cancellable = true)
+    private void elytraTas$holdGlide(CallbackInfo ci) {
+        if ((Object) this instanceof ServerPlayer player && Playback.holdsGlide(player)) ci.cancel();
+    }
 
     @Inject(method = "updateFallFlying", at = @At("HEAD"))
     private void elytraTas$updateFallFlyingStart(CallbackInfo ci) {
