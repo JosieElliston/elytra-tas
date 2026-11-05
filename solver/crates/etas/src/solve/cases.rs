@@ -1,4 +1,4 @@
-//! Booster passes as the cases a branching plan covers (ARCHITECTURE.md, Mechanics 3).
+//! Booster passes as the cases a branching plan covers.
 //!
 //! [`booster::predict`](crate::booster::predict) says which arrivals a pass can bring
 //! under each delay; this says how often each combination comes, so a plan can cover

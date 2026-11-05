@@ -1,9 +1,12 @@
 # oracle
 
-Minecraft's own trajectories for fuzzing `port` (ARCHITECTURE.md, "Testing the
-physics"): a Fabric client gametest that builds random block setups in a singleplayer
+Minecraft's own trajectories for fuzzing `port`: a Fabric client gametest that builds random block setups in a singleplayer
 dev world, drives the player for a few hundred ticks the way `tas_play` does, and
 writes each case to `cases/<kind>-<seed>/`. `crates/port/tests/oracle.rs` replays them.
+
+why a client gametest, not a server one? a server mock player skips `LocalPlayer.aiStep`
+(jump edges, glide start), takes wall damage, and loses the glide on the first ground
+tick, so it can never produce the states ebounces and glide starts depend on.
 
 ```
 cd ../../mod && ./gradlew build                # the logger jar this needs

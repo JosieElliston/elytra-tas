@@ -1,4 +1,4 @@
-//! Flight kernels for the solver tools: see ARCHITECTURE.md, "Physics". There is no
+//! Flight kernels for the solver tools: see solver/README.md, Physics. There is no
 //! global state in this crate; a kernel is a value you pass in.
 //!
 //! [`faithful`] is the game's arithmetic and collision, exact against `port`: normal

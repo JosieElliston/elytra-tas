@@ -1,6 +1,6 @@
 //! `verify`: replay a trajectory or a `.tas` plan with port against a course's world
-//! and rules, and say whether it holds. The judge is the least clever code we have
-//! (ARCHITECTURE.md, Verify): port, the world file, and the course's predicates over
+//! and rules, and say whether it holds. The judge is the least clever code we have:
+//! port, the world file, and the course's predicates over
 //! each tick's end pose, nothing from the solver that made the plan.
 //!
 //! **Perfect bounces.** A gliding landing inside the course's ground-allowed region
@@ -357,7 +357,7 @@ fn verify_with(course: &Course, world: &World, plan: Plan, supplied: Option<&[Ar
     let mut stopped = None;
     let mut fired = vec![false; reacts.map_or(0, |r| r.len())];
     // a record of real play is held to the game's own reproducibility, not bit
-    // identity (ARCHITECTURE.md, Testing the physics)
+    // identity (solver/README.md, Testing)
     let tol = if record { RECORD_TOL } else { 0.0 };
     let mut inexact: Option<(usize, f64)> = None;
     let mut reactions = Vec::new();

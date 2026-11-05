@@ -1,7 +1,9 @@
 # sim
 
-Flight kernels for the solver tools ([ARCHITECTURE.md](../../ARCHITECTURE.md), "Physics").
-No globals: a kernel is a value. `sim::state` has the full state, the flight state
+Flight kernels for the solver tools ([what each is for](../../README.md#physics)).
+No globals: a kernel is a value. why? elytrasim's process-wide trig and flight-mode
+switches mean two kernels can't run side by side, and a forgotten `set_*` call silently
+changes every result after it. `sim::state` has the full state, the flight state
 (position and velocity) and the rules between them: `FlightState::lift`,
 `FullState::flight` (which says what normal flight is); and `GlideState`, a glide
 that may be on the ground, for perfect ebounces. `FullState` is what the faithful
@@ -112,7 +114,9 @@ the gliding box to `world::Aabb`s, and the points of the L-shaped move.
   ledges), plus a collision model that keeps `onGround`; the branches would need
   the same care as the zeroing below.
 - **Ablations** are fields of `Hooks`; `LiftShape::Pow(k)` is the first (the
-  conversion's lift factor). The default is the game.
+  conversion's lift factor; at k = 0.99 the optimum stops chattering, elytrasim's
+  `pumpdp --conv-lift-exp`). The default is the game. A new ablation is a new named hook,
+  not a flag threaded through the kernel.
 - **Ghost points are corners, not segments**: a move can pass through a box thinner
   than the move with every point outside. `ghost::leg_sdf` measures a whole leg of
   the L instead, exactly (a leg moves along one axis, so its sweep is a box); the

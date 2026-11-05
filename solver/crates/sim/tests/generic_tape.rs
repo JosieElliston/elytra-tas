@@ -1,5 +1,5 @@
 //! The generic kernel against the Burrowed Grove tape (`tas/burrowed_grove.tas`): the
-//! regression set ARCHITECTURE.md bounds its gap from the game on.
+//! regression set that bounds its gap from the game.
 //!
 //! The tape has positions only, so a tick's starting velocity is the previous tick's
 //! displacement (exact up to the subtraction's rounding, ~1e-14). Tick t flies with

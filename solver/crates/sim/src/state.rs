@@ -1,4 +1,4 @@
-//! Player state at two levels (ARCHITECTURE.md, "State"): the full state, every field
+//! Player state at two levels: the full state, every field
 //! the game's movement reads, so a cut anywhere can be resumed; and the flight state,
 //! position and velocity, for normal flight. [`FlightState::lift`] and
 //! [`FullState::flight`] move between them. Between the two is [`GlideState`], a

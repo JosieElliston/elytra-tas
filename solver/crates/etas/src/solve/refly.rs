@@ -1,6 +1,5 @@
-//! Re-fly a generic solution under the faithful kernel and report where it parts
-//! (ARCHITECTURE.md, Tools: transforms), and the repair: re-solve from the flown state
-//! as it goes.
+//! Re-fly a generic solution under the faithful kernel and report where it parts,
+//! and the repair: re-solve from the flown state as it goes.
 //!
 //! The repair is corner-time's finding that re-solving is the feedback: the DDP's
 //! linear gains are useless next to an active wall, while a warm re-solve from the

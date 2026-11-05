@@ -186,3 +186,8 @@ Before each line `t` (after line `t-1`'s physics):
 
 A reaction that fires outside its window, or an event the plan has no reaction for at a
 tick where the expected poses need one, shows up as divergence.
+
+A divergence abort is not a no-lag claim: gliding is simulated on the client, so an
+open-loop run flies through server lag unchanged, while the timer is wall-clock time
+between server ticks. A no-lag claim comes from the logger's server timing over the timed
+span.

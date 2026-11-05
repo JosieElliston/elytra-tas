@@ -2,6 +2,10 @@
 //! course's fitted rules. Written by Python (`extract_world.py`, whose docstring is
 //! the file format's spec), read here.
 //!
+//! A chunk the replay never loaded is unknown, not air, and a move whose box enters
+//! unknown space fails `verify`. why? otherwise a route through an unloaded wall would
+//! verify.
+//!
 //! The items below the contract marker are what `port` and `sim` build against;
 //! change a signature only together with its callers.
 //!

@@ -9,7 +9,8 @@ python3 tools/extract_run.py REPLAY.zip -o NAME.tas         # last completed run
 ```
 
 Flashback replays live in `<profile>/flashback/replays/`, plans in
-`<profile>/elytra-tas/plans/`.
+`<profile>/elytra-tas/plans/`. The solver that writes plans is in `solver/`
+([its README](solver/README.md)).
 
 `tools/` is flat, so its modules import each other; run them from anywhere.
 

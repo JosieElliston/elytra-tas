@@ -1,7 +1,7 @@
 # port
 
-The mechanical port of MC 26.2 client movement for the local player (ARCHITECTURE.md,
-"Physics" item 1): `LocalPlayer`, `Player`, `LivingEntity` and `Entity`, plus the
+The mechanical port of MC 26.2 client movement for the local player:
+`LocalPlayer`, `Player`, `LivingEntity` and `Entity`, plus the
 `VoxelShape`/`Shapes` collision code, transcribed with the Java's casts, `Mth`'s sine
 table and its call order. It answers one question: is this the Java. Don't optimize
 or reorganize it; that is the faithful kernel's job.

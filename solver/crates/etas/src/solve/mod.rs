@@ -1,4 +1,4 @@
-//! The first solver (ARCHITECTURE.md, build order step 5): re-solve a stretch of a
+//! The first solver: re-solve a stretch of a
 //! recorded run on the generic kernel, re-fly it under the faithful kernel, splice it
 //! back. The interface is this method's own; shared solver interfaces come once a
 //! second solver composes with it.

@@ -304,8 +304,8 @@ fn compare(p: &LocalPlayer, e: &TRecord, q: &Hidden) -> Option<String> {
 }
 
 /// The tick glided and the game JVM's `Math.cos` of the lean angle differs from fdlibm,
-/// which port uses: a last-place difference in the lift, noise by ARCHITECTURE.md's
-/// standard ("Testing the physics"), not a port bug.
+/// which port uses: a last-place difference in the lift, noise by the standard in
+/// solver/README.md (Testing), not a port bug.
 fn jvm_cos_differs(s: &TRecord, pre: &Pre, p: &LocalPlayer) -> bool {
     let lean = p.x_rot * (std::f64::consts::PI / 180.0) as f32;
     s.fall_flying && port::mth::java_cos(lean as f64) != pre.cos

@@ -17,6 +17,17 @@
     - what if instead of ablating the physics, we ablate the gradient? so we fly the unabated physics, but take gradients with the ablated physics. how different are the ablated physics anyway? it probably matters for the L corner step, but maybe not for other things.
 - making critiques of runs? like which segments were bad? or take a bunch of runs and see where you're biased away from the optimum.
 
+## solver
+
+- fly a solver plan on EMC
+- plans that take damage on purpose. recordings already can (the server's velocity overwrite is an out-of-model event); plans can't, since the server computes damage on its own copy of the physics, which disagrees slightly, and it arrives a few ticks late at a time that varies
+- fireworks, in the single-rocket mode
+- route search: what proposes routes when no recording exists
+- timer start and finish offsets against ping: predicted and shown times differ by up to 0.14 s on super classic downtown, cause not settled
+- run `check_runs.py` to completion (it hadn't been as of 2026-11-04 19:40 EST)
+- the second curvature ablation's hook
+- designed but never needed yet: `Secant` collision (the segment between tick positions, for when the L's sub-tick detail costs more than it's worth), specialized kernels, direct shooting, the tunnel DP, multistart wrappers, a polyline sketch seeder
+
 ## experiments
 
 - experiment with wall hits (to find a rule of thumb): at what point in a turn would it be nice for there to be a wall (ie to cancel our remaining vel on that axis)

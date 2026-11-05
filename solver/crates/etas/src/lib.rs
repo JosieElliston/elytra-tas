@@ -1,4 +1,4 @@
-//! The toolkit (ARCHITECTURE.md, Tools): course files, artifacts, `verify` and one
+//! The toolkit: course files, artifacts, `verify` and one
 //! solver so far.
 //!
 //! - [`course`]: course files from `fit_course.py`, and their world
