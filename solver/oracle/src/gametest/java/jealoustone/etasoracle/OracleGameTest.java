@@ -62,7 +62,7 @@ public final class OracleGameTest implements FabricClientGameTest {
                 sp.getServer().runCommand(command);
             }
             // No damage, so no fly-into-wall knockback: the server would send its own
-            // velocity back to the client a tick later (README.md, "EMC course rules").
+            // velocity back to the client a tick later (docs/emc-course-rules.md).
             sp.getServer().runOnServer(s -> {
                 s.getPlayerList().getPlayers().getFirst().setInvulnerable(true);
                 // no random ticks: grass under a placed block would turn to dirt mid-case

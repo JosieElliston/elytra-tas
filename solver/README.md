@@ -32,7 +32,9 @@ Formats and details live with their owners:
 | course files | `tools/fit_course.py` docstring |
 | world files | `tools/extract_world.py` docstring |
 | `.tas` tapes | `tools/extract_run.py` docstring |
-| measured EMC and game behavior | `../README.md` |
+| EMC's rules, as measured | `../docs/emc-course-rules.md` |
+| ebounces | `../docs/ebounces.md` |
+| other game behavior | `../docs/things-that-bite.md` |
 
 Python stays where the work is empirical: it reads replays and fits course boundaries, and
 it writes the world and course files that Rust reads. Pictures of runs in the world are Rust

@@ -58,7 +58,7 @@ pub const GLIDE_OFF_MIN: usize = 2;
 /// on 86), 4 in the 2026-10-19 ebounce replay, and 6 or 7 behind Ping Equalizer's
 /// 68 ms hold (17:05 and 17:17 logs); one more for a packet read on either side of a
 /// tick edge. Later than that the server is lagging, which makes bounces perfect on
-/// its side anyway (README, "Things that will bite").
+/// its side anyway (docs/ebounces.md).
 pub const GLIDE_OFF_MAX: usize = 8;
 /// Delays a bounce's window must cover: those seen on EMC without a packet hold.
 pub const GLIDE_OFF_NATURAL: [usize; 2] = [3, 4];

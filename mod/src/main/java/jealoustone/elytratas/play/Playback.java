@@ -34,8 +34,8 @@ import java.util.Set;
  * {@link ClientInput} swapped in for {@code player.input} for the whole run, so real keys,
  * toggle-sprint and screens can't touch it. A jump press is sent as {@code autoJumpTime = 1}
  * with jump off: a plain ClientInput's {@code tick()} is empty, so {@code aiStep} would
- * read a jump set before it as {@code wasJumping} and never see an edge (README.md, "Things
- * that will bite"). The oracle's Driver does the same, and the oracle checks port against it.</li>
+ * read a jump set before it as {@code wasJumping} and never see an edge (minescript/README.md,
+ * "Things that will bite"). The oracle's Driver does the same, and the oracle checks port against it.</li>
  * <li>Observations come from {@code ClientPacketListenerMixin}: a glide-off ({@link #glideOff})
  * or a velocity ({@link #setVelocity}) the client just handled, both at the start of a
  * frame, before its ticks; the next {@link #step} takes them as observed before the line

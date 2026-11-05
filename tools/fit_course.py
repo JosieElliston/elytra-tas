@@ -65,7 +65,7 @@ carries its bracket:
                     between inner and outer if there is just one, else their midpoint;
                     assumed is inner moved 1 block out, where outer stopped at 64 blocks
                     (the data says nothing about that face). why whole? most faces are
-                    whole numbers of the feet position (README, EMC course rules).
+                    whole numbers of the feet position (docs/emc-course-rules.md).
     status          "fitted" if every face is, else "provisional"
     evidence        counts and source points
 
@@ -79,7 +79,7 @@ Rule:
     evidence        what the fit saw
 
 Booster: a volume that sets your velocity (boosters.py's docstring has the
-measurements; README, "EMC course rules", the summary).
+measurements; docs/emc-course-rules.md, the summary).
     name            course-local name
     speed           blocks per tick. The velocity the client receives for a move with
                     float rotation (yaw, pitch) is, in doubles: yaw' = Mth.wrapDegrees(yaw)
@@ -313,7 +313,7 @@ def timer_events(chats: list[Chat], bars: list[Chat]) -> list[Chat]:
     then a blank line in the tick it stops.
     - A finish moves to the bar's stop before it. why? `lqmbda`'s finishes come 3-5 ticks
       after the stop, and the stop agrees with the shown time (34.02 s: 680 ticks after
-      the timer chat, the chat 683); `deftenvy`'s share its tick (README, EMC course rules).
+      the timer chat, the chat 683); `deftenvy`'s share its tick (docs/emc-course-rules.md).
     - A session with no "Timer started!" (a client with that chat off) gets one at each
       first bar of a count. why first? the count restarts near 0 then."""
     stops, starts, prev = [], [], None

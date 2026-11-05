@@ -70,7 +70,7 @@ fn climbable_at_the_start_of_a_tick() {
 }
 
 /// Vines are in vanilla's `can_glide_through` (World::air uses vanilla's tags), so
-/// a glide flies through them. EMC's tags differ: see the repo README.
+/// a glide flies through them. EMC's tags differ: see docs/things-that-bite.md.
 #[test]
 fn vines_are_flown_through() {
     let w = world(&[(bp(0, 64, 0), "minecraft:vine[north=true]")]);

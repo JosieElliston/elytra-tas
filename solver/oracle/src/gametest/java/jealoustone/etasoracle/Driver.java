@@ -31,7 +31,7 @@ import java.util.List;
  * {@code player.input}. A jump press (jump held now, not in the previous step) is sent
  * as {@code autoJumpTime = 1} with jump left off, because a plain ClientInput's
  * {@code tick()} is empty and {@code aiStep} would otherwise read the new key as
- * {@code wasJumping} and never see an edge (README.md, "Things that will bite").</li>
+ * {@code wasJumping} and never see an edge (minescript/README.md, "Things that will bite").</li>
  * <li>{@code P} and {@code Q} records are taken at the head and return of
  * {@code LocalPlayer.tick}, keyed by the logger's tick number.</li>
  * </ul>

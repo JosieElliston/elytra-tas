@@ -89,7 +89,7 @@ const GRID: i32 = 3;
 const GRID_STEP: f64 = 0.75;
 /// Ticks after a lost outcome's pass starts that playback aborts (its arrivals come
 /// 3 to 8 ticks in), and per attempt the ticks besides the plan's lines: reset,
-/// `settle=10`, 20 after "Course complete!" (README, Playback). Both rough, for the
+/// `settle=10`, 20 after "Course complete!" (docs/playback.md). Both rough, for the
 /// expected time per completed run.
 const ABORT_AFTER: usize = 6;
 const ATTEMPT_OVERHEAD: usize = 35;

@@ -3,7 +3,7 @@
 //!
 //! The tape has positions only, so a tick's starting velocity is the previous tick's
 //! displacement (exact up to the subtraction's rounding, ~1e-14). Tick t flies with
-//! tick t's rotation (README, "Tick order"). Run with `--nocapture` for the gap report.
+//! tick t's rotation (docs/things-that-bite.md, Tick order). Run with `--nocapture` for the gap report.
 
 use sim::generic::{Generic, Scalar};
 use sim::state::{FlightState, Input};

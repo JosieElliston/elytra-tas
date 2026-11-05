@@ -117,7 +117,7 @@ autoJumpTime, crouching. Floats are written widened to double, as the logger doe
 ## Playback tests
 
 `PlaybackGameTest` runs after the oracle cases in the same client, in its own world,
-and tests the mod's `/etas play` (README.md at the repo root, "Playback"). Its plans,
+and tests the mod's `/etas play` (`docs/playback.md` at the repo root). Its plans,
 logs and the held case go to `build/playback/`. `PLAYBACK_TESTS=a,b,c,d` picks (default
 all; `none` skips). The quick way to run only these:
 
@@ -181,7 +181,7 @@ sends "Course complete!" 25 lines before a plan's end.
 
 - **Singleplayer has a fixed glide-off delay and no lag**, so (b) shows the reaction path
   and the physics claim, not EMC's timing: there the glide-off comes 3-4 ticks after a
-  landing (README.md, "Tick phase"), and a perfect bounce needs the player airborne by then.
+  landing (`docs/tick-phase.md` at the repo root), and a perfect bounce needs the player airborne by then.
 - **A platform start needs the platform gone right before line 1.** The oracle removes
   it between ticks; the test removes it on the tick line 1 is set, from a
   `START_LEVEL_TICK` listener registered after the mod's, so after playback's handler and

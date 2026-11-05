@@ -15,7 +15,7 @@ boosters and the boosts recorded over them, for `solver/crates/etas/tests/booste
 fit_course.py fits a course's boosters from `booster_points` and `visit_stats`.
 
 What the data says (alpine logs of 2026-10-20 01:26-02:06 and the 00:09 replay;
-README, "EMC course rules", has the summary):
+docs/emc-course-rules.md has the summary):
 - payload: `payload(speed, yaw, pitch)`: Bukkit's `Location.getDirection` (double trig
   of the float rotation, yaw wrapped as the server holds it) times the speed, clamped
   to +-3.9 and truncated to 1/8000 per axis (the pre-1.21.9 velocity packet), then

@@ -5,7 +5,7 @@
 //!
 //! The fixture: `extract_run.py <replays>/2026-10-19T23_25_42_ebounce.zip --run 1`
 //! (`ebounce_run1.tas`), the world from `extract_world.py` (the command is in
-//! `course.json`), and a hand-written course: README's start-area box as the
+//! `course.json`), and a hand-written course: `docs/emc-course-rules.md`'s start-area box as the
 //! ground-allowed region, a placeholder finish (fit_course.py can't fit this map's).
 
 use std::path::{Path, PathBuf};
