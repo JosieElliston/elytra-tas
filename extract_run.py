@@ -102,6 +102,10 @@ class Run:
     timer: int | None  # tick of "Timer started!"
     finish: int  # tick of "Course complete!"
     finish_text: str
+    # start the tape at the last rest before the drop, not the first after the reset.
+    # why? what comes before it (walking around the start) isn't timed, and it's where key
+    # fits fail: a seed wants the drop. Yaw still unwraps from the reset teleport.
+    from_last_rest: bool = False
 
 
 def find_runs(r: fb.Replay) -> list[Run]:
@@ -321,7 +325,14 @@ def start_tick(run: Run, poses, flags) -> int:
     whatever velocity was left is under the zeroing threshold, as a standing start's).
     why not the reset itself? the reset tick's own physics may already move (keys held
     through the teleport, a glide flag kept), and a tape starts from rest at `start=`.
-    It is the reset for a run that stands still after it."""
+    It is the reset for a run that stands still after it. With `run.from_last_rest`, the
+    last such tick before the timer (or the finish), with no glide after it until then."""
+    if run.from_last_rest:
+        for t in range((run.timer or run.finish) - 1, run.reset, -1):
+            p, n = poses[t], poses[t + 1]
+            # 0: no glide, and no crouch, which a tape's start can't say
+            if p.on_ground and n.on_ground and xyz(p) == xyz(n) and flags[t] & ~(1 << fb.FLAG_SPRINT) == 0:
+                return t
     t = run.reset
     while t + 1 < run.finish and not (flags[t + 1] >> fb.FLAG_GLIDE & 1 and not flags[t] >> fb.FLAG_GLIDE & 1):
         p, n = poses[t], poses[t + 1]

@@ -10,7 +10,10 @@ Each chunk file is:
 
 and each action is `varint id, int32 size, payload[size]`. The format was read
 off Flashback 0.43.6's ReplayReader / Recorder; game packet IDs are for MC 26.2
-(protocol 776) and were read off GameProtocols in the client jar.
+(protocol 776) and were read off GameProtocols in the client jar. Replays from MC 1.21.11
+(protocol 774, Flashback 0.39.10) read too: their packet ids are mapped onto 776's
+(`CLIENTBOUND_774`). Their block state and entity type ids are not 26.2's, so `world.py`
+refuses them.
 
 Facts about what gets recorded (Recorder.endTick, Flashback 0.43.6):
 - once per client tick, at end of tick: `move_entities` with exact doubles
@@ -51,7 +54,7 @@ from pathlib import Path
 from typing import Iterator
 
 MAGIC = 0xD780E884
-PROTOCOL_VERSION = 776  # MC 26.2
+PROTOCOL_VERSION = 776  # MC 26.2; packet ids in `CLIENTBOUND` and `CB` are this one's
 
 # Clientbound play packet IDs, protocol 776. Index = packet id.
 CLIENTBOUND = """BUNDLE ADD_ENTITY ANIMATE AWARD_STATS BLOCK_CHANGED_ACK BLOCK_DESTRUCTION
@@ -82,6 +85,18 @@ TICKING_STEP TRANSFER UPDATE_ADVANCEMENTS UPDATE_ATTRIBUTES UPDATE_MOB_EFFECT
 UPDATE_RECIPES UPDATE_TAGS PROJECTILE_POWER CUSTOM_REPORT_DETAILS SERVER_LINKS WAYPOINT
 CLEAR_DIALOG SHOW_DIALOG""".split()
 CB = {name: i for i, name in enumerate(CLIENTBOUND)}
+# MC 1.21.11's table is 26.2's without these two (GameProtocols in both jars, 2026-11-04)
+CLIENTBOUND_774 = [n for n in CLIENTBOUND if n not in ("GAME_RULE_VALUES", "LOW_DISK_SPACE_WARNING")]
+# protocol -> table from that protocol's packet id to 776's
+PACKET_IDS = {776: list(range(len(CLIENTBOUND))), 774: [CB[n] for n in CLIENTBOUND_774]}
+
+
+def packet_ids(meta: dict) -> list[int]:
+    """The table mapping this replay's game packet ids to 776's; rejects unknown protocols."""
+    protocol = meta.get("protocol_version")
+    if protocol not in PACKET_IDS:
+        raise ValueError(f"replay is protocol {protocol}, parser knows {sorted(PACKET_IDS)}")
+    return PACKET_IDS[protocol]
 
 
 class Buf:
@@ -322,6 +337,7 @@ class Replay:
     rtc: dict[int, int] = field(default_factory=dict)
     # (tick, cache index) of every level_chunk_cached action, in order; see world.py
     chunk_refs: list[tuple[int, int]] = field(default_factory=list)
+    pid_map: list[int] = field(default_factory=lambda: PACKET_IDS[PROTOCOL_VERSION])
     _motions: list = field(default_factory=list)  # this tick's local SetEntityMotion values
     _rtc: int | None = None
 
@@ -330,11 +346,7 @@ class Replay:
         path = Path(path)
         with zipfile.ZipFile(path) as z:
             meta = json.loads(z.read("metadata.json"))
-            if meta.get("protocol_version") != PROTOCOL_VERSION:
-                raise ValueError(
-                    f"replay is protocol {meta.get('protocol_version')}, parser knows {PROTOCOL_VERSION}"
-                )
-            r = cls(path, meta)
+            r = cls(path, meta, pid_map=packet_ids(meta))
             tick = 0
             for chunk_name in meta["chunks"]:
                 for a in _iter_chunk(z.read(chunk_name)):
@@ -364,8 +376,8 @@ class Replay:
             self._game_packet(a.payload, tick, a.in_snapshot, decode_text)
 
     def _game_packet(self, p: Buf, tick: int, in_snap: bool, decode_text: bool):
-        pid = p.varint()
-        name = CLIENTBOUND[pid] if pid < len(CLIENTBOUND) else f"#{pid}"
+        pid = self.pid_map[p.varint()]
+        name = CLIENTBOUND[pid]
         self.packet_counts[name] = self.packet_counts.get(name, 0) + 1
         if pid == CB["LOGIN"]:
             self.local_id = p.i32()

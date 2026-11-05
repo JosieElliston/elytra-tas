@@ -271,6 +271,10 @@ def scan_replay(path: Path) -> Scan:
     ev = s.events.append
     with zipfile.ZipFile(path) as z:
         meta = json.loads(z.read("metadata.json"))
+        if meta.get("protocol_version") != fb.PROTOCOL_VERSION:
+            # why? chunk and block packets carry state ids, and the table is 26.2's
+            raise ValueError(f"{path}: world.py needs protocol {fb.PROTOCOL_VERSION} for its block "
+                             f"table, this replay is {meta.get('protocol_version')}")
         tick = 0
         for name in meta["chunks"]:
             for a in fb._iter_chunk(z.read(name)):
