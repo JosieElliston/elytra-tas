@@ -78,8 +78,8 @@ missing tools / poorly configured tools / missing docs / general frictions / gen
   between a pillar (x 13-14, z 6-7) and a wall (z 9-10), and that box ends in the pillar under either
   axis order. Repair windows up to 350 ticks stopped 0.11 blocks short, and `tas` now exits 1 on this
   route, with a plan that also hits on `p_t + v_t` (2026-11-05). So `runs/tas/academy.tas`, as flown
-  (17 of 25, 26.84-26.86 s), is from f2dd3cf, which holds only `p_t + v_t`. Not proof: nothing tried
-  spending ticks or another route.
+  (17 of 25, 26.84-26.86 s), is from f2dd3cf, which holds only `p_t + v_t`. Crossing routes at gates got
+  past this: `runs/tas_gen1_34/academy.tas` is 535 with no hit on either box (2026-11-05, not yet flown).
 - **A seed inside a wall stays there.** Pure pursuit seeds along a route all failed at clearance -0.2 to
   -0.7, whatever the price (2026-11-05), so `routes` uses `guided`, which looks ahead and won't hit
   anything. A solve's `Stage` still doesn't say it's stuck.
