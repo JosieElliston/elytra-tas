@@ -2,7 +2,7 @@
 
 missing tools / poorly configured tools / missing docs / general frictions / general suggestions
 
-## From the first academy TAS (2026-11-04 23:45 EST)
+## From the first academy TAS (2026-11-05)
 
 ### Solver
 
@@ -33,7 +33,7 @@ missing tools / poorly configured tools / missing docs / general frictions / gen
 - **No toolkit "sliding windows" tool.** `optimize.rs`'s reach/pass/roll is the thing that worked,
   and it owes nothing to academy (only the gate does). It should move to `etas::solve` for the next
   map.
-- **`Walls::around` over a whole course is one big bounding box** (about 15M cells of `Vec`s on academy).
+- **`Walls::around` over a whole course is one big bounding box** (16M cells of `Vec`s on academy).
   Fine on this machine, wasteful: a route is a thin tube.
 
 ### Seeds and the start
@@ -60,31 +60,3 @@ missing tools / poorly configured tools / missing docs / general frictions / gen
   A tiny `tools/traj.py` would save it.
 - **`runs/` is gitignored, so the first TAS isn't in the repo.** Fine for bulk, but a finished plan
   seems worth keeping somewhere tracked.
-
-### Left open by this TAS
-
-- **Two seeds never got a first plan** (41.64, 42.82): a wall hit's state no reach gets to, and
-  merging pieces until the tail still fails. Their first plan should fly around the hit, not
-  reach the state after it.
-- **`track` hits a wall on one seed at every window** (30.98, plan 541, tick 364 at windows 24
-  through 3), though the same plan's generic clearance is fine. Not understood. It costs
-  nothing today, as another seed is ahead, but a best plan could die this way.
-- **Plans ride assumed faces.** The 540 finishes at x = -6.513 against an assumed x_min of -6.521,
-  and never enters the `inner` box. It's the solver's job to use all of a box, so assumed faces
-  need a price or a margin, or a tentative finish becomes a failed run. Refit, then re-solve the end.
-- **Clearance at the end of the plan is 0.004** (the tracker's margin), over the floor at y = -57.
-  Real playback has no such drift, but the ground kill rule is provisional. `TRACK_MARGIN` and
-  `KEEP` are guesses.
-- **`verify` says `not from the course start` on a plan that starts at the reset pose,** because its
-  first ticks differ from `course.start.inputs`. Compare the pose, not the inputs.
-- **No prefix without a floor bounce.** Both tapes that start at reset and replay land on the start
-  floor and jump. It's before the timer and has an `@react`, but it's a glide-off playback has
-  never handled on EMC, right at the start of the first real flight.
-- **Inputs chatter.** Roughness yaw d2 max 254 degrees, 82 pitch reversals. Playback doesn't care;
-  whether EMC does is unknown. The `Pow(0.99)` recipe could be retried from the optimized plan,
-  which is contact-free.
-- **Seeds cross-pollinating is untried.** Results run from 540 to 586 by seed, and each lands in
-  its own local optimum: per-stretch best of all the optimized runs could be spliced, as gates
-  (corner-time) would price them. Probably the next few ticks, with the exit speed above.
-- **`solver/courses/academy/runs/optimize/all.log` is the only record of a batch.** `optimize` should
-  write a results table.

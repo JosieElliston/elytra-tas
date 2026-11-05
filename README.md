@@ -29,6 +29,10 @@ Flashback replays live in `<profile>/flashback/replays/`, plans in
   - `extract_world.py REPLAY.zip --tick T [--bounds X0 Y0 Z0 X1 Y1 Z1] -o OUT.world.gz`:
     writes a world file for `solver/` and prints a coverage report; its docstring is the
     format spec
+  - `export_save.py COURSE_DIR/course.json -o SAVE_DIR`: converts the course's cached
+    blocks to a Minecraft 26.2 singleplayer save, opening in spectator mode at the
+    start. Unrecorded terrain is void; entities, sign text, and EMC course logic
+    aren't included. Refuses to overwrite an existing save.
   - `segments.py COURSE_DIR REPLAY... [--tapes]`: cuts every player's attempts out of those
     replays and times them against the course's tape, into `runs/segments.jsonl.gz` and
     `runs/splits.md` (start-area exits, best stretch between gates, who covered what);

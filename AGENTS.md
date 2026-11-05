@@ -1,16 +1,25 @@
 # AGENTS
 
 this folder is for the elytra tas project.
-we'll be tasing on the elytra mc / emc server.
+we'll be tasing on the elytramc.net / emc server.
 we'll be tasing on my alt `deftenvy`, *not* my main `lqmbda`.
 i have admin approval for doing this; my alt was given a competitive ban so that i can tas with it.
+
 the initial work was done with [minescript](/Users/josie/Library/Application Support/ModrinthApp/profiles/main/minescript), now mostly superseded by the mod (`mod/`, `/etas play`).
 any script that modifies player state should assert that the active account is my alt.
 scripts that don't take player actions, like the replay grabber, are fine to run on my main.
 
-[README.md](README.md) has the tools and the constraints that bite (Flashback yaw wrapping, tick order; Minescript input APIs to avoid are in [minescript/README.md](minescript/README.md)).
+## emc timer
 
-see also
+the emc timer is (server-side) realtime, rounded to 0.02s.
+so, with negligible lag, a 20 tick run is 1.00, a 22 tick run is 1.10,
+but a 21 tick gives 1.04 or 1.06 at random.
+we also see times like 1.02 or 1.08,
+which means there was >10ms of error.
+these should generally be considered as actually being 20 / 22 ticks,
+but it's also possible that there was >20ms of error and it was actually 21 ticks.
+
+## see also
 
 - [elytrasim](/Users/josie/programming_local/elytrasim): where the theory work is
 - [elytra-vario](/Users/josie/programming_local/elytra-vario): a mod that renders a hud with various results from the theory work.

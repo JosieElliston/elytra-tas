@@ -2,6 +2,9 @@
 
 ## uncategorized
 
+- add instructions to use cif-cpu
+- rules of thumb
+
 ## tools
 
 - auto replay grab
