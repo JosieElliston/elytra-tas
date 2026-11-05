@@ -1,8 +1,8 @@
 """EMC boosters, measured from logger logs and Flashback replays.
 
-usage: python3 boosters.py scan [--logs GLOB] [--replays GLOB]
-       python3 boosters.py visits LOG.tsv.gz|REPLAY.zip [--speed S] [--box X0 Y0 Z0 X1 Y1 Z1]
-       python3 boosters.py fixture COURSE -o OUT.json
+usage: python3 tools/boosters.py scan [--logs GLOB] [--replays GLOB]
+       python3 tools/boosters.py visits LOG.tsv.gz|REPLAY.zip [--speed S] [--box X0 Y0 Z0 X1 Y1 Z1]
+       python3 tools/boosters.py fixture COURSE -o OUT.json
 
 `scan` classifies every `set_entity_motion` of the local player in every log and
 replay: a booster velocity is one that `payload` reproduces bit for bit from the

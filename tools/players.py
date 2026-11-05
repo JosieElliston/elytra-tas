@@ -1,6 +1,6 @@
 """Every player a Flashback replay saw, not only the local one.
 
-usage: python3 players.py REPLAY.zip [--dimension minecraft:eacademy]    # list them
+usage: python3 tools/players.py REPLAY.zip [--dimension minecraft:eacademy]    # list them
 
 `load(path)` -> `Recording`: one `Life` per spawn of a player entity (the local player's
 is one life per dimension visit), with what Flashback kept of it. What each kind holds:

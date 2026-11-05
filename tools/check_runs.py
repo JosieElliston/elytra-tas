@@ -1,6 +1,6 @@
 """Check that every completed run in the replays is in the model.
 
-usage: python3 check_runs.py [--replays GLOB] [--out DIR] [-j N] [--etas BIN] [--list]
+usage: python3 tools/check_runs.py [--replays GLOB] [--out DIR] [-j N] [--etas BIN] [--list]
 
 Each run `extract_run.py` finds becomes a tape. On a map with a course (a course's
 `dimension`, `solver/courses/*/course.json`) `etas replay --course` replays it under port
@@ -32,7 +32,7 @@ import extract_world as ew
 import flashback as fb
 import world as wd
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 PROFILE = Path.home() / "Library/Application Support/ModrinthApp/profiles/main"
 REPLAYS = PROFILE / "flashback/replays"
 COURSES = ROOT / "solver/courses"

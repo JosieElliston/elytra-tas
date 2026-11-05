@@ -1,6 +1,6 @@
 #!/bin/sh
 # Compile .pyj files offline with the Pyjinn inside the installed Minescript mod.
-# usage: ./pyjinn_check.sh FILE.pyj...
+# usage: minescript/pyjinn_check.sh FILE.pyj...
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 mods="$HOME/Library/Application Support/ModrinthApp/profiles/main/mods"

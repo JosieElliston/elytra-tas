@@ -1,72 +1,41 @@
 # elytra-tas
 
-Replay a recorded course run on EMC from a Flashback recording, in a loop.
+Plan and fly elytra runs on EMC, from Flashback recordings to `/etas play`.
 
 ```
-python3 extract_run.py REPLAY.zip --list                 # completed runs in a replay
-python3 extract_run.py REPLAY.zip -o tas/NAME.tas        # last completed run -> tape
-\tas_play NAME runs=1 trace                              # in game, on deftenvy
+python3 tools/extract_run.py REPLAY.zip --list              # completed runs in a replay
+python3 tools/extract_run.py REPLAY.zip -o NAME.tas         # last completed run -> tape
+/etas play NAME runs=1                                      # in game, on deftenvy
 ```
 
-Flashback replays live in `<profile>/flashback/replays/`. `tas_play.pyj`,
-`undeploy_test.pyj` and `tas/` are symlinked into `<profile>/minescript/`; logs go to `minescript/tas_logs/`.
+Flashback replays live in `<profile>/flashback/replays/`, plans in
+`<profile>/elytra-tas/plans/`.
 
-- `flashback.py`: Flashback replay reader (chunk/action format, local player poses,
-  chat/title text, shared flags, held slot)
-- `players.py`: every player a replay saw, one `Life` per spawn; its docstring says how
-  remote poses differ from local ones (`python3 players.py REPLAY.zip [--dimension D]`)
-- `segments.py COURSE_DIR REPLAY... [--tapes]`: cuts every player's attempts out of those
-  replays and times them against the course's tape, into `runs/segments.jsonl.gz` and
-  `runs/splits.md` (start-area exits, best stretch between gates, who covered what); `--tapes`
-  writes local finished runs to `runs/seeds/`. Remote players' stretches are rough; see its
-  docstring.
-- `extract_run.py`: finds runs, reconstructs per-tick inputs, writes a `.tas` tape and
-  checks every gliding tick against elytra physics
-- `physics.py`: MC 26.2 elytra physics, float-faithful, for that check (needs numpy)
-- `world.py`: the blocks the client had at a replay tick (block updates applied,
-  unknown space explicit, `min_y` from registry data). `extract_world.py REPLAY.zip
-  --tick T [--bounds X0 Y0 Z0 X1 Y1 Z1] -o OUT.world.gz` writes them as a world file
-  for `solver/` and prints a coverage report; its docstring is the format spec.
-- `tools/block_dump.sh`: regenerates the block table `data/blocks-26.2.tsv.gz`
-  (`tools/BlockDump.java` against the Loom-cached 26.2 jar). World files name the
-  table by hash, so regenerating it means re-extracting them.
-- `tas_play.pyj`: Minescript (Pyjinn) player; `/etas play` in `mod/` (below) replaces it
-- `undeploy_test.pyj`: tests the [undeploy](../undeploy) mod on EMC: `/hub`, then
-  ebounces in place under undeploy off and several N, and logs each landing's
-  glide-off ticks and any glide lost in the air (`\undeploy_test`, on deftenvy)
-- `pyjinn_check.sh FILE.pyj...`: compiles `.pyj` files with the Pyjinn inside the
-  installed Minescript mod, as `\script` does. Run it after every edit. why? Pyjinn
-  accepts less than Python (e.g. `S["a"], S["b"] = 1, 2` is rejected: only plain
-  names in tuple targets), CPython's `ast` passes those, and in game you see only
-  the first error per launch. It catches syntax only, not runtime errors.
-- `solver/`: the toolkit for min-time plans, [ARCHITECTURE.md](solver/ARCHITECTURE.md).
-  `etas verify FILE --course solver/courses/NAME` replays a trajectory or `.tas` plan
-  with the port and the course's rules (exit 1 on a broken rule or a recorded state that
-  doesn't reproduce); `etas tas2traj` / `traj2tas` convert. The trajectory format is in
-  `crates/etas/src/trajectory.rs`. `cargo run --release -p burrowed_grove --bin
-  recorded` is the smoke test of the chain on the recorded run; `--bin resolve [A..B ...]`
-  then re-solves stretches of it with DDP on the generic kernel, re-flies them under the
-  faithful kernel and verifies the spliced run (`crates/etas/src/solve/`).
-  `cargo run --release -p super_classic_downtown --bin solve` makes a recorded run whose
-  ebounces lost the glide into a branching plan (`runs/downtown.tas`): perfect bounces
-  with `@react` windows, and a `@branch … glide_off` to a lost-glide flight wherever a
-  glide-off can come at a tick no jump press rescues.
-  `etas flight TAPE --course C -o OUT` cuts a recorded tape's flight into a trajectory
-  starting in the air, from the deploy that left the start area; it needs no walking or
-  key fits, so it works where a tape's pre-drop doesn't. `-p academy --bin flights` does it
-  for all of `runs/seeds/`.
-  `etas view RUN... --course solver/courses/NAME -o out.png [--ticks A B] [--collision] [--l-step]`
-  renders runs in their world from above, the side and in perspective, with `verify`'s
-  findings marked; a course program uses the `view` crate and `etas::draw` directly for
-  anything else (`crates/view/src/lib.rs`). Textures come from the client jar
-  (`$ETAS_MC_JAR`, then the loom and Modrinth copies); with none, flat-colored collision
-  boxes, with a warning.
-- `fit_course.py COURSE -o solver/courses/COURSE/course.json`: fits a course's timer
-  start, finish and kill rules from the replays and logger logs its `COURSES` entry
-  lists, each rule with the bracket its data allows; its docstring is the format spec.
-  Faces the data can't reach are written as assumed and the rule as provisional.
-- `mod/`: Fabric client mod, see below. `netlog.py`: reader for its logs; its
-  docstring is the format spec (`python3 netlog.py LOG.tsv.gz --timeline`).
+`tools/` is flat, so its modules import each other; run them from anywhere.
+
+- Readers:
+  - `flashback.py`: Flashback replay reader (chunk/action format, local player poses,
+    chat/title text, shared flags, held slot)
+  - `players.py`: every player a replay saw, one `Life` per spawn; its docstring says how
+    remote poses differ from local ones (`python3 tools/players.py REPLAY.zip [--dimension D]`)
+  - `world.py`: the blocks the client had at a replay tick (block updates applied,
+    unknown space explicit, `min_y` from registry data)
+  - `netlog.py`: reader for the mod's logs; its docstring is the format spec
+    (`python3 tools/netlog.py LOG.tsv.gz --timeline`)
+  - `physics.py`: MC 26.2 elytra physics, float-faithful, for `extract_run.py`'s check (needs numpy)
+- Extractors:
+  - `extract_run.py`: finds runs, reconstructs per-tick inputs, writes a `.tas` tape and
+    checks every gliding tick against elytra physics
+  - `extract_world.py REPLAY.zip --tick T [--bounds X0 Y0 Z0 X1 Y1 Z1] -o OUT.world.gz`:
+    writes a world file for `solver/` and prints a coverage report; its docstring is the
+    format spec
+  - `segments.py COURSE_DIR REPLAY... [--tapes]`: cuts every player's attempts out of those
+    replays and times them against the course's tape, into `runs/segments.jsonl.gz` and
+    `runs/splits.md` (start-area exits, best stretch between gates, who covered what);
+    `--tapes` writes local finished runs to `runs/seeds/`. Remote players' stretches are
+    rough; see its docstring.
+- Course fitting and checks:
+  - `mod/`: Fabric client mod, see below.
 
 ## Network/tick logger (`mod/`)
 
@@ -175,7 +144,7 @@ work, and the tick interval. `/etas phase help` explains each row. The figures c
 ## Playback (`/etas play`)
 
 `/etas play PLAN [runs=N] [settle=T] [maxfail=K]` flies `<profile>/elytra-tas/plans/PLAN.tas`
-(solver/PLAN-FORMAT.md version 2 or 1, or a plain `.tas` tape) as `tas_play` does: reset
+(solver/PLAN-FORMAT.md version 2 or 1, or a plain `.tas` tape) in a loop: reset
 with the slot-1 item, wait for the exact start pose (and the glide flag off), `settle`
 still ticks (default 10), then line 1; again after "Course complete!" plus 20 ticks or an
 abort (leaving the plan after "Course complete!" counts as done, not as an abort), until N runs are done (default: until stopped) or K attempts in a row failed
@@ -226,43 +195,6 @@ While it plays, keys and mouse don't move you. The logger records it as `P` reco
   table, so 179.27 and -180.73 don't fly the same (~1e-5 blocks/tick). The extractor
   unwraps from the reset teleport's absolute yaw. why? without it the replay drifts
   off the recording within a few hundred ticks.
-- **Don't use Minescript's `player_set_orientation` / `player_press_*` for playback.**
-  The first applies `% 360` to yaw (same bit problem); the second defers through
-  `set_timeout` to a render frame, so key changes can land a tick late. The player sets
-  `Entity.setYRot/setXRot` and swaps `player.input` for a plain `ClientInput`. why?
-  playback is open loop, so a one-tick slip or a changed float desyncs the run.
-- **Flashback doesn't record keys or server teleports.** Inputs are fitted from the
-  trajectory; teleports show up as pose jumps (`ClientboundPlayerPositionPacket` is in
-  Flashback's ignored set).
-- **A swapped-in `ClientInput` sees jump presses a tick early.** `LocalPlayer.aiStep`
-  reads `wasJumping` from `input.keyPresses` before `input.tick()`, which in vanilla
-  loads the new keys; a plain `ClientInput` has an empty `tick()`, so a jump set between
-  ticks is never an edge and the glide never starts. The player schedules presses
-  through `autoJumpTime` (vanilla then calls `makeJump()` after `tick()`). why? the
-  elytra start is a jump edge in air.
-- **Pyjinn can't assign fields of Java objects** (`player.input = x` fails at runtime,
-  even for public fields); use `getField`/`getDeclaredField` + `Field.set`.
-- **The local player's camera reads the live rotation, without interpolation**
-  (`LocalPlayer.getViewYRot`), so setting rotation once per tick looks 20 Hz.
-  `tas_play.pyj` sets the exact tape value in the tick handler and lerps only after
-  physics (`END_CLIENT_TICK`, render events). why? physics and the server must only
-  ever see tape values; a display value set in the tick handler gets flown (it did:
-  0.5 blocks off by tick 56). All render events (Minescript's and Fabric's) fire after
-  camera setup, so a value set in one shows up a frame later.
-- **Pyjinn can implement Java interfaces** (`StartTick(fn)` makes a proxy), which
-  reaches Fabric events Minescript doesn't wrap. Fabric listeners can't be removed;
-  after exit Pyjinn no-ops them. An exception in one propagates into the game loop
-  and crashes it, so catch everything and only set flags there.
-- **Minescript's `chat` event misses server system messages** (Minescript 5.0b11, MC
-  26.2): it hooks `ChatComponent.addClientSystemMessage`/`addPlayerMessage`, but server
-  messages like EMC's "Course complete!" come through `addServerSystemMessage`.
-  `tas_play.pyj` polls `ChatComponent.allMessages` instead. why? with the event, a
-  completed lap was logged as "tape ended without completing".
-- **Pyjinn's `range()` can't count down**: `range(n, -1, -1)` is empty (its iterator
-  only tests `pos < stop`). Pyjinn 0.14.
-- **Pyjinn floats are `Double`**, narrowed to `float` for method arguments but not
-  constructor arguments: `Vec2(1.0, 0.0)` throws ClassCastException; use
-  `Vec2(JavaFloat(x), JavaFloat(y))`.
 - **Tick order (MC 26.2, Fabric API 0.160):** `START_CLIENT_TICK` → keybinds →
   Minescript's `tick` event (Fabric `START_LEVEL_TICK`, head of `tickEntities`) →
   player physics → `END_CLIENT_TICK`; then per frame: mouse turn → camera → render.
@@ -302,6 +234,8 @@ While it plays, keys and mouse don't move you. The logger records it as `P` reco
   vanilla, and port does it; that replay's `W W - - - W` jumps didn't sprint. Its mod list
   has Tweakeroo, which can disable it (suspected, not tested). So `etas flight` starts seeds
   in the air.
+- **A tape's pre-drop can be unflyable on our client,** so `etas flight` starts seeds in the
+  air.
 
 ## EMC course rules (measured)
 
@@ -322,7 +256,7 @@ gives false contradictions.
   each axis is then clamped to ±3.9 and truncated to 1/8000 (the pre-1.21.9 velocity
   packet), and LpVec3-quantized (ViaVersion re-encoding it for 26.2):
   `etas::booster::payload`. All 206 booster velocities of the 2026-10-20 01:58 alpine
-  log reproduce exactly, 5 of them a tick or two late (lag); `python3 boosters.py scan`
+  log reproduce exactly, 5 of them a tick or two late (lag); `python3 tools/boosters.py scan`
   found such boosts on 14 maps (logs and replays up to 2026-11-02), speeds 1.4–9.5 b/t,
   and the clamp binds on classic urban slop's 5 b/t pads. The move is the one whose position was inside; the velocity acts on the
   physics of the tick `delay` after that move's tick, one server tick after the move's

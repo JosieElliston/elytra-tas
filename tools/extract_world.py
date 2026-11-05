@@ -1,6 +1,6 @@
 """Write a world file (the blocks of a course) from a Flashback replay.
 
-usage: python3 extract_world.py REPLAY.zip -o OUT.world.gz [--tick T]
+usage: python3 tools/extract_world.py REPLAY.zip -o OUT.world.gz [--tick T]
                                 [--bounds X0 Y0 Z0 X1 Y1 Z1]
 
 The world is the client's at the end of tick T (default: the replay's end; see

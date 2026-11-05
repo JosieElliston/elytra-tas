@@ -9,7 +9,7 @@ The block tags are EMC-like: no can_glide_through, scaffolding not climbable.
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "tools"))
 import extract_world  # noqa: E402
 import world  # noqa: E402
 

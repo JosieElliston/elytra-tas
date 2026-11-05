@@ -1,6 +1,6 @@
 // Compile .pyj files with the Pyjinn bundled in the Minescript mod, without the game.
 //
-// usage: ./pyjinn_check.sh FILE.pyj...
+// usage: minescript/pyjinn_check.sh FILE.pyj...
 //
 // Runs the same parse + compile Minescript does at `\script` time
 // (PyjinnScript.loadScript), so unsupported syntax fails here instead of in game.

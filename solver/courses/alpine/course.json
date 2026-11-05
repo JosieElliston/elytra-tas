@@ -6,7 +6,7 @@
  "world": {
   "path": "alpine.world.gz",
   "content_sha256": "d3a609a2c80748c03eda67887e777aa9632ae851c2891d1172e0bc73921c8c8b",
-  "extract": "python3 extract_world.py <replays>/2026-10-20T00_09_57_alpine.zip --tick 2961 --bounds -96 150 -150 16 256 240 -o solver/courses/alpine/alpine.world.gz"
+  "extract": "python3 tools/extract_world.py <replays>/2026-10-20T00_09_57_alpine.zip --tick 2961 --bounds -96 150 -150 16 256 240 -o solver/courses/alpine/alpine.world.gz"
  },
  "fitted_from": {
   "replays": [

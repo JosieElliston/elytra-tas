@@ -6,7 +6,7 @@
  "world": {
   "path": "alpine.world.gz",
   "content_sha256": "96e807b55283eca483bafd9a63f0688bdb47bc3e758420405262ee7da9bfcf64",
-  "extract": "python3 extract_world.py <replays>/2026-10-20T02_06_28_alpine.zip --tick 7200 --bounds -84 160 -144 9 248 236 -o solver/crates/etas/tests/data/alpine/alpine.world.gz"
+  "extract": "python3 tools/extract_world.py <replays>/2026-10-20T02_06_28_alpine.zip --tick 7200 --bounds -84 160 -144 9 248 236 -o solver/crates/etas/tests/data/alpine/alpine.world.gz"
  },
  "fitted_from": {
   "replays": [

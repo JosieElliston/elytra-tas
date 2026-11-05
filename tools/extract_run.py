@@ -1,6 +1,6 @@
 """Extract a completed course run from a Flashback replay into a TAS input file.
 
-usage: python3 extract_run.py REPLAY.zip [--run N] [-o OUT.tas] [--list]
+usage: python3 tools/extract_run.py REPLAY.zip [--run N] [-o OUT.tas] [--list]
 
 A run is anchored on the last reset teleport before its "Timer started!" chat (the pose
 jumps and comes to rest; that is what the slot-1 "Go Back to Last Checkpoint" item does

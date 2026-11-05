@@ -1,6 +1,6 @@
 """Every attempt of every player a course's replays saw, timed against a reference route.
 
-usage: python3 segments.py COURSE_DIR REPLAY... [-o OUTDIR] [--gate-every N] [--tapes]
+usage: python3 tools/segments.py COURSE_DIR REPLAY... [-o OUTDIR] [--gate-every N] [--tapes]
 
 COURSE_DIR holds course.json; its `start.source` tape is the reference route. OUTDIR
 defaults to COURSE_DIR/runs. Writes:
@@ -271,7 +271,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     course = json.loads((args.course_dir / "course.json").read_text())
-    root = Path(__file__).resolve().parent
+    root = Path(__file__).resolve().parents[1]
     route = Route.from_tape(root / course["start"]["source"]["path"], course)
     gates = list(range(route.exit, route.finish, args.gate_every)) + [route.finish]
     out = args.out or args.course_dir / "runs"

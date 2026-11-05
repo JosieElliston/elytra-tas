@@ -6,7 +6,7 @@
  "world": {
   "path": "burrowed_grove.world.gz",
   "content_sha256": "e5d3b698a101e0e308d157792c1fd9b5f23f7b694ac54924d48ed68f777487d0",
-  "extract": "python3 extract_world.py <replays>/2026-10-19T23_03_50.zip --tick 24788 --bounds -90 -64 -66 45 190 100 -o solver/courses/burrowed_grove/burrowed_grove.world.gz"
+  "extract": "python3 tools/extract_world.py <replays>/2026-10-19T23_03_50.zip --tick 24788 --bounds -90 -64 -66 45 190 100 -o solver/courses/burrowed_grove/burrowed_grove.world.gz"
  },
  "fitted_from": {
   "replays": [

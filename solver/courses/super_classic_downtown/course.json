@@ -6,7 +6,7 @@
  "world": {
   "path": "super_classic_downtown.world.gz",
   "content_sha256": "820e3cb2448637fc77e62c6e7be9258c6638076d6c5828288af9f5d1d7c26164",
-  "extract": "python3 extract_world.py <replays>/2026-10-19T23_25_42_ebounce.zip --tick 10900 --bounds -96 0 -128 47 143 -17 -o solver/courses/super_classic_downtown/super_classic_downtown.world.gz"
+  "extract": "python3 tools/extract_world.py <replays>/2026-10-19T23_25_42_ebounce.zip --tick 10900 --bounds -96 0 -128 47 143 -17 -o solver/courses/super_classic_downtown/super_classic_downtown.world.gz"
  },
  "fitted_from": {
   "replays": [

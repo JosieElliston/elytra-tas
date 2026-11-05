@@ -263,7 +263,7 @@ fn extraction_round_trip() {
             std::env::temp_dir().join(format!("etas-extract-{}-{run}.tas", std::process::id()));
         let st = std::process::Command::new("python3")
             .current_dir(&root)
-            .args(["extract_run.py", src.to_str().unwrap(), "--run", run, "-o"])
+            .args(["tools/extract_run.py", src.to_str().unwrap(), "--run", run, "-o"])
             .arg(&out)
             .status();
         let Ok(st) = st else {

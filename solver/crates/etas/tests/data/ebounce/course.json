@@ -6,7 +6,7 @@
  "world": {
   "path": "super_classic_downtown.world.gz",
   "content_sha256": "e9fbf711fcd027696e2de3f68c3d816e411c33515562228e6b462aac55165f48",
-  "extract": "python3 extract_world.py <replays>/2026-10-19T23_25_42_ebounce.zip --tick 9700 --bounds -80 70 -110 0 130 -40 -o solver/crates/etas/tests/data/ebounce/super_classic_downtown.world.gz"
+  "extract": "python3 tools/extract_world.py <replays>/2026-10-19T23_25_42_ebounce.zip --tick 9700 --bounds -80 70 -110 0 130 -40 -o solver/crates/etas/tests/data/ebounce/super_classic_downtown.world.gz"
  },
  "fitted_from": {
   "replays": [

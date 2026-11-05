@@ -1,7 +1,7 @@
 //! The booster model (`etas::booster`) against every booster velocity recorded at
-//! alpine: `tests/data/boosters/alpine.json` (`python3 boosters.py fixture alpine`,
+//! alpine: `tests/data/boosters/alpine.json` (`python3 tools/boosters.py fixture alpine`,
 //! three logger logs and a replay) under the boosters fitted into the alpine test
-//! course (`python3 fit_course.py alpine --boosters-into ...`).
+//! course (`python3 tools/fit_course.py alpine --boosters-into ...`).
 
 use std::collections::BTreeMap;
 

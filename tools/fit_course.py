@@ -1,7 +1,7 @@
 """Fit a course file (EMC's rules for one map) from Flashback replays and logger logs.
 
-usage: python3 fit_course.py COURSE -o OUT.json [--world WORLD.gz] [--tape TAPE.tas]
-       python3 fit_course.py COURSE --boosters-into COURSE.json
+usage: python3 tools/fit_course.py COURSE -o OUT.json [--world WORLD.gz] [--tape TAPE.tas]
+       python3 tools/fit_course.py COURSE --boosters-into COURSE.json
 
 COURSE names an entry of COURSES below (its sources: replays, logs, tape, world). The
 fit's evidence and brackets go to stdout. `solver/crates/etas` reads the file.
@@ -142,7 +142,7 @@ import flashback as fb
 import netlog
 import world
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 PROFILE = Path.home() / "Library/Application Support/ModrinthApp/profiles/main"
 REPLAYS = PROFILE / "flashback/replays"
 LOGS = PROFILE / "elytra-tas/logs"
@@ -152,7 +152,7 @@ COURSES = {
         dimension="minecraft:eburrowedgrove",
         tape="tas/burrowed_grove.tas",
         world="solver/courses/burrowed_grove/burrowed_grove.world.gz",
-        world_extract=("python3 extract_world.py <replays>/2026-10-19T23_03_50.zip --tick 24788 "
+        world_extract=("python3 tools/extract_world.py <replays>/2026-10-19T23_03_50.zip --tick 24788 "
                        "--bounds -90 -64 -66 45 190 100 -o solver/courses/burrowed_grove/burrowed_grove.world.gz"),
         # replays without a log of the same session
         replays=["2026-10-19T23_03_50.zip", "2026-10-19T23_25_42_ebounce.zip",
@@ -172,7 +172,7 @@ COURSES = {
         dimension="minecraft:cesuperclassicdowntown",
         tape="solver/courses/super_classic_downtown/ebounce_run4.tas",
         world="solver/courses/super_classic_downtown/super_classic_downtown.world.gz",
-        world_extract=("python3 extract_world.py <replays>/2026-10-19T23_25_42_ebounce.zip --tick 10900 "
+        world_extract=("python3 tools/extract_world.py <replays>/2026-10-19T23_25_42_ebounce.zip --tick 10900 "
                        "--bounds -96 0 -128 47 143 -17 -o "
                        "solver/courses/super_classic_downtown/super_classic_downtown.world.gz"),
         replays=["2026-10-19T23_25_42_ebounce.zip"],
@@ -187,7 +187,7 @@ COURSES = {
         dimension="minecraft:eacademy",
         tape="solver/courses/academy/lqmbda_34.02.tas",
         world="solver/courses/academy/academy.world.gz",
-        world_extract=("python3 extract_world.py <replays>/2026-11-03T22_40_44_academy.zip --bounds -112 -64 -224 "
+        world_extract=("python3 tools/extract_world.py <replays>/2026-11-03T22_40_44_academy.zip --bounds -112 -64 -224 "
                        "127 319 287 -o solver/courses/academy/academy.world.gz"),
         # 1.21.11, no log, no timer chat (its timer starts come from the action bar). Its
         # timer lags 4-5 ticks against the logged sessions' start box, in REPLAY_LAG.
@@ -204,7 +204,7 @@ COURSES = {
         # reset pose, which playback can't reproduce
         tape="solver/courses/alpine/recorded.tas",
         world="solver/courses/alpine/alpine.world.gz",
-        world_extract=("python3 extract_world.py <replays>/2026-10-20T00_09_57_alpine.zip --tick 2961 "
+        world_extract=("python3 tools/extract_world.py <replays>/2026-10-20T00_09_57_alpine.zip --tick 2961 "
                        "--bounds -96 150 -150 16 256 240 -o solver/courses/alpine/alpine.world.gz"),
         replays=["2026-10-20T00_09_57_alpine.zip"],
         # the log's session saved the replay named (by end times; 01_27_31 has no completed run)

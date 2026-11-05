@@ -6,7 +6,7 @@
  "world": {
   "path": "academy.world.gz",
   "content_sha256": "1cc35bba51788a5a2aa02c8914d0e6da4a154b99156025d56d2bfe0fcb908de1",
-  "extract": "python3 extract_world.py <replays>/2026-11-03T22_40_44_academy.zip --bounds -112 -64 -224 127 319 287 -o solver/courses/academy/academy.world.gz"
+  "extract": "python3 tools/extract_world.py <replays>/2026-11-03T22_40_44_academy.zip --bounds -112 -64 -224 127 319 287 -o solver/courses/academy/academy.world.gz"
  },
  "fitted_from": {
   "replays": [

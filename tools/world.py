@@ -54,7 +54,7 @@ from pathlib import Path
 
 import flashback as fb
 
-DATA = Path(__file__).parent / "data" / "blocks-26.2.tsv.gz"
+DATA = Path(__file__).resolve().parents[1] / "data" / "blocks-26.2.tsv.gz"
 SECTION = 4096
 GLOBAL_BITS = 15  # ceil(log2(number of block states)), checked on load
 CONFIG_REGISTRY_DATA = 7  # configuration-phase clientbound ids, protocol 776
