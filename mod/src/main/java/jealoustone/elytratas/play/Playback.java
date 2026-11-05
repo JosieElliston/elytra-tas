@@ -48,8 +48,12 @@ import java.util.Set;
  * Client thread only.
  */
 public final class Playback {
-    /** The only account playback drives. why? AGENTS.md: anything that moves the player runs on the alt. */
+    /** Multiplayer playback is restricted to the approved alt; the main may play in singleplayer. */
     public static final String ALT = "deftenvy";
+
+    public static boolean accountAllowed(String user, boolean singleplayer) {
+        return ALT.equals(user) || (singleplayer && "lqmbda".equals(user));
+    }
     /** Ticks to keep flying the plan after "Course complete!", as tas_play. */
     static final int POST_FINISH = 20;
     /** Ticks between reset-item uses while not at the start, and how many uses before giving up. */
@@ -138,12 +142,13 @@ public final class Playback {
         LocalPlayer p = mc.player;
         if (p == null || mc.gameMode == null || mc.getConnection() == null) return "not in a world";
         String user = mc.getUser().getName();
-        if (!ALT.equals(user)) return "refusing to drive " + user + ": playback only drives " + ALT + " (AGENTS.md)";
+        boolean singleplayer = mc.getSingleplayerServer() != null;
+        if (!accountAllowed(user, singleplayer)) return "refusing to drive " + user
+                + ": playback only drives " + ALT + " in multiplayer, or lqmbda in singleplayer (AGENTS.md)";
         // why? plans come from port, which has no double-tap sprint; another window can sprint a tape's W presses
         int sprintWindow = mc.options.sprintWindow().get();
         if (sprintWindow != 0) return "sprint window is " + sprintWindow + ", plans assume 0 (Options → Controls → Sprint Window)";
         // why? playback is input no vanilla client makes; it goes only where the logger may send its own packets
-        boolean singleplayer = mc.getSingleplayerServer() != null;
         ServerData server = mc.getCurrentServer();
         if (!singleplayer && (server == null || !ElytraTasClient.CONFIG.whitelisted(user, server.ip))) {
             return user + "@" + (server == null ? "?" : server.ip) + " isn't whitelisted (Mod Menu → Elytra TAS → Whitelist)";

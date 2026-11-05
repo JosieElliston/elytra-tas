@@ -2,11 +2,11 @@
 
 this folder is for the elytra tas project.
 we'll be tasing on the elytramc.net / emc server.
-we'll be tasing on my alt `deftenvy`, *not* my main `lqmbda`.
+on emc, we'll be tasing on my alt `deftenvy`, *not* my main `lqmbda`.
 i have admin approval for doing this; my alt was given a competitive ban so that i can tas with it.
 
 the initial work was done with [minescript](/Users/josie/Library/Application Support/ModrinthApp/profiles/main/minescript), now mostly superseded by the mod (`mod/`, `/etas play`).
-any script that modifies player state should assert that the active account is my alt.
+any script that modifies player state should assert that the active account is my alt, except in singleplayer.
 scripts that don't take player actions, like the replay grabber, are fine to run on my main.
 
 ## emc timer

@@ -50,7 +50,7 @@ the integrated server's view (move packets processed, player ticks, glide ends).
 gzipped TSV per connection in `<profile>/elytra-tas/logs/`. It starts on joining a
 server or world (config via Mod Menu, YACL), or with an unbound toggle key. It only
 observes, apart from the pings and probes of `/etas phase` and the playback of `/etas
-play` below, so it may run on `lqmbda` too (playback refuses any account but `deftenvy`). Those go out only for whitelisted `user@server` pairs (Mod Menu →
+play` below, so it may run on `lqmbda` too (playback allows `deftenvy`, plus `lqmbda` in singleplayer). Those go out only for whitelisted `user@server` pairs (Mod Menu →
 Whitelist; `deftenvy@elytramc.net` by default, subdomains included, and singleplayer
 always). why? they are packets a vanilla client wouldn't send. With the [undeploy](../undeploy) mod installed it
 also records that mod's decisions as `U` records, since the packets it rewrites or makes
@@ -58,7 +58,7 @@ up don't show what the client saw.
 
 ```
 cd mod && ./gradlew build
-cp build/libs/elytra-tas-0.5.0.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
+cp build/libs/elytra-tas-0.5.1.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
 ```
 
 Rename the previous version's jar in `mods/` to `.disabled`, as with emc-replay, and
@@ -155,7 +155,7 @@ abort (leaving the plan after "Course complete!" counts as done, not as an abort
 (default 3). `/etas stop` stops and hands the keyboard back; `/etas status` shows the
 line, segment, divergences, reactions and the last attempts with the segments they flew.
 While it plays, keys and mouse don't move you. The logger records it as `P` records
-(netlog.py). Mod 0.5.0; 0.4.0 flies version 1 only. Tests: solver/oracle/README.md,
+(netlog.py). Mod 0.5.1; 0.4.0 flies version 1 only. Tests: solver/oracle/README.md,
 "Playback tests".
 
 - **A version-2 plan branches on what the server sends.** Before each line, the
@@ -167,7 +167,7 @@ While it plays, keys and mouse don't move you. The logger records it as `P` reco
   segment ending where a branch waited for an event that never came ("missing"). After
   "Course complete!" an unlisted one ends the attempt as a success instead. Version 1 and
   plain tapes keep version 1's behavior: nothing aborts on an observation.
-- **It refuses unless the account is `deftenvy`,** the plan's `account=` (if any) matches,
+- **It allows `deftenvy`, plus `lqmbda` in singleplayer.** The plan's `account=` (if any) must match,
   and the server is whitelisted for the logger's own packets; singleplayer always counts.
   It also refuses what PLAN-FORMAT.md's "Checks" lists (an `@` line its version doesn't
   have, another `format=`, plan keys or directives without `format=`, a `ticks=` that

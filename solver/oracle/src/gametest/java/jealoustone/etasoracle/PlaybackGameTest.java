@@ -71,8 +71,8 @@ import java.util.zip.GZIPInputStream;
  * </ul>
  * The slot-1 reset item is a stick here: using it teleports to the current {@link Target}
  * on the server, standing in for EMC's checkpoint item. "Course complete!" is sent by the
- * test near each plan's end. The active account is set to {@link Playback#ALT} for the
- * test, since playback drives nothing else.
+ * test near each plan's end. Account checks cover both singleplayer accounts;
+ * flight cases run as {@link Playback#ALT}.
  */
 public final class PlaybackGameTest implements FabricClientGameTest {
     /** Read on the server thread (GlideHoldMixin): keep the server from ending the glide. */
@@ -142,8 +142,16 @@ public final class PlaybackGameTest implements FabricClientGameTest {
             });
             context.waitTicks(5);
 
-            // refused unless the active account is the alt
+            check(Playback.accountAllowed("deftenvy", false), "alt allowed in multiplayer");
+            check(Playback.accountAllowed("deftenvy", true), "alt allowed in singleplayer");
+            check(!Playback.accountAllowed("lqmbda", false), "main refused in multiplayer");
+            check(Playback.accountAllowed("lqmbda", true), "main allowed in singleplayer");
+            check(!Playback.accountAllowed("other", false), "other account refused in multiplayer");
+            check(!Playback.accountAllowed("other", true), "other account refused in singleplayer");
             refusals(context, out, false);
+            context.runOnClient(c -> ((MinecraftAccessor) c).oracle$setUser(new User("lqmbda", before.getProfileId(),
+                    before.getAccessToken(), before.getXuid(), before.getClientId())));
+            refusals(context, out, true);
             context.runOnClient(c -> ((MinecraftAccessor) c).oracle$setUser(new User(Playback.ALT, before.getProfileId(),
                     before.getAccessToken(), before.getXuid(), before.getClientId())));
             refusals(context, out, true);
@@ -309,11 +317,12 @@ public final class PlaybackGameTest implements FabricClientGameTest {
 
     // --- refusals ------------------------------------------------------------------------
 
-    private void refusals(ClientGameTestContext context, Path out, boolean alt) {
+    private void refusals(ClientGameTestContext context, Path out, boolean allowed) {
+        String user = context.computeOnClient(c -> c.getUser().getName());
         String start = "start=" + hex(0.5) + " " + hex(-60.0) + " " + hex(0.5) + " " + hex(0.0F) + " " + hex(0.0F);
         String tick = "1 " + hex(0.0F) + " " + hex(0.0F) + " - " + hex(0.5) + " " + hex(-60.0) + " " + hex(0.5);
         Map<String, List<String>> plans = new TreeMap<>();
-        plans.put("ok", List.of("format=etas-plan 1", "account=deftenvy", start, tick));
+        plans.put("ok", List.of("format=etas-plan 1", "account=" + user, start, tick));
         plans.put("bad-format", List.of("format=etas-plan 3", start, tick));
         String seg = "@segment s 2";
         String tick2 = "2 " + hex(0.0F) + " " + hex(0.0F) + " - " + hex(0.5) + " " + hex(-60.0) + " " + hex(0.5);
@@ -331,7 +340,7 @@ public final class PlaybackGameTest implements FabricClientGameTest {
         plans.put("unknown-at", List.of("format=etas-plan 1", start, "@branch 1 2 x y", tick));
         plans.put("unknown-event", List.of("format=etas-plan 1", start, "@react 1 1 landing press_jump", tick));
         plans.put("plain-with-react", List.of(start, "@react 1 1 glide_off press_jump", tick));
-        plans.put("account", List.of("format=etas-plan 1", "account=lqmbda", start, tick));
+        plans.put("account", List.of("format=etas-plan 1", "account=" + (user.equals("lqmbda") ? "deftenvy" : "lqmbda"), start, tick));
         plans.put("ticks", List.of("format=etas-plan 1", start, "ticks=2", tick));
         plans.put("no-start", List.of("format=etas-plan 1", tick));
         Path dir = context.computeOnClient(Playback::dir);
@@ -342,11 +351,11 @@ public final class PlaybackGameTest implements FabricClientGameTest {
                 Playback.stop("refusal test");
                 return r;
             });
-            boolean shouldStart = alt && name.startsWith("ok");
-            check(shouldStart == (why == null), (alt ? "" : "not the alt: ") + "refuse-" + name + ": "
+            boolean shouldStart = allowed && name.startsWith("ok");
+            check(shouldStart == (why == null), user + ": refuse-" + name + ": "
                     + (why == null ? "started" : why));
         }
-        if (alt) {
+        if (allowed) {
             String why = context.computeOnClient(c -> {
                 c.options.sprintWindow().set(7);
                 String r = Playback.start(c, "refuse-ok", new Playback.Options(1, 1, 1));

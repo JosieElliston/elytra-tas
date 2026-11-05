@@ -124,8 +124,10 @@ cd .. && ORACLE_CASES_DIR=$PWD/oracle/build/playback/cases CARGO_TARGET_DIR=targ
     cargo test -p port --release --test oracle -- --nocapture
 ```
 
-- refusals: a non-alt account, and plans with `format=etas-plan 3`, `@branch` or
-  `@segment` in version 1, an unknown event, `@react` in a plain tape, `account=lqmbda`, a
+- account checks: `deftenvy` is allowed everywhere, `lqmbda` only in singleplayer,
+  other accounts nowhere; valid plans start for both permitted singleplayer accounts.
+- refusals: an unapproved account, and plans with `format=etas-plan 3`, `@branch` or
+  `@segment` in version 1, an unknown event, `@react` in a plain tape, a mismatched `account=`, a
   wrong `ticks=`, no `start=`; in version 2 an unknown `@` line, `@server`, a
   `set_velocity` branch without `velocity_tol=`, a missing child, a child that starts
   elsewhere, an unreachable segment, two branches one velocity would match.
