@@ -60,9 +60,11 @@ carries its bracket:
                     outside, grown on all faces at once and each face stopped at the
                     first such point, or 64 blocks out; not unique (another growth
                     order differs)
-    faces           {"x_min": "fitted" | "assumed", ...}: fitted is the midpoint of
-                    inner and outer; assumed is inner moved 1 block out, where outer
-                    stopped at 64 blocks (the data says nothing about that face)
+    faces           {"x_min": "fitted" | "assumed", ...}: fitted is the whole number
+                    between inner and outer if there is just one, else their midpoint;
+                    assumed is inner moved 1 block out, where outer stopped at 64 blocks
+                    (the data says nothing about that face). why whole? most faces are
+                    whole numbers of the feet position (README, EMC course rules).
     status          "fitted" if every face is, else "provisional"
     evidence        counts and source points
 
@@ -112,9 +114,9 @@ server ticks, so they were on the other side of the rule; the band's latest pose
 taken to be on the far side (the rule's region is entered, or left, and stays so for a
 tick). The pose just before the band is left out, since a move that shares a server
 tick gap with the next is never judged. With a logger log, the band is the moves sent
-D_lo..D_hi before the chat was decoded (D_lo: the fastest round trip a plugin answered
-from a packet handler, less 10 ms; D_hi: the slowest tick-end reply plus a tick, both
-from `use_item`; the tick covers server lag, which delays tick-end replies).
+D_lo..D_hi before the chat was decoded (D_lo: the fastest tick-end reply, less 10 ms;
+D_hi: the slowest tick-end reply plus a tick, both from `use_item`; the tick covers server
+lag, which delays tick-end replies).
 A longer lag spike pushes a chat past its band, and the poses just before the band then
 sit on the wrong side; where that puts an outside point inside the hull of the inside
 points, the fit drops those pre-band points (`drop_contradicted`) and lists them in the
@@ -279,6 +281,10 @@ class Session:
     d_hi: float = 0.0
     lag_note: str = ""
 
+    def lag_hi(self) -> float:
+        """The longest a timer or finish event follows the pose it judged, in `key` units."""
+        return self.d_hi if self.kind == "log" else REPLAY_LAG[1]
+
     def band(self, chat: Chat) -> tuple[list[int], int | None]:
         """Indices into obs of the lag band for `chat` (oldest first), and the index just
         before the band (left out)."""
@@ -409,9 +415,10 @@ def log_session(name: str, dim: str) -> Session:
             # under 40 ms is a teleport the server sent anyway, not a reply
             if j is not None and 40e6 < j.t_decode - u < 250e6:
                 acc.append(j.t_decode - u)
-    # the fastest reply seen bounds the round trip from above only, so the band reaches
-    # down to the fastest of any EMC session (66 ms, 2026-10-20 01:41) less a margin
-    d_lo = min(min(fast, default=DEFAULT_D[0]), 66e6) - 10e6
+    # timer and finish events go out at a server tick end, so a handler reply's round trip
+    # is too short for them: it let the band reach a move one tick too late, which moved
+    # every fitted face one tick of travel out (academy's z_min: 203.7 for 205)
+    d_lo = min(slow, default=DEFAULT_D[0]) - 10e6
     d_hi = max(slow) + 60e6 if slow else DEFAULT_D[1]
     note = (f"use_item replies: handler {len(fast)} (min {d_lo / 1e6:.0f} ms), tick end {len(slow)} "
             f"(max {max(slow) / 1e6 if slow else float('nan'):.0f} ms); band {d_lo / 1e6:.0f}..{d_hi / 1e6:.0f} ms")
@@ -457,11 +464,13 @@ def collect(s: Session, ev: Evidence):
         ev.events["attempts"] += 1
         if timer is None:
             # never left the start area (by the rule), up to the next reset or attempt end
-            stop = ib
+            # less the attempt's last poses: their timer chat may have come after the reset
+            stop = bisect.bisect_left(keys, keys[ib - 1] - s.lag_hi()) if ib > ia else ib
             for c in cs:
                 if is_end(c.text):
-                    band, before = s.band(c)
-                    stop = min(stop, before if before is not None else stop)
+                    # leaving without gliding starts the timer and kills, with no timer
+                    # chat, so such an attempt doesn't say where the start area ends
+                    stop = ia
             ev.start_in += [(obs[i].pos, f"{src}@{obs[i].tick}") for i in range(ia, stop)]
             touches(s, ia, stop, None, None, ev, timer_running=False)
             continue
@@ -489,10 +498,10 @@ def collect(s: Session, ev: Evidence):
 
 def timed(text: str) -> list[int]:
     """Server ticks a 'Your time: X seconds' can stand for: EMC's timer is wall-clock
-    time between two server ticks, shown to 0.01 s and observed to fall within 0.02 s of
-    a whole number of ticks (README, EMC course rules)."""
+    time between two server ticks, so its digits below a tick are noise. Observed up to
+    0.03 s off a whole number of ticks (academy, 31.22 s for 625), hence the window."""
     x = float(text.split("Your time:")[1].split()[0])
-    return [n for n in range(round(x / 0.05) - 1, round(x / 0.05) + 2) if abs(n * 0.05 - x) <= 0.025]
+    return [n for n in range(round(x / 0.05) - 1, round(x / 0.05) + 2) if abs(n * 0.05 - x) <= 0.035]
 
 
 def in_box(p, box) -> bool:
@@ -655,7 +664,9 @@ def region(name: str, inside, outside, note: str, suspect: str | None = None) ->
                 w.append(iv + sign * 1.0)
                 faces[face] = "assumed"
             else:
-                w.append((iv + ov) / 2)
+                lo_, hi_ = min(iv, ov), max(iv, ov)
+                whole = list(range(math.ceil(lo_), math.floor(hi_) + 1))
+                w.append(float(whole[0]) if len(whole) == 1 else (iv + ov) / 2)
                 faces[face] = "fitted"
     status = "fitted" if all(v == "fitted" for v in faces.values()) else "provisional"
     return dict(

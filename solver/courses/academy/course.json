@@ -34,9 +34,9 @@
   ],
   "excluded": [],
   "tool": "fit_course.py",
-  "commit": "8dbaec81dd791ed5fe08f0d829e0c982757bfa6d",
+  "commit": "87d2b1eed1ef65afe8222e0bbdb003f60c28ca9a",
   "dirty": true,
-  "fitted_at": "2026-11-04 21:27:54 EST"
+  "fitted_at": "2026-11-04 22:08:52 EST"
  },
  "observation": {
   "tick_chat_lag": [
@@ -53,17 +53,17 @@
    {
     "session": "2026-11-03_20-52-45.tsv.gz",
     "kind": "log",
-    "note": "use_item replies: handler 256 (min 53 ms), tick end 261 (max 217 ms); band 53..277 ms"
+    "note": "use_item replies: handler 256 (min 69 ms), tick end 261 (max 217 ms); band 69..277 ms"
    },
    {
     "session": "2026-11-03_22-57-29.tsv.gz",
     "kind": "log",
-    "note": "use_item replies: handler 0 (min 56 ms), tick end 4 (max 104 ms); band 56..164 ms"
+    "note": "use_item replies: handler 0 (min 88 ms), tick end 4 (max 104 ms); band 88..164 ms"
    },
    {
     "session": "2026-10-20_18-05-35.tsv.gz",
     "kind": "log",
-    "note": "use_item replies: handler 2 (min 56 ms), tick end 3 (max 171 ms); band 56..231 ms"
+    "note": "use_item replies: handler 2 (min 106 ms), tick end 3 (max 171 ms); band 106..231 ms"
    }
   ]
  },
@@ -185,9 +185,9 @@
   "start_area": {
    "working": {
     "min": [
-     -37.39060106322914,
-     198.5731497306246,
-     203.69115717661185
+     -37.29872706237533,
+     199.0,
+     205.0
     ],
     "max": [
      -16.65707065214385,
@@ -197,9 +197,9 @@
    },
    "inner": {
     "min": [
-     -36.39060106322914,
-     198.5931497306246,
-     203.81115717661174
+     -36.29872706237533,
+     199.69038002947082,
+     205.48109641214094
     ],
     "max": [
      -17.65707065214385,
@@ -209,9 +209,9 @@
    },
    "outer": {
     "min": [
-     -100.39060106324227,
-     198.55314973062463,
-     203.57115717661196
+     -100.29872706238838,
+     198.55038002947185,
+     204.83109641214153
     ],
     "max": [
      46.34292934785546,
@@ -228,9 +228,9 @@
     "z_max": "assumed"
    },
    "status": "provisional",
-   "note": "Timer starts on the first observed pose outside. Inside: poses judged before each timer start, and every pose of attempts that never started it; outside: each timer start's latest band pose. 5 inside points were dropped as contradicted (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped.",
+   "note": "Timer starts on the first observed pose outside. Inside: poses judged before each timer start, and every pose of attempts that never started it; outside: each timer start's latest band pose. 4 inside points were dropped as contradicted (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped.",
    "evidence": {
-    "inside": 60761,
+    "inside": 49602,
     "outside": 289,
     "dropped": [
      {
@@ -241,24 +241,6 @@
       ],
       "source": "2026-11-03_20-52-45.tsv.gz@4906",
       "against": "data/foreign/luna/2026-11-04_academy.zip@995 (timer chat @997)"
-     },
-     {
-      "pos": [
-       -26.573,
-       197.408,
-       209.8
-      ],
-      "source": "2026-11-03_20-52-45.tsv.gz@13152",
-      "against": "data/foreign/luna/2026-11-04_academy.zip@10178 (timer chat @10180)"
-     },
-     {
-      "pos": [
-       -26.609,
-       196.243,
-       209.297
-      ],
-      "source": "2026-11-03_20-52-45.tsv.gz@13153",
-      "against": "data/foreign/luna/2026-11-04_academy.zip@10178 (timer chat @10180)"
      },
      {
       "pos": [
@@ -277,6 +259,15 @@
       ],
       "source": "2026-11-03_20-52-45.tsv.gz@4904",
       "against": "2026-11-03_20-52-45.tsv.gz@3474 (timer chat @3475)"
+     },
+     {
+      "pos": [
+       -27.312,
+       201.884,
+       204.764
+      ],
+      "source": "2026-11-03_20-52-45.tsv.gz@4903",
+      "against": "2026-10-20_18-05-35.tsv.gz@12038 (timer chat @12040)"
      }
     ]
    }
@@ -284,53 +275,53 @@
   "finish": {
    "working": {
     "min": [
-     -5.477599646580856,
-     -56.75,
-     -99.6924382439482
+     -6.520845487735511,
+     -58.0,
+     -99.96846319775088
     ],
     "max": [
-     1.0352527018155135,
-     -53.06469906804733,
-     -97.28173695717943
+     0.8669767408990526,
+     -52.95992543449003,
+     -97.13912314410543
     ]
    },
    "inner": {
     "min": [
-     -5.442599646580857,
-     -56.75,
-     -99.66743824394818
+     -5.520845487735511,
+     -57.0,
+     -99.95846319775087
     ],
     "max": [
-     0.03525270181551357,
-     -54.06469906804733,
-     -98.28173695717943
+     -0.1330232591009474,
+     -53.95992543449003,
+     -98.13912314410543
     ]
    },
    "outer": {
     "min": [
-     -5.512599646580855,
-     -56.75,
-     -99.71743824394821
+     -69.52084548773425,
+     -121.00000000002777,
+     -99.97846319775088
     ],
     "max": [
-     64.03525270181137,
-     9.935300931950316,
-     -34.28173695716781
+     63.86697674089492,
+     10.040074565507636,
+     -34.13912314409391
     ]
    },
    "faces": {
-    "x_min": "fitted",
+    "x_min": "assumed",
     "x_max": "assumed",
-    "y_min": "fitted",
+    "y_min": "assumed",
     "y_max": "assumed",
     "z_min": "fitted",
     "z_max": "assumed"
    },
    "status": "provisional",
-   "note": "Finish on the first observed pose inside, timer running. Inside: each finish's latest band pose, or its timer-anchored pose; runs that all approach one way leave inner small and the faces they don't reach assumed; outside: poses judged with the timer running before a finish or attempt end. 11 outside points were dropped as contradicted (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped.",
+   "note": "Finish on the first observed pose inside, timer running. Inside: each finish's latest band pose, or its timer-anchored pose; runs that all approach one way leave inner small and the faces they don't reach assumed; outside: poses judged with the timer running before a finish or attempt end. 7 outside points were dropped as contradicted (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped.",
    "evidence": {
     "inside": 17,
-    "outside": 48807,
+    "outside": 48823,
     "dropped": [
      {
       "pos": [
@@ -343,92 +334,56 @@
      },
      {
       "pos": [
-       -4.36,
-       -55.824,
-       -99.231
+       -4.922,
+       -56.751,
+       -99.3
       ],
-      "source": "data/foreign/luna/2026-11-04_academy.zip@9212 (timer-anchored)",
+      "source": "2026-11-03_20-52-45.tsv.gz@52443",
       "against": "the hull of the inside points"
      },
      {
       "pos": [
-       -4.89,
-       -55.22,
-       -99.136
+       -4.909,
+       -56.837,
+       -99.3
       ],
-      "source": "2026-11-03_20-52-45.tsv.gz@11720 (timer-anchored)",
+      "source": "2026-11-03_20-52-45.tsv.gz@52444",
       "against": "the hull of the inside points"
      },
      {
       "pos": [
-       -4.139,
-       -55.48,
-       -99.512
+       -0.521,
+       -56.873,
+       -99.869
       ],
-      "source": "2026-11-03_20-52-45.tsv.gz@36685 (timer-anchored)",
+      "source": "2026-11-03_20-52-45.tsv.gz@58303 (timer-anchored)",
       "against": "the hull of the inside points"
      },
      {
       "pos": [
-       -4.834,
-       -56.5,
-       -99.1
+       -4.933,
+       -55.307,
+       -99.887
       ],
-      "source": "2026-11-03_20-52-45.tsv.gz@52450 (timer-anchored)",
+      "source": "2026-11-03_20-52-45.tsv.gz@98750 (timer-anchored)",
       "against": "the hull of the inside points"
      },
      {
       "pos": [
-       -5.394,
-       -55.257,
-       -99.227
+       -5.234,
+       -56.379,
+       -99.614
       ],
-      "source": "2026-11-03_20-52-45.tsv.gz@53858 (timer-anchored)",
+      "source": "2026-11-03_20-52-45.tsv.gz@125996 (timer-anchored)",
       "against": "the hull of the inside points"
      },
      {
       "pos": [
-       -4.995,
-       -55.419,
-       -99.577
+       -5.284,
+       -55.607,
+       -99.925
       ],
-      "source": "2026-11-03_20-52-45.tsv.gz@98751 (timer-anchored)",
-      "against": "the hull of the inside points"
-     },
-     {
-      "pos": [
-       -5.201,
-       -56.081,
-       -99.118
-      ],
-      "source": "2026-11-03_20-52-45.tsv.gz@125122 (timer-anchored)",
-      "against": "the hull of the inside points"
-     },
-     {
-      "pos": [
-       -5.214,
-       -56.415,
-       -99.223
-      ],
-      "source": "2026-11-03_20-52-45.tsv.gz@125997 (timer-anchored)",
-      "against": "the hull of the inside points"
-     },
-     {
-      "pos": [
-       -5.213,
-       -55.648,
-       -99.478
-      ],
-      "source": "2026-11-03_20-52-45.tsv.gz@126861 (timer-anchored)",
-      "against": "the hull of the inside points"
-     },
-     {
-      "pos": [
-       -4.132,
-       -55.136,
-       -99.025
-      ],
-      "source": "2026-10-20_18-05-35.tsv.gz@12894 (timer-anchored)",
+      "source": "2026-11-03_20-52-45.tsv.gz@126860 (timer-anchored)",
       "against": "the hull of the inside points"
      }
     ]
@@ -1407,7 +1362,7 @@
       }
      ],
      "unknown": 39,
-     "start_area_touches": 1981
+     "start_area_touches": 1539
     }
    }
   ]

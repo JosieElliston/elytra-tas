@@ -282,13 +282,24 @@ gives false contradictions.
 - **Timer** is wall-clock time between the "Timer started!" and "Course complete!"
   server ticks, rounded to 0.02 s: five identical 647-tick runs gave 32.34 or 32.36
   depending on whether that interval was under or over 32.35 s.
-- **The timer stops at the action bar's blank line, not at the chat.** While it runs, the
-  bar shows `Time: X   Best Time: Y` every tick, and a blank line in the tick it stops; that
-  tick matches the shown time. How late "Course complete!" comes depends on the account, in
-  every replay up to 2026-11-04: `deftenvy`, 0 ticks on 676 of 677 finishes; `lqmbda`, 3-5 on
-  most of 225; another player's 1.21.11 client, 3-5 on all 5. Perhaps a leaderboard write, as
-  `deftenvy` is barred from the boards (a guess). `fit_course.py` fits to the bar. why? timing
-  a non-blacklisted account's finish from its chat puts the crossing 3-5 ticks too late.
+- **The number in the chat is the true time, in whole ticks.** Its digits below a tick are
+  noise: the timer is wall-clock, up to 0.03 s off a whole number of ticks (academy: 31.22 s
+  for 625).
+- **Timer and finish events reach you a constant delay after the pose they judged.** As long
+  as the timer chat's delay: on academy, 2 ticks for 170 of 199 timer starts in the
+  2026-11-03 20:52 log, 5 for 87 of 90 in the 1.21.11 replay. The action bar shows
+  `Time: X   Best Time: Y` each tick and a blank line at the stop, which is on that delay.
+  "Course complete!" can come later, by account, in every replay up to 2026-11-04: `deftenvy`
+  0 ticks after the blank on 676 of 677 finishes; `lqmbda` 3-5 on most of 225; another
+  player's client 3-5 on all 5. So `fit_course.py` uses the number from the chat and the blank
+  line's tick, not the chat's tick.
+- **Region faces are mostly whole numbers of the feet position, with no hitbox offset.** Refit
+  2026-11-04 22:08 EST: academy y >= 199, z >= 205; burrowed grove x >= -6, finish x <= -35;
+  downtown x < -27, 86 <= y < 99, z < -64; alpine z < -124, finish y <= 186, z >= 208. Offsetting
+  by the 0.3 half-width doesn't fit: x >= -6 is bracketed to [-6.005, -5.955], x < -27 to
+  [-27.149, -26.989]. Not all are whole: academy's finish z_min fits [-99.978, -99.958],
+  downtown's finish z_max [-90.262, -90.152]. why it matters: a fit with a band one tick too
+  late put these faces one tick of travel out (academy z_min 203.7).
 - **Start area** is box-like in bulk (canyon x < −266, 168 ≤ y < 177–178, z ≥ 164;
   super classic downtown −52 ≤ x < −27, 86 ≤ y < 99, z < −64) but not one box: near
   canyon's z ≈ 195–199 corner the −x face sits near −265.2, and landing at y = 167
