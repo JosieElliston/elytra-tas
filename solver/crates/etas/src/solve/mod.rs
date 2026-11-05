@@ -8,6 +8,7 @@
 //!   `(lead, pitch)`, goal a plane crossing (secant time) or a state to reach
 //! - [`refly`]: a plan under the faithful kernel, where it parts from the generic one,
 //!   and the repair by re-solving from the flown state each tick
+//! - [`gate`]: a plane across the route and a table of the course's value from it
 //! - [`smooth`]: a plan's rotation smoothed by priced windows, at no cost in time
 //! - [`stretch`]: a stretch of a trajectory as a problem, and the splice back
 //! - [`reach`]: the least ticks from a state to a point, velocity free (into a booster)
@@ -18,6 +19,7 @@
 pub mod bounces;
 pub mod cases;
 pub mod ddp;
+pub mod gate;
 pub mod reach;
 pub mod refly;
 pub mod smooth;

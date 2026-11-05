@@ -22,12 +22,14 @@
 //! default; off, those two rows are zero and the solve is the same.
 
 use std::f64::consts::PI;
+use std::sync::Arc;
 
 use sim::generic::ghost::{l_move, leg_sdf};
 use sim::generic::num_dual::{Dual2SVec64, DualNum, DualSVec64};
 use sim::generic::{Generic, PITCH_MAX, PITCH_MIN};
 use sim::state::Input;
 
+use super::gate::ValueTable;
 use super::walls::Walls;
 
 /// Position, velocity.
@@ -73,6 +75,16 @@ pub enum Goal {
     /// `scale` is held to 0 under the augmented Lagrangian; min time is a search over
     /// the horizon outside the solve.
     Reach { target: X, scale: X },
+    /// Cross the gate of `table` from behind, inside its window, for the best time spent plus
+    /// what the rest of the course is worth from there: `time_weight * (N - past_N / rate_N)`
+    /// plus the table at the crossing. why a weight? ticks before a course's timer starts cost
+    /// nothing, so a stretch that ends at the timer's plane takes 0. The horizon grows as for
+    /// [`Goal::Plane`].
+    Table {
+        table: Arc<ValueTable>,
+        cap: usize,
+        time_weight: f64,
+    },
 }
 
 /// A price on how far the rotation moves in a tick, yaw and pitch each, in radians: the
@@ -490,8 +502,9 @@ impl<'a> Problem<'a> {
 
     /// Plane: how far past the plane, and the rate toward it.
     fn plane<D: DualNum<Primitive = f64> + Copy>(&self, x: &[D; 6]) -> Option<(D, D)> {
-        let (n, at) = match self.goal {
-            Goal::Plane { normal, at, .. } | Goal::Gate { normal, at, .. } => (normal, at),
+        let (n, at) = match &self.goal {
+            Goal::Plane { normal, at, .. } | Goal::Gate { normal, at, .. } => (*normal, *at),
+            Goal::Table { table, .. } => (table.gate.normal(), table.gate.at),
             Goal::Reach { .. } => return None,
         };
         let past = x[0] * n[0] + x[1] * n[1] + x[2] * n[2] - D::from(at);
@@ -503,9 +516,12 @@ impl<'a> Problem<'a> {
     /// [`Goal::Gate`] from behind it. Never for [`Goal::Reach`].
     pub fn crossed(&self, prev: &X, x: &X) -> bool {
         let past = |x: &X| self.plane(x).map_or(0.0, |p| p.0);
-        match self.goal {
+        match &self.goal {
             Goal::Plane { .. } => past(x) > 0.0,
             Goal::Gate { .. } => past(x) > 0.0 && past(prev) <= 0.0,
+            Goal::Table { table, .. } => {
+                past(x) > 0.0 && past(prev) <= 0.0 && table.gate.in_window(x)
+            }
             Goal::Reach { .. } => false,
         }
     }
@@ -538,6 +554,19 @@ impl<'a> Problem<'a> {
                 }
                 c
             }
+            Goal::Table {
+                table, time_weight, ..
+            } => {
+                let (past, rate) = self.plane(x).unwrap();
+                let rate = if rate.re() > RATE_MIN {
+                    rate
+                } else {
+                    D::from(RATE_MIN)
+                };
+                let tau = past / rate;
+                (D::from(n as f64) - tau) * D::from(*time_weight)
+                    + table.read(&table.gate.coords(x, tau))
+            }
             Goal::Reach { target, scale } => {
                 let rho = m.rho * self.opts.goal_weight;
                 let mut c = D::from(0.0);
@@ -557,6 +586,13 @@ impl<'a> Problem<'a> {
             Goal::Plane { .. } | Goal::Gate { .. } => {
                 let (past, rate) = self.plane(&x[n]).unwrap();
                 n as f64 - past / rate.max(RATE_MIN)
+            }
+            Goal::Table {
+                table, time_weight, ..
+            } => {
+                let (past, rate) = self.plane(&x[n]).unwrap();
+                let tau = past / rate.max(RATE_MIN);
+                (n as f64 - tau) * time_weight + table.read(&table.gate.coords(&x[n], tau))
             }
             Goal::Reach { target, scale } => (0..6)
                 .map(|i| ((x[n][i] - target[i]) / scale[i]).abs())
@@ -925,7 +961,8 @@ impl<'a> Problem<'a> {
     /// the last control up to `cap`. Resizes the multipliers either way.
     pub fn refit(&self, m: &mut Multipliers, u: &mut Vec<U>) -> Vec<X> {
         let mut x = self.rollout(u);
-        if let Goal::Plane { cap, .. } | Goal::Gate { cap, .. } = self.goal {
+        if let Goal::Plane { cap, .. } | Goal::Gate { cap, .. } | Goal::Table { cap, .. } = self.goal
+        {
             if let Some(k) = (1..x.len()).find(|&k| self.crossed(&x[k - 1], &x[k])) {
                 u.truncate(k);
                 x.truncate(k + 1);
@@ -1027,6 +1064,10 @@ impl<'a> Problem<'a> {
                     && self.crossed(&plan.x[n - 1], e)
                     && (0..3).all(|i| e[i] >= lo[i] && e[i] <= hi[i])
             }
+            Goal::Table { .. } => {
+                let n = plan.x.len() - 1;
+                n > 0 && self.crossed(&plan.x[n - 1], &plan.x[n])
+            }
             Goal::Reach { .. } => self.value(&plan.x) < self.opts.tol,
         };
         goal && self.worst(&plan.x, &plan.u) >= self.opts.margin - 1e-9
@@ -1055,7 +1096,9 @@ impl<'a> Problem<'a> {
             });
             let done = self.feasible(&p)
                 && match self.goal {
-                    Goal::Plane { .. } | Goal::Gate { .. } => (value - last).abs() < 1e-9,
+                    Goal::Plane { .. } | Goal::Gate { .. } | Goal::Table { .. } => {
+                        (value - last).abs() < 1e-9
+                    }
                     Goal::Reach { .. } => true,
                 };
             self.update(&mut m, &p);

@@ -2,7 +2,10 @@
 //! goal plane slanted toward the wall, so the fastest way there leans on it), and the
 //! swept-leg distance its wall constraints use.
 
+use std::sync::Arc;
+
 use etas::solve::ddp::{Goal, Multipliers, Opts, Problem, Rate, U, X, control, server_hits};
+use etas::solve::gate::{Gate, ValueTable};
 use etas::solve::refly::refly;
 use etas::solve::walls::Walls;
 use sim::generic::Generic;
@@ -113,6 +116,48 @@ fn the_servers_box_is_where_the_velocity_would_carry_it() {
     }
 }
 
+#[test]
+fn a_gates_table_reads_its_nodes_and_is_linear_between() {
+    let gate = Gate {
+        axis: 1,
+        sign: -1.0,
+        at: -50.0,
+        lo: [-9.0; 2],
+        hi: [9.0; 2],
+    };
+    let c = [1.0, 2.0, 0.5, -1.0, 0.25, 0.4];
+    let x = gate.state(&c);
+    // tau of its own velocity past the plane y = 50, heading down
+    assert!((x[1] - (50.0 - 0.4)).abs() < 1e-12, "{x:?}");
+    let back = gate.coords(&x, 0.4);
+    for a in 0..6 {
+        assert!((back[a] - c[a]).abs() < 1e-12, "{back:?}");
+    }
+    let nodes: [Vec<f64>; 6] = [
+        vec![0.0, 2.0],
+        vec![0.0, 4.0],
+        vec![0.0],
+        vec![-2.0, 0.0],
+        vec![0.0],
+        vec![0.0, 1.0],
+    ];
+    let f = |c: &[f64; 6]| 10.0 + c[0] + 2.0 * c[1] + 3.0 * c[3] + 4.0 * c[5];
+    let values = ValueTable::cells(&nodes)
+        .iter()
+        .map(|i| f(&std::array::from_fn(|a| nodes[a][i[a]])))
+        .collect();
+    let t = ValueTable {
+        gate,
+        nodes,
+        values,
+    };
+    assert_eq!(t.read(&[0.0, 4.0, 9.0, 0.0, 9.0, 1.0]), 22.0);
+    let q = [1.0, 1.5, 0.0, -0.5, 0.0, 0.25];
+    assert!((t.read(&q) - f(&q)).abs() < 1e-12);
+    // outside: the edge's value and a price, so it isn't lower
+    assert!(t.read(&[3.0, 1.5, 0.0, -0.5, 0.0, 0.25]) > f(&[2.0, 1.5, 0.0, -0.5, 0.0, 0.25]));
+}
+
 /// A control schedule near the wall, away from the kernel's kinks.
 fn wavy(n: usize) -> Vec<U> {
     (0..n)
@@ -152,9 +197,39 @@ fn gradient_through_a_rollout_matches_finite_differences() {
         scale: [1.0, 1.0, 1.0, 0.05, 0.05, 0.05],
     };
     let plane = pb.goal.clone();
+    // a table with slopes on every axis, crossed at the rollout's end
+    let g = Gate {
+        axis: 2,
+        sign: 1.0,
+        at: target[2] - 0.2,
+        lo: [-100.0; 2],
+        hi: [200.0; 2],
+    };
+    let nodes: [Vec<f64>; 6] = std::array::from_fn(|i| {
+        let mid = if i == 5 { 0.5 } else { target[[0, 1, 3, 4, 5][i.min(4)]] };
+        vec![mid - 0.7, mid + 0.1, mid + 0.9]
+    });
+    let values = ValueTable::cells(&nodes)
+        .iter()
+        .map(|c| {
+            (0..6)
+                .map(|a| (a as f64 + 1.0) * nodes[a][c[a]] + 0.3 * (c[a] * c[(a + 1) % 6]) as f64)
+                .sum::<f64>()
+        })
+        .collect();
+    let table = Goal::Table {
+        table: Arc::new(ValueTable {
+            gate: g,
+            nodes,
+            values,
+        }),
+        cap: n,
+        time_weight: 0.5,
+    };
     let rates = [
         (plane.clone(), Rate::default(), false),
         (reach.clone(), Rate::default(), false),
+        (table, Rate::default(), false),
         (
             plane,
             Rate {

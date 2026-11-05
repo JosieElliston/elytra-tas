@@ -32,6 +32,7 @@
 
 use std::path::Path;
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use etas::course::Course;
@@ -100,10 +101,14 @@ fn goal(course: &Course, cap: usize) -> Result<Goal, String> {
     })
 }
 
+/// `--server`: hold [`Opts::server`] through the whole optimization.
+static SERVER: AtomicBool = AtomicBool::new(false);
+
 fn opts() -> Opts {
     Opts {
         tol: 1e-6,
         margin: MARGIN,
+        server: SERVER.load(Ordering::Relaxed),
         ..Opts::default()
     }
 }
@@ -471,6 +476,7 @@ fn run() -> Result<(), String> {
     let (mut course, world) = Course::load(dir)?;
     let mut only: Vec<String> = std::env::args().skip(1).collect();
     let hybrids = only.iter().any(|a| a == "--hybrid");
+    SERVER.store(only.iter().any(|a| a == "--server"), Ordering::Relaxed);
     let relaxing = hybrids || only.iter().any(|a| a == "--relax");
     if only.iter().any(|a| a == "--open-top") {
         let start = course.regions.get_mut("start_area").ok_or("no start area")?;

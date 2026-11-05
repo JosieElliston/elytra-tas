@@ -8,7 +8,10 @@ version = "0.1.0"
 dependencies = [
  "etas",
  "rayon",
+ "serde",
+ "serde_json",
  "sim",
+ "view",
  "world",
 ]
 

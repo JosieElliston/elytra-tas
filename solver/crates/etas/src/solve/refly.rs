@@ -137,7 +137,7 @@ pub fn repair(
     };
     let mut yaw_prev = yaw_from;
     let cap = match pb.goal {
-        Goal::Plane { cap, .. } | Goal::Gate { cap, .. } => cap,
+        Goal::Plane { cap, .. } | Goal::Gate { cap, .. } | Goal::Table { cap, .. } => cap,
         Goal::Reach { .. } => solved.plan.u.len(),
     };
     for k in 0..cap {
@@ -145,7 +145,7 @@ pub fn repair(
         if plan.u.is_empty() {
             match pb.goal {
                 Goal::Reach { .. } => break,
-                Goal::Plane { .. } | Goal::Gate { .. } => {
+                Goal::Plane { .. } | Goal::Gate { .. } | Goal::Table { .. } => {
                     plan.u.push(*solved.plan.u.last().unwrap())
                 }
             }
