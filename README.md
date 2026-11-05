@@ -13,6 +13,13 @@ Flashback replays live in `<profile>/flashback/replays/`. `tas_play.pyj`,
 
 - `flashback.py`: Flashback replay reader (chunk/action format, local player poses,
   chat/title text, shared flags, held slot)
+- `players.py`: every player a replay saw, one `Life` per spawn; its docstring says how
+  remote poses differ from local ones (`python3 players.py REPLAY.zip [--dimension D]`)
+- `segments.py COURSE_DIR REPLAY... [--tapes]`: cuts every player's attempts out of those
+  replays and times them against the course's tape, into `runs/segments.jsonl.gz` and
+  `runs/splits.md` (start-area exits, best stretch between gates, who covered what); `--tapes`
+  writes local finished runs to `runs/seeds/`. Remote players' stretches are rough; see its
+  docstring.
 - `extract_run.py`: finds runs, reconstructs per-tick inputs, writes a `.tas` tape and
   checks every gliding tick against elytra physics
 - `physics.py`: MC 26.2 elytra physics, float-faithful, for that check (needs numpy)
@@ -44,6 +51,10 @@ Flashback replays live in `<profile>/flashback/replays/`. `tas_play.pyj`,
   ebounces lost the glide into a branching plan (`runs/downtown.tas`): perfect bounces
   with `@react` windows, and a `@branch … glide_off` to a lost-glide flight wherever a
   glide-off can come at a tick no jump press rescues.
+  `etas flight TAPE --course C -o OUT` cuts a recorded tape's flight into a trajectory
+  starting in the air, from the deploy that left the start area; it needs no walking or
+  key fits, so it works where a tape's pre-drop doesn't. `-p academy --bin flights` does it
+  for all of `runs/seeds/`.
   `etas view RUN... --course solver/courses/NAME -o out.png [--ticks A B] [--collision] [--l-step]`
   renders runs in their world from above, the side and in perspective, with `verify`'s
   findings marked; a course program uses the `view` crate and `etas::draw` directly for
@@ -283,7 +294,14 @@ While it plays, keys and mouse don't move you. The logger records it as `P` reco
 
   ![A normal bounce and the two ways a bounce comes out perfect](docs/ebounce.svg)
 - Packet IDs in `flashback.py` are for protocol 776 (MC 26.2), read off `GameProtocols`
-  in the client jar; a different protocol is rejected at load.
+  in the client jar; 774 (MC 1.21.11) is mapped onto them, and any other protocol is
+  rejected at load. `world.py` takes only 776, as its block table is 26.2's. A 774 replay's
+  flight reproduces under port: all 5 finished academy runs of the 1.21.11 replay of
+  2026-11-04.
+- **A tape's pre-drop can be unflyable on our client.** Sprint from a double-tapped W is
+  vanilla, and port does it; that replay's `W W - - - W` jumps didn't sprint. Its mod list
+  has Tweakeroo, which can disable it (suspected, not tested). So `etas flight` starts seeds
+  in the air.
 
 ## EMC course rules (measured)
 
@@ -330,6 +348,13 @@ gives false contradictions.
 - **Timer** is wall-clock time between the "Timer started!" and "Course complete!"
   server ticks, rounded to 0.02 s: five identical 647-tick runs gave 32.34 or 32.36
   depending on whether that interval was under or over 32.35 s.
+- **The timer stops at the action bar's blank line, not at the chat.** While it runs, the
+  bar shows `Time: X   Best Time: Y` every tick, and a blank line in the tick it stops; that
+  tick matches the shown time. How late "Course complete!" comes depends on the account, in
+  every replay up to 2026-11-04: `deftenvy`, 0 ticks on 676 of 677 finishes; `lqmbda`, 3-5 on
+  most of 225; another player's 1.21.11 client, 3-5 on all 5. Perhaps a leaderboard write, as
+  `deftenvy` is barred from the boards (a guess). `fit_course.py` fits to the bar. why? timing
+  a non-blacklisted account's finish from its chat puts the crossing 3-5 ticks too late.
 - **Start area** is box-like in bulk (canyon x < −266, 168 ≤ y < 177–178, z ≥ 164;
   super classic downtown −52 ≤ x < −27, 86 ≤ y < 99, z < −64) but not one box: near
   canyon's z ≈ 195–199 corner the −x face sits near −265.2, and landing at y = 167

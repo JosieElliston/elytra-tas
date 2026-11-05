@@ -260,8 +260,8 @@ interfaces between them are extracted once two course phases actually compose, n
 before. why? shooting, DDP and the tunnel DP need different state and terminal values
 (corner-time), and a premature common interface becomes an adapter layer.
 
-- **Seeders**: from a `.tas` tape (a recorded run, flyable by construction), from a
-  polyline sketch, from a start state.
+- **Seeders**: from a `.tas` tape (a recorded run, flyable by construction), from a tape's
+  flight alone (`flight_from_tape`), from a polyline sketch, from a start state.
 - **Solvers**: direct shooting, DDP through ghost walls under an augmented Lagrangian,
   the tunnel DP, multistart wrappers, later route search.
 - **Problem pieces**: entry state or set of entry cases, exit condition (crossing a

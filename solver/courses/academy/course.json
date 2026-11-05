@@ -1,0 +1,1419 @@
+{
+ "format": "etas-course",
+ "version": 2,
+ "name": "academy",
+ "dimension": "minecraft:eacademy",
+ "world": {
+  "path": "academy.world.gz",
+  "content_sha256": "1cc35bba51788a5a2aa02c8914d0e6da4a154b99156025d56d2bfe0fcb908de1",
+  "extract": "python3 extract_world.py <replays>/2026-11-03T22_40_44_academy.zip --bounds -112 -64 -224 127 319 287 -o solver/courses/academy/academy.world.gz"
+ },
+ "fitted_from": {
+  "replays": [
+   {
+    "name": "data/foreign/luna/2026-11-04_academy.zip",
+    "sha256": "42cf9f4935a600fe1d9180e733d870fe9006a667d02ff001e2b7cce961311d37"
+   }
+  ],
+  "logs": [
+   {
+    "name": "2026-11-03_20-52-45.tsv.gz",
+    "sha256": "55035139beb36a922cea2f448b01cca543fb6e154ddf282af2f54ffd30d9f89d",
+    "same_session_as": "2026-11-03T22_40_44_academy.zip"
+   },
+   {
+    "name": "2026-11-03_22-57-29.tsv.gz",
+    "sha256": "e419621ed749d666c7b2991da5f61e8cf639b46519c6143b8e745539b45b7753",
+    "same_session_as": "2026-11-03T23_42_06_academy.zip"
+   },
+   {
+    "name": "2026-10-20_18-05-35.tsv.gz",
+    "sha256": "957427b8723d3954e387783d88ff63987c2deb7e1b98bf9280e05bd467244661",
+    "same_session_as": "2026-10-20T18_24_43.zip"
+   }
+  ],
+  "excluded": [],
+  "tool": "fit_course.py",
+  "commit": "8dbaec81dd791ed5fe08f0d829e0c982757bfa6d",
+  "dirty": true,
+  "fitted_at": "2026-11-04 21:27:54 EST"
+ },
+ "observation": {
+  "tick_chat_lag": [
+   2,
+   3
+  ],
+  "note": "Logged sessions (2026-10-20, ~70-85 ms round trip): a tick-end chat on tape tick C judged the pose of C-3, or C-2 when the server tick started late; replays without a log are fitted with [2, 5]. Kill messages are sent from a packet handler, not at a tick end.",
+  "sessions": [
+   {
+    "session": "data/foreign/luna/2026-11-04_academy.zip",
+    "kind": "replay",
+    "note": "replay band (2, 5)"
+   },
+   {
+    "session": "2026-11-03_20-52-45.tsv.gz",
+    "kind": "log",
+    "note": "use_item replies: handler 256 (min 53 ms), tick end 261 (max 217 ms); band 53..277 ms"
+   },
+   {
+    "session": "2026-11-03_22-57-29.tsv.gz",
+    "kind": "log",
+    "note": "use_item replies: handler 0 (min 56 ms), tick end 4 (max 104 ms); band 56..164 ms"
+   },
+   {
+    "session": "2026-10-20_18-05-35.tsv.gz",
+    "kind": "log",
+    "note": "use_item replies: handler 2 (min 56 ms), tick end 3 (max 171 ms); band 56..231 ms"
+   }
+  ]
+ },
+ "start": {
+  "source": {
+   "path": "solver/courses/academy/lqmbda_34.02.tas",
+   "sha256": "66a36cecdb2fe32c2d2cac624bffd2773993ce7b957cbcac6d78e0bbac02e11f"
+  },
+  "pose": [
+   "c03a800000000000",
+   "4071a00000000000",
+   "406a500000000000",
+   "00000000",
+   "00000000"
+  ],
+  "inputs": [
+   [
+    "00000000",
+    "00000000",
+    "-"
+   ],
+   [
+    "00000000",
+    "3ec76126",
+    "-"
+   ],
+   [
+    "3f476126",
+    "40793970",
+    "-"
+   ],
+   [
+    "3f476126",
+    "40793970",
+    "-"
+   ],
+   [
+    "3f476126",
+    "40793970",
+    "-"
+   ],
+   [
+    "3f476126",
+    "40793970",
+    "-"
+   ],
+   [
+    "3f476126",
+    "40793970",
+    "-"
+   ],
+   [
+    "3f476126",
+    "40793970",
+    "WR"
+   ],
+   [
+    "3e476124",
+    "40ecc35d",
+    "WR"
+   ],
+   [
+    "bfc76127",
+    "418c304e",
+    "WR"
+   ],
+   [
+    "bfe04d4c",
+    "41da1240",
+    "WR"
+   ],
+   [
+    "bf476126",
+    "420912c9",
+    "WR"
+   ],
+   [
+    "bf1588dc",
+    "421fa8c8",
+    "WR"
+   ],
+   [
+    "bf476126",
+    "422e74fb",
+    "WR"
+   ],
+   [
+    "bf9588dd",
+    "4237cd87",
+    "WR"
+   ],
+   [
+    "bfe04d4c",
+    "42405eb2",
+    "WJR"
+   ],
+   [
+    "c03aeb13",
+    "4250b9a8",
+    "WR"
+   ],
+   [
+    "c079396d",
+    "426a6d31",
+    "WR"
+   ],
+   [
+    "c0a839f6",
+    "42801de8",
+    "WRJ"
+   ]
+  ],
+  "glide_tick": 19,
+  "timer_tick": 121,
+  "finish_tick": 804,
+  "finish_text": "Course complete! Your time: 34.020 seconds (-2.200)"
+ },
+ "regions": {
+  "start_area": {
+   "working": {
+    "min": [
+     -37.39060106322914,
+     198.5731497306246,
+     203.69115717661185
+    ],
+    "max": [
+     -16.65707065214385,
+     290.39999997615814,
+     230.69999998807907
+    ]
+   },
+   "inner": {
+    "min": [
+     -36.39060106322914,
+     198.5931497306246,
+     203.81115717661174
+    ],
+    "max": [
+     -17.65707065214385,
+     289.39999997615814,
+     229.69999998807907
+    ]
+   },
+   "outer": {
+    "min": [
+     -100.39060106324227,
+     198.55314973062463,
+     203.57115717661196
+    ],
+    "max": [
+     46.34292934785546,
+     353.39999997609993,
+     293.69999998802086
+    ]
+   },
+   "faces": {
+    "x_min": "assumed",
+    "x_max": "assumed",
+    "y_min": "fitted",
+    "y_max": "assumed",
+    "z_min": "fitted",
+    "z_max": "assumed"
+   },
+   "status": "provisional",
+   "note": "Timer starts on the first observed pose outside. Inside: poses judged before each timer start, and every pose of attempts that never started it; outside: each timer start's latest band pose. 5 inside points were dropped as contradicted (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped.",
+   "evidence": {
+    "inside": 60761,
+    "outside": 289,
+    "dropped": [
+     {
+      "pos": [
+       -27.678,
+       200.429,
+       200.125
+      ],
+      "source": "2026-11-03_20-52-45.tsv.gz@4906",
+      "against": "data/foreign/luna/2026-11-04_academy.zip@995 (timer chat @997)"
+     },
+     {
+      "pos": [
+       -26.573,
+       197.408,
+       209.8
+      ],
+      "source": "2026-11-03_20-52-45.tsv.gz@13152",
+      "against": "data/foreign/luna/2026-11-04_academy.zip@10178 (timer chat @10180)"
+     },
+     {
+      "pos": [
+       -26.609,
+       196.243,
+       209.297
+      ],
+      "source": "2026-11-03_20-52-45.tsv.gz@13153",
+      "against": "data/foreign/luna/2026-11-04_academy.zip@10178 (timer chat @10180)"
+     },
+     {
+      "pos": [
+       -27.547,
+       200.881,
+       201.698
+      ],
+      "source": "2026-11-03_20-52-45.tsv.gz@4905",
+      "against": "2026-11-03_20-52-45.tsv.gz@1624 (timer chat @1625)"
+     },
+     {
+      "pos": [
+       -27.425,
+       201.365,
+       203.245
+      ],
+      "source": "2026-11-03_20-52-45.tsv.gz@4904",
+      "against": "2026-11-03_20-52-45.tsv.gz@3474 (timer chat @3475)"
+     }
+    ]
+   }
+  },
+  "finish": {
+   "working": {
+    "min": [
+     -5.477599646580856,
+     -56.75,
+     -99.6924382439482
+    ],
+    "max": [
+     1.0352527018155135,
+     -53.06469906804733,
+     -97.28173695717943
+    ]
+   },
+   "inner": {
+    "min": [
+     -5.442599646580857,
+     -56.75,
+     -99.66743824394818
+    ],
+    "max": [
+     0.03525270181551357,
+     -54.06469906804733,
+     -98.28173695717943
+    ]
+   },
+   "outer": {
+    "min": [
+     -5.512599646580855,
+     -56.75,
+     -99.71743824394821
+    ],
+    "max": [
+     64.03525270181137,
+     9.935300931950316,
+     -34.28173695716781
+    ]
+   },
+   "faces": {
+    "x_min": "fitted",
+    "x_max": "assumed",
+    "y_min": "fitted",
+    "y_max": "assumed",
+    "z_min": "fitted",
+    "z_max": "assumed"
+   },
+   "status": "provisional",
+   "note": "Finish on the first observed pose inside, timer running. Inside: each finish's latest band pose, or its timer-anchored pose; runs that all approach one way leave inner small and the faces they don't reach assumed; outside: poses judged with the timer running before a finish or attempt end. 11 outside points were dropped as contradicted (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped.",
+   "evidence": {
+    "inside": 17,
+    "outside": 48807,
+    "dropped": [
+     {
+      "pos": [
+       -4.937,
+       -56.674,
+       -99.553
+      ],
+      "source": "2026-11-03_20-52-45.tsv.gz@52442",
+      "against": "the hull of the inside points"
+     },
+     {
+      "pos": [
+       -4.36,
+       -55.824,
+       -99.231
+      ],
+      "source": "data/foreign/luna/2026-11-04_academy.zip@9212 (timer-anchored)",
+      "against": "the hull of the inside points"
+     },
+     {
+      "pos": [
+       -4.89,
+       -55.22,
+       -99.136
+      ],
+      "source": "2026-11-03_20-52-45.tsv.gz@11720 (timer-anchored)",
+      "against": "the hull of the inside points"
+     },
+     {
+      "pos": [
+       -4.139,
+       -55.48,
+       -99.512
+      ],
+      "source": "2026-11-03_20-52-45.tsv.gz@36685 (timer-anchored)",
+      "against": "the hull of the inside points"
+     },
+     {
+      "pos": [
+       -4.834,
+       -56.5,
+       -99.1
+      ],
+      "source": "2026-11-03_20-52-45.tsv.gz@52450 (timer-anchored)",
+      "against": "the hull of the inside points"
+     },
+     {
+      "pos": [
+       -5.394,
+       -55.257,
+       -99.227
+      ],
+      "source": "2026-11-03_20-52-45.tsv.gz@53858 (timer-anchored)",
+      "against": "the hull of the inside points"
+     },
+     {
+      "pos": [
+       -4.995,
+       -55.419,
+       -99.577
+      ],
+      "source": "2026-11-03_20-52-45.tsv.gz@98751 (timer-anchored)",
+      "against": "the hull of the inside points"
+     },
+     {
+      "pos": [
+       -5.201,
+       -56.081,
+       -99.118
+      ],
+      "source": "2026-11-03_20-52-45.tsv.gz@125122 (timer-anchored)",
+      "against": "the hull of the inside points"
+     },
+     {
+      "pos": [
+       -5.214,
+       -56.415,
+       -99.223
+      ],
+      "source": "2026-11-03_20-52-45.tsv.gz@125997 (timer-anchored)",
+      "against": "the hull of the inside points"
+     },
+     {
+      "pos": [
+       -5.213,
+       -55.648,
+       -99.478
+      ],
+      "source": "2026-11-03_20-52-45.tsv.gz@126861 (timer-anchored)",
+      "against": "the hull of the inside points"
+     },
+     {
+      "pos": [
+       -4.132,
+       -55.136,
+       -99.025
+      ],
+      "source": "2026-10-20_18-05-35.tsv.gz@12894 (timer-anchored)",
+      "against": "the hull of the inside points"
+     }
+    ]
+   }
+  }
+ },
+ "rules": {
+  "timer_start": {
+   "event": "first",
+   "when": {
+    "not": {
+     "in": "start_area"
+    }
+   },
+   "after": "start",
+   "status": "provisional",
+   "note": "see regions.start_area",
+   "evidence": {
+    "timer_starts": 289,
+    "attempts": 478
+   }
+  },
+  "finish": {
+   "event": "first",
+   "when": {
+    "in": "finish"
+   },
+   "after": "timer_start",
+   "status": "provisional",
+   "note": "see regions.finish",
+   "evidence": {
+    "finishes": 17
+   }
+  },
+  "kill": [
+   {
+    "name": "ground",
+    "event": "any",
+    "when": {
+     "and": [
+      {
+       "field": "on_ground"
+      },
+      {
+       "not": {
+        "in": "start_area"
+       }
+      }
+     ]
+    },
+    "after": "timer_start",
+    "until": "finish",
+    "status": "provisional",
+    "note": "Conservative: any observed ground touch outside the start area kills. Logged touches with the timer running: 92 killed (reset with no item use, arriving with the glide-off), 10 survived; which touches kill isn't pinned down (single-tick bounces survived in some places and killed in others; a kill may need the server to have ended the glide). Touches before the timer start (start area) never killed or started the timer.",
+    "evidence": {
+     "killed": [
+      {
+       "pos": [
+        -30.509,
+        194.0,
+        180.003
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@1647",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        50.748,
+        57.0,
+        -68.881
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@2313",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        15.7,
+        157.0,
+        37.56
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@2792",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -27.39,
+        195.0,
+        203.7
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@3034",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        15.052,
+        134.0,
+        7.351
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@3372",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        6.845,
+        134.0,
+        32.301
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@3775",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -14.891,
+        29.0,
+        -119.7
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@5674",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -15.424,
+        21.0,
+        -122.11
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@6502",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -30.99,
+        194.0,
+        177.751
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@6630",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        6.761,
+        134.0,
+        34.585
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@7066",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        13.653,
+        135.0,
+        5.22
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@7372",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        4.863,
+        134.062,
+        33.664
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@8474",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -27.546,
+        196.0,
+        210.014
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@9276",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -12.884,
+        21.0,
+        -123.782
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@12774",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        55.836,
+        126.0,
+        5.717
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@13646",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        8.428,
+        134.062,
+        31.439
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@14175",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        66.705,
+        102.5,
+        -61.755
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@14693",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        -25.422,
+        194.0,
+        196.839
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@15979",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        63.665,
+        103.0,
+        -30.693
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@16912",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -13.476,
+        29.0,
+        -119.347
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@18570",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        15.6,
+        163.5,
+        43.467
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@21368",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        1.852,
+        173.5,
+        44.163
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@22094",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -27.371,
+        196.062,
+        208.158
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@22635",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        66.818,
+        102.5,
+        -62.7
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@24338",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        14.623,
+        135.0,
+        4.484
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@24741",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        14.354,
+        135.0,
+        6.117
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@26105",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        7.785,
+        134.062,
+        21.045
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@26477",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        6.581,
+        134.0,
+        27.803
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@27622",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        55.002,
+        -10.0,
+        -161.34
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@29369",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        14.508,
+        135.0,
+        5.88
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@30558",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -4.959,
+        -57.0,
+        -100.915
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@32382",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -26.613,
+        196.062,
+        204.762
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@32695",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -14.304,
+        21.0,
+        -122.009
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@33552",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -27.022,
+        196.062,
+        215.163
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@34630",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        6.183,
+        134.0,
+        26.386
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@34958",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        14.369,
+        135.0,
+        4.88
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@37352",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        6.945,
+        134.0,
+        26.375
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@38354",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -26.452,
+        196.0,
+        226.449
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@38656",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -6.3,
+        17.5,
+        -152.118
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@39806",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        13.974,
+        135.0,
+        5.512
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@40159",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        54.425,
+        124.0,
+        9.251
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@40809",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        54.807,
+        126.0,
+        6.295
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@41639",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        55.162,
+        126.0,
+        6.517
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@42766",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        7.425,
+        134.0,
+        34.798
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@44409",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        61.469,
+        103.0,
+        -12.664
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@45693",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        13.897,
+        135.0,
+        4.915
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@50119",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        7.065,
+        144.5,
+        37.77
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@50720",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -28.152,
+        194.0,
+        191.584
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@50942",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        67.12,
+        103.0,
+        -67.925
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@52962",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        14.671,
+        135.0,
+        5.658
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@54217",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        55.54,
+        126.0,
+        6.098
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@54638",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        6.849,
+        134.0,
+        22.782
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@55373",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        55.421,
+        126.0,
+        5.728
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@55809",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        65.851,
+        102.5,
+        -58.921
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@56371",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        55.389,
+        126.0,
+        6.04
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@56819",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -26.845,
+        196.0,
+        226.446
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@56989",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        2.238,
+        173.5,
+        43.722
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@59618",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -6.371,
+        -57.0,
+        -101.201
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@60578",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        12.7,
+        134.0,
+        6.658
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@60971",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        55.725,
+        126.0,
+        7.579
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@61355",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -13.18,
+        29.0,
+        -119.7
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@62003",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -17.381,
+        47.0,
+        -104.601
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@62688",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -14.305,
+        20.0,
+        -129.747
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@63705",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -15.798,
+        20.0,
+        -128.323
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@65183",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -9.001,
+        47.0,
+        -88.986
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@73543",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        55.262,
+        126.0,
+        6.235
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@76109",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        14.81,
+        134.0,
+        7.292
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@76466",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -4.05,
+        15.0,
+        -150.971
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@77131",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        33.647,
+        7.0,
+        -156.24
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@78003",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -18.258,
+        47.0,
+        -105.963
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@78997",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        14.803,
+        135.0,
+        5.532
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@79403",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        14.329,
+        135.0,
+        5.018
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@79748",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -13.73,
+        21.0,
+        -123.118
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@80766",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        66.653,
+        103.0,
+        -60.047
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@81176",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        14.643,
+        135.0,
+        4.057
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@81878",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        10.139,
+        161.5,
+        35.523
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@83201",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        53.887,
+        125.25,
+        3.3
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@83900",
+       "ticks": 5
+      },
+      {
+       "pos": [
+        65.657,
+        95.0,
+        -70.041
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@84682",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        14.31,
+        135.0,
+        4.61
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@86871",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        10.518,
+        164.5,
+        50.873
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@87170",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -14.537,
+        29.0,
+        -119.7
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@90328",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        8.547,
+        134.0,
+        5.654
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@91455",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -10.887,
+        -56.812,
+        -100.567
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@96161",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        67.677,
+        104.0,
+        -63.724
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@97725",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        6.68,
+        134.0,
+        16.941
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@99885",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        66.778,
+        101.0,
+        -63.887
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@123352",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -13.416,
+        20.0,
+        -129.292
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@123969",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        14.49,
+        135.0,
+        4.382
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@124280",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        55.12,
+        126.0,
+        3.557
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@128306",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        66.806,
+        102.5,
+        -61.138
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@128715",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -9.466,
+        172.062,
+        42.149
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@128996",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        12.102,
+        155.5,
+        39.647
+       ],
+       "source": "2026-10-20_18-05-35.tsv.gz@13187",
+       "ticks": 4
+      }
+     ],
+     "survived": [
+      {
+       "pos": [
+        -27.26,
+        194.0,
+        199.172
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@3040",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        54.3,
+        61.0,
+        -58.685
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@4518",
+       "ticks": 6
+      },
+      {
+       "pos": [
+        5.546,
+        134.0,
+        31.576
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@7653",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -14.423,
+        20.0,
+        -128.45
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@19884",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -1.422,
+        -56.75,
+        -100.684
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@58299",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        6.011,
+        134.0,
+        32.194
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@63009",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -3.839,
+        15.0,
+        -150.687
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@77135",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        14.464,
+        135.0,
+        4.14
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@82630",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        55.934,
+        126.0,
+        5.152
+       ],
+       "source": "2026-11-03_20-52-45.tsv.gz@82681",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -13.419,
+        47.0,
+        -97.871
+       ],
+       "source": "2026-10-20_18-05-35.tsv.gz@12530",
+       "ticks": 1
+      }
+     ],
+     "unknown": 39,
+     "start_area_touches": 1981
+    }
+   }
+  ]
+ },
+ "ground_allowed": [
+  "start_area"
+ ],
+ "boosters": []
+}

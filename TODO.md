@@ -9,7 +9,6 @@
     - i think this should go in the etas mod. do you agree with this design?
     - i think for debugging you should be able to directly take actions with deftenvy on the server, are you able to do that?
     - i also want a way to automate finding the start and end regions, maybe by claudes submitting tases to probe. basically just claudes playing on the server with deftenvy.
-    - also need to process flashbacks, extracting world data and segments of me and other players in render distance.
 - generally should be looking for rules of thumb / generalizable knowledge. maybe write a reflection on each tas. we don't yet know what optimal ebounces look like. or much about turning.
     - maybe also more tas-specific recipes. like how chatter converges slowly, so even if you're fine with chatter, you should first get a run without it.
     - what if instead of ablating the physics, we ablate the gradient? so we fly the unabated physics, but take gradients with the ablated physics. how different are the ablated physics anyway? it probably matters for the L corner step, but maybe not for other things.

@@ -104,8 +104,10 @@ measurements; README, "EMC course rules", the summary).
 Killing blocks are the world's (`world::Effect::Climbable` ends the glide, so it kills
 here, as unknown space does); kill rules here are the course's own.
 
-How events become evidence (`judged`): a timer or finish chat at tape tick C judged the
-pose of C - L for some L in the lag band; poses before the band were judged by earlier
+How events become evidence (`judged`): a finish's event is not its chat but the action
+bar's `Time:` line going blank, in the tick the timer stopped. why? on most accounts EMC
+sends "Course complete!" 3-5 ticks later (`timer_events`). A timer or finish event at tape
+tick C judged the pose of C - L for some L in the lag band; poses before the band were judged by earlier
 server ticks, so they were on the other side of the rule; the band's latest pose is
 taken to be on the far side (the rule's region is entered, or left, and stays so for a
 tick). The pose just before the band is left out, since a move that shares a server
@@ -181,6 +183,20 @@ COURSES = {
               "2026-10-31_20-06-39.tsv.gz": "2026-10-31T20_34_14.zip"},
         excluded={},
     ),
+    "academy": dict(
+        dimension="minecraft:eacademy",
+        tape="solver/courses/academy/lqmbda_34.02.tas",
+        world="solver/courses/academy/academy.world.gz",
+        world_extract=("python3 extract_world.py <replays>/2026-11-03T22_40_44_academy.zip --bounds -112 -64 -224 "
+                       "127 319 287 -o solver/courses/academy/academy.world.gz"),
+        # 1.21.11, no log, no timer chat (its timer starts come from the action bar). Its
+        # timer lags 4-5 ticks against the logged sessions' start box, in REPLAY_LAG.
+        replays=["data/foreign/luna/2026-11-04_academy.zip"],
+        logs={"2026-11-03_20-52-45.tsv.gz": "2026-11-03T22_40_44_academy.zip",
+              "2026-11-03_22-57-29.tsv.gz": "2026-11-03T23_42_06_academy.zip",
+              "2026-10-20_18-05-35.tsv.gz": "2026-10-20T18_24_43.zip"},
+        excluded={},
+    ),
     # also `--boosters-into` the hand-written test course (crates/etas/tests/data/alpine)
     "alpine": dict(
         dimension="minecraft:ealpine",
@@ -213,6 +229,7 @@ REPLAY_LAG = (2, 5)  # ticks; for replays without a log (logged sessions, one ti
 DEFAULT_D = (66e6, 160e6)  # ns, when a log has no use_item round trips
 GROW_STEP = 0.01  # blocks
 GROW_MAX = 64.0  # blocks; a face that grows this far stops there, marked "limit"
+FINISH_CHAT_DELAY = 10  # ticks; the most a "Course complete!" follows the timer's stop
 
 
 def sha256_file(p: Path) -> str:
@@ -278,11 +295,44 @@ class Session:
         return idx, before
 
 
+def timer_events(chats: list[Chat], bars: list[Chat]) -> list[Chat]:
+    """`chats` with the action bar's account of the timer folded in. `bars` is every
+    action bar line in order: `Time: X   Best Time: Y` each tick while the timer runs,
+    then a blank line in the tick it stops.
+    - A finish moves to the bar's stop before it. why? `lqmbda`'s finishes come 3-5 ticks
+      after the stop, and the stop agrees with the shown time (34.02 s: 680 ticks after
+      the timer chat, the chat 683); `deftenvy`'s share its tick (README, EMC course rules).
+    - A session with no "Timer started!" (a client with that chat off) gets one at each
+      first bar of a count. why first? the count restarts near 0 then."""
+    stops, starts, prev = [], [], None
+    for b in bars:
+        running = b.text.startswith("Time:")
+        if running and prev is None:
+            starts.append(Chat(b.key, b.tick, "Timer started!"))
+        if not running and prev is not None:
+            stops.append(b)
+        prev = b if running else None
+    out = []
+    for c in chats:
+        if c.text.startswith("Course complete!"):
+            i = bisect.bisect_right([x.key for x in stops], c.key) - 1
+            if i >= 0 and c.tick - stops[i].tick <= FINISH_CHAT_DELAY:
+                c = Chat(stops[i].key, stops[i].tick, c.text, c.used_item)
+        out.append(c)
+    if not any(c.text == "Timer started!" for c in out):
+        out = sorted(out + starts, key=lambda c: c.key)
+    return out
+
+
+def replay_path(name: str) -> Path:
+    """A replay in the profile's folder, or a path from the repo root (someone else's)."""
+    return ROOT / name if "/" in name else REPLAYS / name
+
+
 def replay_session(name: str, dim: str) -> Session:
-    path = REPLAYS / name
+    path = replay_path(name)
     r = fb.Replay.load(path)
-    scan = world.scan_replay(path)
-    dims = [(t, d[1]) for t, k, d in scan.events if k == "dimension"]
+    dims = [(e.tick, e.data) for e in r.events if e.kind == "dimension"]
 
     def in_dim(t):
         cur = None
@@ -297,6 +347,8 @@ def replay_session(name: str, dim: str) -> Session:
         if cur is not None and in_dim(t):
             obs.append(Obs(t, t, (cur.x, cur.y, cur.z), cur.on_ground))
     chats = [Chat(e.tick, e.tick, e.data) for e in r.events if e.kind == "chat" and in_dim(e.tick)]
+    bars = [Chat(e.tick, e.tick, e.data) for e in r.events if e.kind == "actionbar" and in_dim(e.tick)]
+    chats = timer_events(chats, bars)
     return Session(name, "replay", obs, chats, resets_of(obs), lag_note=f"replay band {REPLAY_LAG}")
 
 
@@ -343,6 +395,9 @@ def log_session(name: str, dim: str) -> Session:
             k = bisect.bisect_left(uses, i.t_decode)
             used = k > 0 and i.t_decode - uses[k - 1] < 1000e6
             chats.append(Chat(i.t_decode, i.handle_tick, i.details[-1], used))
+    bars = [Chat(i.t_decode, i.handle_tick, i.details[-1]) for i in log.inbound
+            if i.name == "set_action_bar_text" and i.details and i.t_handle and in_dim(i.t_decode)]
+    chats = timer_events(chats, sorted(bars, key=lambda c: c.key))
     # round trips of use_item: the plugin's packet-handler reply (player_position) and
     # the vanilla tick-end reply (block_changed_ack)
     fast, slow = [], []
@@ -758,7 +813,7 @@ def main(argv=None):
     for name in cfg["replays"]:
         print(f"replay {name}", file=sys.stderr, flush=True)
         sessions.append(replay_session(name, cfg["dimension"]))
-        srcs["replays"].append({"name": name, "sha256": sha256_file(REPLAYS / name)})
+        srcs["replays"].append({"name": name, "sha256": sha256_file(replay_path(name))})
     for name, rep in cfg["logs"].items():
         print(f"log {name}", file=sys.stderr, flush=True)
         sessions.append(log_session(name, cfg["dimension"]))

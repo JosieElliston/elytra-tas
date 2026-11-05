@@ -1,0 +1,8 @@
+[package]
+name = "academy"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+etas = { path = "../../crates/etas" }
