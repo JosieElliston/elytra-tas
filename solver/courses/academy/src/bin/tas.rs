@@ -42,10 +42,10 @@ const TRACK_WINDOWS: [usize; 4] = [24, 12, 6, 3];
 /// How far past the seed's own horizon a join looks. why so far? ticks in the start area are
 /// free, so a join that spends more of them diving can arrive faster.
 const HORIZON_UP: usize = 60;
-/// Caps on the seed's pitch, degrees, each a separate try at a join. why? a join is sensitive to
-/// its first guess: on academy a seed capped at 89 joins and an uncapped one finds nothing, under
-/// any pitch bound (2026-11-05).
-const SEED_PITCH_CAPS: [f64; 3] = [90.0, 89.0, 85.0];
+/// A cap on the seed's pitch, degrees. why? a join is sensitive to its first guess: on academy a
+/// seed capped at 89 joins and an uncapped one finds nothing, under either pitch bound
+/// (2026-11-05). Not understood; 89.5 fails too, so this may be luck.
+const SEED_PITCH_CAP: f64 = 89.0;
 
 fn finish_goal(course: &Course, cap: usize) -> Result<Goal, String> {
     let f = &course.region("finish")?.working;
@@ -131,13 +131,9 @@ fn run() -> Result<bool, String> {
     let start_area = course.region("start_area")?.working.clone();
 
     // the join: per target tick and horizon, the exit tick it comes to
-    let tries: Vec<(usize, f64)> = JOINS
-        .iter()
-        .flat_map(|&j| SEED_PITCH_CAPS.iter().map(move |&c| (j, c)))
-        .collect();
-    let found: Vec<(usize, usize, usize, DPlan)> = tries
+    let found: Vec<(usize, usize, usize, DPlan)> = JOINS
         .par_iter()
-        .flat_map_iter(|&(j, cap)| {
+        .flat_map_iter(|&j| {
             let target_tick = b_timer + j;
             let target: X = flight(state_at(&best, target_tick));
             let pb = Problem {
@@ -155,7 +151,7 @@ fn run() -> Result<bool, String> {
                 &seed_flight.traj,
                 0,
                 seed_n.min(seed_flight.traj.rows.len()),
-                cap,
+                SEED_PITCH_CAP,
             );
             let mut out = Vec::new();
             let mut u = seed;

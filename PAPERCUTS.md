@@ -75,8 +75,8 @@ missing tools / poorly configured tools / missing docs / general frictions / gen
   (2026-11-05, plan ticks 109, 246, 322, 329). Not proof they're optimal.
 - **A join can hinge on tiny changes to its seed.** With the same flight and prefix, a seed capped
   at pitch 89 joins and an uncapped one finds nothing, under either bound (2026-11-05). It looks
-  like a bad pitch bound, and at first I blamed the bound. `tas` now tries several caps. A solve's
-  `Stage` still doesn't say why it failed.
+  like a bad pitch bound, and at first I blamed the bound. `tas` caps its seeds at 89, which may be
+  luck, as 89.5 fails too. A solve's `Stage` still doesn't say why it failed.
 - **A tape's walk to the back ledge doesn't replay under port.** `36.440_..._run3` is at y 262 by
   tick 91 where the recording says 282.8, so no tape gets a plan from the reset to the z = 227 ledge.
   An ideal drop off that ledge, seeded from the flight, reached 539 against the plan's 537
