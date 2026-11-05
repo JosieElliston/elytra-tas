@@ -14,7 +14,8 @@
 //!   conversion, nose-up and turning terms, a dead tick. At +90 the game's table cos
 //!   is 9.6e-5, so the terms run, and in the limit they are continuous; this kernel
 //!   does the same (it gates on `pitch > -90`). The game's dead band also reaches
-//!   ~0.0055 deg above -90 (one table cell), which this kernel doesn't model.
+//!   ~0.0055 deg above -90 (one table cell), which this kernel doesn't model; a
+//!   solver stays in [`PITCH_MIN`], [`PITCH_MAX`], where the two agree.
 //! - zero horizontal speed (`sqrt`): the derivative of the speed is taken as 0 there.
 //! - the small-velocity zeroing, when on (see [`Generic::zero_small_velocity`]).
 //! - the axis order of the L-shaped move, see [`ghost::l_move`].
@@ -41,6 +42,12 @@ pub const DRAG_Y: f64 = 0.98_f32 as f64;
 /// `v_x² + v_z² < 9e-6` zeroes both horizontal components.
 pub const ZERO_Y: f64 = 0.003;
 pub const ZERO_XZ_SQR: f64 = 9.0e-6;
+
+/// The ends of the range where flight is continuous, degrees. why not -90? the game's
+/// table cos truncates to cell 0 from -90 up to here, a dead tick. +90 itself is fine:
+/// nothing changes there, and `lift` reaches 0.
+pub const PITCH_MIN: f64 = -89.9945;
+pub const PITCH_MAX: f64 = 90.0;
 
 /// The generic kernel. A value, not global state: two differently configured kernels
 /// can run side by side.

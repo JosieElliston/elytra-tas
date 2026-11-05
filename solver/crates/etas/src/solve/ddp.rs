@@ -23,7 +23,7 @@
 
 use std::f64::consts::PI;
 
-use sim::generic::Generic;
+use sim::generic::{Generic, PITCH_MAX, PITCH_MIN};
 use sim::generic::ghost::{l_move, leg_sdf};
 use sim::generic::num_dual::{Dual2SVec64, DualNum, DualSVec64};
 use sim::state::Input;
@@ -36,8 +36,6 @@ pub type X = [f64; 6];
 pub type U = [f64; 2];
 
 const D2R: f64 = PI / 180.0;
-/// Pitch bound, degrees. why short of 90? the kernel's -90 is a dead tick (a cliff).
-pub const PITCH_LIMIT: f64 = 89.0;
 /// Constraints per tick: the legs of the L-shaped move.
 pub const NP: usize = 3;
 /// The plane goal's floor on the rate toward the plane, so a horizon that never
@@ -362,7 +360,7 @@ pub fn input_at(x: &X, u: &U, near: f64) -> (Input<f32>, f64) {
     (
         Input {
             yaw: yaw as f32,
-            pitch: (u[1] / D2R).clamp(-PITCH_LIMIT, PITCH_LIMIT) as f32,
+            pitch: (u[1] / D2R).clamp(PITCH_MIN, PITCH_MAX) as f32,
         },
         yaw,
     )
@@ -383,11 +381,12 @@ pub fn lead_of(x: &X, yaw: f64) -> f64 {
 
 /// A control from degrees.
 pub fn control(lead: f64, pitch_deg: f64) -> U {
-    [lead, pitch_deg.clamp(-PITCH_LIMIT, PITCH_LIMIT) * D2R]
+    [lead, pitch_deg.clamp(PITCH_MIN, PITCH_MAX) * D2R]
 }
 
+
 fn clamp_pitch(u: &mut U) {
-    u[1] = u[1].clamp(-PITCH_LIMIT * D2R, PITCH_LIMIT * D2R);
+    u[1] = u[1].clamp(PITCH_MIN * D2R, PITCH_MAX * D2R);
 }
 
 impl<'a> Problem<'a> {
@@ -662,7 +661,7 @@ impl<'a> Problem<'a> {
         let mut ks = vec![[0.0; 2]; n];
         let mut gains = vec![[[0.0; NS]; 2]; n];
         let (mut dv1, mut dv2) = (0.0, 0.0);
-        let lim = PITCH_LIMIT * D2R;
+        let (lo, hi) = (PITCH_MIN * D2R, PITCH_MAX * D2R);
         for k in (0..n).rev() {
             let (xk, uk) = (&x[k], u[k]);
             let d = self.derivs(m, k, xk, uk);
@@ -736,9 +735,9 @@ impl<'a> Problem<'a> {
             ];
             let mut gk = [[0.0; NS]; 2];
             let p_new = uk[1] + kk[1];
-            if p_new > lim || p_new < -lim {
+            if p_new > hi || p_new < lo {
                 // pitch on its bound: no pitch feedback, lead solved given the pitch step
-                kk[1] = p_new.clamp(-lim, lim) - uk[1];
+                kk[1] = p_new.clamp(lo, hi) - uk[1];
                 kk[0] = -(qu[0] + r[0][1] * kk[1]) / r[0][0];
                 for j in 0..NS {
                     gk[0][j] = -qux[0][j] / r[0][0];

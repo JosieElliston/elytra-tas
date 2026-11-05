@@ -42,6 +42,10 @@ const TRACK_WINDOWS: [usize; 4] = [24, 12, 6, 3];
 /// How far past the seed's own horizon a join looks. why so far? ticks in the start area are
 /// free, so a join that spends more of them diving can arrive faster.
 const HORIZON_UP: usize = 60;
+/// Caps on the seed's pitch, degrees, each a separate try at a join. why? a join is sensitive to
+/// its first guess: on academy a seed capped at 89 joins and an uncapped one finds nothing, under
+/// any pitch bound (2026-11-05).
+const SEED_PITCH_CAPS: [f64; 3] = [90.0, 89.0, 85.0];
 
 fn finish_goal(course: &Course, cap: usize) -> Result<Goal, String> {
     let f = &course.region("finish")?.working;
@@ -67,11 +71,14 @@ fn opts(margin: f64) -> Opts {
 }
 
 /// A flight's rows as controls and states, from tick 0.
-fn controls(t: &Trajectory, from: usize, to: usize) -> Vec<U> {
+fn controls(t: &Trajectory, from: usize, to: usize, pitch_cap: f64) -> Vec<U> {
     (from..to)
         .map(|k| {
             let i = &t.rows[k].input;
-            control(lead_of(&flight(state_at(t, k)), i.yaw), i.pitch)
+            control(
+                lead_of(&flight(state_at(t, k)), i.yaw),
+                i.pitch.min(pitch_cap),
+            )
         })
         .collect()
 }
@@ -124,9 +131,13 @@ fn run() -> Result<bool, String> {
     let start_area = course.region("start_area")?.working.clone();
 
     // the join: per target tick and horizon, the exit tick it comes to
-    let found: Vec<(usize, usize, usize, DPlan)> = JOINS
+    let tries: Vec<(usize, f64)> = JOINS
+        .iter()
+        .flat_map(|&j| SEED_PITCH_CAPS.iter().map(move |&c| (j, c)))
+        .collect();
+    let found: Vec<(usize, usize, usize, DPlan)> = tries
         .par_iter()
-        .flat_map_iter(|&j| {
+        .flat_map_iter(|&(j, cap)| {
             let target_tick = b_timer + j;
             let target: X = flight(state_at(&best, target_tick));
             let pb = Problem {
@@ -144,6 +155,7 @@ fn run() -> Result<bool, String> {
                 &seed_flight.traj,
                 0,
                 seed_n.min(seed_flight.traj.rows.len()),
+                cap,
             );
             let mut out = Vec::new();
             let mut u = seed;
@@ -195,7 +207,7 @@ fn run() -> Result<bool, String> {
     // the whole plan, generic: the join, then the flight's rotations as controls
     let target_tick = b_timer + j;
     let end = b_finish.min(best.rows.len());
-    let rest_u = controls(&best, target_tick, end);
+    let rest_u = controls(&best, target_tick, end, 90.0);
     let u: Vec<U> = join.u.iter().chain(rest_u.iter()).copied().collect();
     let pb = Problem {
         kernel,

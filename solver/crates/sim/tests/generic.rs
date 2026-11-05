@@ -5,7 +5,8 @@ use nalgebra::SVector;
 use num_dual::{Dual32, Dual64, HyperDual64};
 use proptest::prelude::*;
 use sim::generic::ghost::{HALF_WIDTH, HEIGHT, box_sdf, l_move, sdf};
-use sim::generic::{GRAVITY, Generic, Hooks, LiftShape, Scalar};
+use sim::faithful::Faithful;
+use sim::generic::{GRAVITY, Generic, Hooks, LiftShape, PITCH_MAX, PITCH_MIN, Scalar};
 use sim::state::{FlightState, Input};
 use world::Aabb;
 
@@ -39,7 +40,7 @@ fn smooth_point() -> impl Strategy<Value = [f64; 8]> {
         prop::array::uniform3(-200.0..200.0f64),
         prop::array::uniform3(-3.0..3.0f64),
         -720.0..720.0f64,
-        -89.0..90.0f64,
+        PITCH_MIN..=PITCH_MAX,
     )
         .prop_map(|(p, v, yaw, pitch)| [p[0], p[1], p[2], v[0], v[1], v[2], yaw, pitch])
         .prop_filter("away from branch switches", |x| {
@@ -69,7 +70,9 @@ proptest! {
                 // FD error here is ~eps|f|/h ~ 1e-8 for positions near 200.
                 prop_assert!((ad[o].eps - fd).abs() < 1e-6 * (1.0 + fd.abs()),
                     "d out{o}/d in{i}: dual {} fd {fd}", ad[o].eps);
-                prop_assert_eq!(ad[o].re, f64_at(&k, x)[o]);
+                // why not exact? a dual's sin and cos and f64's sin_cos can differ by an ulp
+                let plain = f64_at(&k, x)[o];
+                prop_assert!((ad[o].re - plain).abs() < 1e-12 * (1.0 + plain.abs()));
             }
         }
     }
@@ -258,6 +261,49 @@ fn pitch_minus_90_is_dead() {
         },
     );
     assert!(down.vel[2] > 0.09, "turns toward +z: {:?}", down.vel);
+}
+
+/// Both ends of the solver's pitch range are live in the game's kernel, the band below
+/// `PITCH_MIN` is dead, and the two kernels agree up to the ends. why? a solver is told it
+/// can use the whole range, and a dead tick there would be a cliff it can't see.
+#[test]
+fn pitch_range_is_live_and_tight() {
+    let k = Faithful;
+    let s = [1.0, -0.5, 0.0];
+    let moved = |pitch: f32, yaw: f32| {
+        let (v, _) = k.velocity(s, &k.look(&Input { yaw, pitch }));
+        // the turn toward the look, which a dead tick skips
+        (v[0] - 0.99_f32 as f64).abs() > 1e-6 || v[2].abs() > 1e-6
+    };
+    for yaw in [10.0, 100.0, -170.0, 1234.5] {
+        assert!(moved(PITCH_MIN as f32, yaw), "PITCH_MIN dead at yaw {yaw}");
+        assert!(moved(PITCH_MAX as f32, yaw), "PITCH_MAX dead at yaw {yaw}");
+        assert!(!moved((PITCH_MIN - 2e-5) as f32, yaw), "the band ends lower");
+        assert!(!moved(-90.0, yaw), "-90 is live");
+    }
+    let g = Generic::default();
+    for pitch in [PITCH_MIN, -89.9, -89.0, 89.0, 89.9, 89.999, PITCH_MAX] {
+        for yaw in [10.0f32, 100.0, -170.0] {
+            let u = Input {
+                yaw,
+                pitch: pitch as f32,
+            };
+            let (a, _) = k.velocity(s, &k.look(&u));
+            let b = g.velocity(
+                s,
+                &g.look(&Input {
+                    yaw: yaw as f64,
+                    pitch,
+                }),
+            );
+            for i in 0..3 {
+                assert!(
+                    (a[i] - b[i]).abs() < 1e-3,
+                    "pitch {pitch} yaw {yaw}: {a:?} {b:?}"
+                );
+            }
+        }
+    }
 }
 
 #[test]
