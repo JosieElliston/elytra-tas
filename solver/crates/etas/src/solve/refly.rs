@@ -116,7 +116,7 @@ impl Repaired {
 /// (warm: the plan and multipliers shifted, the price at `c0`) unless the plan still
 /// meets the goal and the margin from there. A Reach goal stops re-solving when
 /// `stop_last` ticks are left: fewer ticks than that can't hold all six coordinates.
-/// A Plane goal ends at the first faithful tick past the plane.
+/// A Plane or Gate goal ends at the first faithful tick that crosses.
 pub fn repair(
     world: &World,
     pb: &Problem,
@@ -138,7 +138,7 @@ pub fn repair(
     };
     let mut yaw_prev = yaw_from;
     let cap = match pb.goal {
-        Goal::Plane { cap, .. } => cap,
+        Goal::Plane { cap, .. } | Goal::Gate { cap, .. } => cap,
         Goal::Reach { .. } => solved.plan.u.len(),
     };
     for k in 0..cap {
@@ -146,7 +146,9 @@ pub fn repair(
         if plan.u.is_empty() {
             match pb.goal {
                 Goal::Reach { .. } => break,
-                Goal::Plane { .. } => plan.u.push(*solved.plan.u.last().unwrap()),
+                Goal::Plane { .. } | Goal::Gate { .. } => {
+                    plan.u.push(*solved.plan.u.last().unwrap())
+                }
             }
         }
         let sub = Problem {
@@ -183,9 +185,7 @@ pub fn repair(
                 }
                 let nx = xs(&t.state);
                 out.flown.push(nx);
-                if let Goal::Plane { normal: n, at, .. } = pb.goal
-                    && nx[0] * n[0] + nx[1] * n[1] + nx[2] * n[2] - at > 0.0
-                {
+                if pb.crossed(&x, &nx) {
                     break;
                 }
             }
@@ -198,5 +198,92 @@ pub fn repair(
         plan.x.remove(0);
         mult = mult.shifted(1);
     }
+    out
+}
+
+/// Fly a whole generic plan under the faithful kernel by short reaches: every `window`
+/// ticks, re-solve the next `window` ticks from the flown state to the plan's state at
+/// their end, and the last stretch to `pb.goal`. why not [`repair`]? on a course-long
+/// horizon its re-solve costs seconds per tick and, with the whole run's time to gain,
+/// wanders off the plan, into walls. Tracking leaves the optimizing to the plan: the
+/// faithful kernel is only ~1e-5 blocks a tick off the generic one, which a short reach
+/// takes out. A reach that fails keeps the plan's controls for that window. `reach_scale`
+/// is the reach's per-coordinate scale.
+pub fn track(
+    world: &World,
+    pb: &Problem,
+    plan: &Plan,
+    yaw_from: f64,
+    window: usize,
+    reach_scale: X,
+) -> Repaired {
+    let f = Faithful;
+    let n = plan.u.len();
+    let t0 = Instant::now();
+    let mut u = plan.u.clone();
+    let mut out = Repaired {
+        inputs: Vec::new(),
+        flown: vec![pb.x0],
+        contacts: Vec::new(),
+        event: None,
+        resolves: 0,
+        secs: 0.0,
+    };
+    let mut yaw_prev = yaw_from;
+    let extra = 6;
+    let mut finishing = false;
+    for k in 0..n + extra {
+        let x = *out.flown.last().unwrap();
+        if k < n && k % window == 0 {
+            let end = k + window;
+            out.resolves += 1;
+            if end + window / 2 < n && !finishing {
+                let sub = Problem {
+                    x0: x,
+                    goal: Goal::Reach {
+                        target: plan.x[end],
+                        scale: reach_scale,
+                    },
+                    ..pb.clone()
+                };
+                let s = sub.solve(&u[k..end]);
+                if s.feasible {
+                    u[k..end].copy_from_slice(&s.plan.u);
+                }
+            } else if !finishing {
+                finishing = true;
+                let sub = Problem {
+                    x0: x,
+                    ..pb.clone()
+                };
+                let s = sub.solve(&u[k..]);
+                if s.feasible {
+                    u.truncate(k);
+                    u.extend_from_slice(&s.plan.u);
+                }
+            }
+        }
+        let uk = *u.get(k).unwrap_or_else(|| u.last().unwrap());
+        let (input, yaw) = input_at(&x, &uk, yaw_prev);
+        yaw_prev = yaw;
+        out.inputs.push(input);
+        match f.step_input(world, &fs(&x), &input) {
+            Ok(t) => {
+                if t.contact.is_some() {
+                    out.contacts.push(k + 1);
+                }
+                let nx = xs(&t.state);
+                out.flown.push(nx);
+                if pb.crossed(&x, &nx) {
+                    break;
+                }
+            }
+            Err(e) => {
+                out.event = Some((k + 1, e));
+                break;
+            }
+        }
+    }
+    out.secs = t0.elapsed().as_secs_f64();
     out
 }

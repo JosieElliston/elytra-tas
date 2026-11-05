@@ -6,3 +6,6 @@ publish = false
 
 [dependencies]
 etas = { path = "../../crates/etas" }
+rayon = "1.12.0"
+sim = { path = "../../crates/sim" }
+world = { path = "../../crates/world" }

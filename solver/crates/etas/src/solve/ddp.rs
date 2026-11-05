@@ -52,6 +52,19 @@ pub enum Goal {
         at: f64,
         cap: usize,
     },
+    /// [`Goal::Plane`]'s secant time, for a plane the route passes more than once and a
+    /// finish that is a box on it: only a crossing from behind the plane to past it counts,
+    /// and the state past it is held to `lo ..= hi` (a quadratic price at the walls' `rho`,
+    /// so it closes as the price grows). why rising only? academy's route starts past its
+    /// finish plane and crosses it the wrong way first. Use an infinite bound for a free
+    /// axis.
+    Gate {
+        normal: [f64; 3],
+        at: f64,
+        cap: usize,
+        lo: [f64; 3],
+        hi: [f64; 3],
+    },
     /// Be at `target` after exactly the horizon's ticks. Each coordinate's error over
     /// `scale` is held to 0 under the augmented Lagrangian; min time is a search over
     /// the horizon outside the solve.
@@ -305,12 +318,24 @@ impl<'a> Problem<'a> {
 
     /// Plane: how far past the plane, and the rate toward it.
     fn plane<D: DualNum<Primitive = f64> + Copy>(&self, x: &[D; 6]) -> Option<(D, D)> {
-        let Goal::Plane { normal: n, at, .. } = self.goal else {
-            return None;
+        let (n, at) = match self.goal {
+            Goal::Plane { normal, at, .. } | Goal::Gate { normal, at, .. } => (normal, at),
+            Goal::Reach { .. } => return None,
         };
         let past = x[0] * n[0] + x[1] * n[1] + x[2] * n[2] - D::from(at);
         let rate = x[3] * n[0] + x[4] * n[1] + x[5] * n[2];
         Some((past, rate))
+    }
+
+    /// Whether a move from `prev` to `x` ends the flight: past the plane, and for a
+    /// [`Goal::Gate`] from behind it. Never for [`Goal::Reach`].
+    pub fn crossed(&self, prev: &X, x: &X) -> bool {
+        let past = |x: &X| self.plane(x).map_or(0.0, |p| p.0);
+        match self.goal {
+            Goal::Plane { .. } => past(x) > 0.0,
+            Goal::Gate { .. } => past(x) > 0.0 && past(prev) <= 0.0,
+            Goal::Reach { .. } => false,
+        }
     }
 
     /// The goal's part of the cost at the horizon `n`.
@@ -321,14 +346,25 @@ impl<'a> Problem<'a> {
         n: usize,
     ) -> D {
         match &self.goal {
-            Goal::Plane { .. } => {
+            Goal::Plane { .. } | Goal::Gate { .. } => {
                 let (past, rate) = self.plane(x).unwrap();
                 let rate = if rate.re() > RATE_MIN {
                     rate
                 } else {
                     D::from(RATE_MIN)
                 };
-                D::from(n as f64) - past / rate
+                let mut c = D::from(n as f64) - past / rate;
+                if let Goal::Gate { lo, hi, .. } = &self.goal {
+                    for i in 0..3 {
+                        for over in [x[i] - D::from(hi[i]), D::from(lo[i]) - x[i]] {
+                            let over = over + D::from(self.opts.margin);
+                            if over.re() > 0.0 {
+                                c = c + over * over * D::from(0.5 * m.rho);
+                            }
+                        }
+                    }
+                }
+                c
             }
             Goal::Reach { target, scale } => {
                 let rho = m.rho * self.opts.goal_weight;
@@ -346,7 +382,7 @@ impl<'a> Problem<'a> {
     pub fn value(&self, x: &[X]) -> f64 {
         let n = x.len() - 1;
         match &self.goal {
-            Goal::Plane { .. } => {
+            Goal::Plane { .. } | Goal::Gate { .. } => {
                 let (past, rate) = self.plane(&x[n]).unwrap();
                 n as f64 - past / rate.max(RATE_MIN)
             }
@@ -576,21 +612,24 @@ impl<'a> Problem<'a> {
         (nx, nu)
     }
 
-    /// Plane: cut the horizon at the first tick past the plane, or grow it by holding
+    /// Plane, Gate: cut the horizon at the first tick past the plane, or grow it by holding
     /// the last control up to `cap`. Resizes the multipliers either way.
     pub fn refit(&self, m: &mut Multipliers, u: &mut Vec<U>) -> Vec<X> {
         let mut x = self.rollout(u);
-        if let Goal::Plane { cap, .. } = self.goal {
-            let past = |x: &X| self.plane(x).unwrap().0;
-            if let Some(k) = (1..x.len()).find(|&k| past(&x[k]) > 0.0) {
+        if let Goal::Plane { cap, .. } | Goal::Gate { cap, .. } = self.goal {
+            if let Some(k) = (1..x.len()).find(|&k| self.crossed(&x[k - 1], &x[k])) {
                 u.truncate(k);
                 x.truncate(k + 1);
             } else {
-                while u.len() < cap && past(x.last().unwrap()) <= 0.0 {
+                while u.len() < cap {
                     let l = *u.last().unwrap();
                     u.push(l);
                     let n = step(&self.kernel, x.last().unwrap(), l).0;
+                    let done = self.crossed(x.last().unwrap(), &n);
                     x.push(n);
+                    if done {
+                        break;
+                    }
                 }
             }
         }
@@ -668,6 +707,13 @@ impl<'a> Problem<'a> {
     pub fn feasible(&self, plan: &Plan) -> bool {
         let goal = match &self.goal {
             Goal::Plane { .. } => self.plane(plan.x.last().unwrap()).unwrap().0 > 0.0,
+            Goal::Gate { lo, hi, .. } => {
+                let n = plan.x.len() - 1;
+                let e = &plan.x[n];
+                n > 0
+                    && self.crossed(&plan.x[n - 1], e)
+                    && (0..3).all(|i| e[i] >= lo[i] && e[i] <= hi[i])
+            }
             Goal::Reach { .. } => self.value(&plan.x) < self.opts.tol,
         };
         goal && self.worst(&plan.x, &plan.u) >= self.opts.margin - 1e-9
@@ -696,7 +742,7 @@ impl<'a> Problem<'a> {
             });
             let done = self.feasible(&p)
                 && match self.goal {
-                    Goal::Plane { .. } => (value - last).abs() < 1e-9,
+                    Goal::Plane { .. } | Goal::Gate { .. } => (value - last).abs() < 1e-9,
                     Goal::Reach { .. } => true,
                 };
             self.update(&mut m, &p);

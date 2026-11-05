@@ -7,6 +7,9 @@ name = "academy"
 version = "0.1.0"
 dependencies = [
  "etas",
+ "rayon",
+ "sim",
+ "world",
 ]
 
 [[package]]

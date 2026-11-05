@@ -27,6 +27,10 @@ Status as of 2026-11-04 19:40 EST: build-order steps 1–7 exist; nothing has fl
   velocity the model doesn't explain is just such an event, so a recording that took
   damage replays and verifies. `check_runs.py` sweeps the replays for runs that don't;
   it hasn't been run to completion.
+- Academy (`courses/academy`, phases `flights`, `optimize`, `tas`) has a whole-run plan from
+  the reset pose at 540 timed ticks, from recordings of 622-852, verified but unflown
+  (2026-11-04 23:45 EST). Sliding min-tick windows did nearly all of it: whole-run DDP alone stalls after
+  about 3 ticks. Its machinery is in the course crate so far.
 - Not yet: a solver-written plan flown by the mod, any playback on EMC, plans that take
   damage on purpose, fireworks.
 
