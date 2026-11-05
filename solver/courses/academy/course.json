@@ -34,9 +34,9 @@
   ],
   "excluded": [],
   "tool": "fit_course.py",
-  "commit": "87d2b1eed1ef65afe8222e0bbdb003f60c28ca9a",
+  "commit": "c4af9ba511dd0d28182e3ffa9302ff650ad55599",
   "dirty": true,
-  "fitted_at": "2026-11-04 22:08:52 EST"
+  "fitted_at": "2026-11-04 22:57:29 EST"
  },
  "observation": {
   "tick_chat_lag": [
@@ -277,7 +277,7 @@
     "min": [
      -6.520845487735511,
      -58.0,
-     -99.96846319775088
+     -99.7
     ],
     "max": [
      0.8669767408990526,
@@ -314,11 +314,11 @@
     "x_max": "assumed",
     "y_min": "assumed",
     "y_max": "assumed",
-    "z_min": "fitted",
+    "z_min": "override",
     "z_max": "assumed"
    },
    "status": "provisional",
-   "note": "Finish on the first observed pose inside, timer running. Inside: each finish's latest band pose, or its timer-anchored pose; runs that all approach one way leave inner small and the faces they don't reach assumed; outside: poses judged with the timer running before a finish or attempt end. 7 outside points were dropped as contradicted (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped.",
+   "note": "Finish on the first observed pose inside, timer running. Inside: each finish's latest band pose, or its timer-anchored pose; runs that all approach one way leave inner small and the faces they don't reach assumed; outside: poses judged with the timer running before a finish or attempt end. 7 outside points were dropped as contradicted (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped. z_min is set by hand to -99.7: Allowing each event +-1 tick: first pose past the face matches the chat's tick count in 9 of 12 timed finishes, against 4 for -100. Provisional: no single box holds 38.44 s, which passed -99.55 at y -56.67 without finishing.",
    "evidence": {
     "inside": 17,
     "outside": 48823,

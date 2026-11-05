@@ -299,9 +299,15 @@ gives false contradictions.
   2026-11-04 22:08 EST: academy y >= 199, z >= 205; burrowed grove x >= -6, finish x <= -35;
   downtown x < -27, 86 <= y < 99, z < -64; alpine z < -124, finish y <= 186, z >= 208. Offsetting
   by the 0.3 half-width doesn't fit: x >= -6 is bracketed to [-6.005, -5.955], x < -27 to
-  [-27.149, -26.989]. Not all are whole: academy's finish z_min fits [-99.978, -99.958],
-  downtown's finish z_max [-90.262, -90.152]. why it matters: a fit with a band one tick too
-  late put these faces one tick of travel out (academy z_min 203.7).
+  [-27.149, -26.989]. Not all are whole: downtown's finish z_max fits [-90.262, -90.152], and
+  academy's finish is set to z >= -99.7 (the hitbox wholly past -100; 9 of 12 timed finishes
+  match the chat's tick count, 4 for -100), provisionally, as no one box holds 38.44 s.
+  why it matters: at normal exit speed one tick of travel is ~1.5 blocks, so a wrong delay
+  makes a wrong face look just as good. Academy's start also fits y >= 198.56, z >= 203.45 at
+  a delay a tick shorter. It's rejected on the likelihood with +-1 tick per event (about 16
+  nats worse) and on those faces not being round, but only three slow exits (under 0.9
+  blocks/tick) test it directly, and they lean the other way. Slow passes with `deftenvy`
+  would settle it.
 - **Start area** is box-like in bulk (canyon x < −266, 168 ≤ y < 177–178, z ≥ 164;
   super classic downtown −52 ≤ x < −27, 86 ≤ y < 99, z < −64) but not one box: near
   canyon's z ≈ 195–199 corner the −x face sits near −265.2, and landing at y = 167

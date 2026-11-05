@@ -60,7 +60,8 @@ carries its bracket:
                     outside, grown on all faces at once and each face stopped at the
                     first such point, or 64 blocks out; not unique (another growth
                     order differs)
-    faces           {"x_min": "fitted" | "assumed", ...}: fitted is the whole number
+    faces           {"x_min": "fitted" | "assumed" | "override", ...}: override is set by the
+                    course's `face_overrides` entry, with why in `note`; fitted is the whole number
                     between inner and outer if there is just one, else their midpoint;
                     assumed is inner moved 1 block out, where outer stopped at 64 blocks
                     (the data says nothing about that face). why whole? most faces are
@@ -198,6 +199,11 @@ COURSES = {
               "2026-11-03_22-57-29.tsv.gz": "2026-11-03T23_42_06_academy.zip",
               "2026-10-20_18-05-35.tsv.gz": "2026-10-20T18_24_43.zip"},
         excluded={},
+        # the strict bracket here hangs on one fast run (40.08 s) and 7 dropped poses
+        face_overrides={"finish": {"z_min": (
+            -99.7, "Allowing each event +-1 tick: first pose past the face matches the chat's tick count "
+                   "in 9 of 12 timed finishes, against 4 for -100. Provisional: no single box holds 38.44 s, "
+                   "which passed -99.55 at y -56.67 without finishing.")}},
     ),
     # also `--boosters-into` the hand-written test course (crates/etas/tests/data/alpine)
     "alpine": dict(
@@ -843,6 +849,13 @@ def main(argv=None):
                     "band pose, or its timer-anchored pose; runs that all approach one way leave inner small "
                     "and the faces they don't reach assumed; outside: poses judged with the timer running "
                     "before a finish or attempt end.", suspect="outside")
+    for name, reg in (("start_area", start_area), ("finish", finish)):
+        for face, (value, why) in cfg.get("face_overrides", {}).get(name, {}).items():
+            axis, side = "xyz".index(face[0]), "min" if face.endswith("min") else "max"
+            reg["working"][side][axis] = value
+            reg["faces"][face] = "override"
+            reg["status"] = "provisional"
+            reg["note"] += f" {face} is set by hand to {value}: {why}"
     allowed_touch = [t for t in ev.touches if not t["timer"]]
     run_touch = [t for t in ev.touches if t["timer"]]
     kills = [t for t in run_touch if t["outcome"] == "killed"]
