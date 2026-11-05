@@ -258,6 +258,112 @@ pub fn from_tape(
     fly_tape(tape, world, course, source, "recorded", true, |_, k| k)
 }
 
+/// A recorded flight, cut out of its tape. `from_tick` is the tape tick its trajectory's
+/// tick 0 is; `parted` the first tape tick whose pose it misses by over
+/// [`crate::verify::RECORD_TOL`], with the difference, and `stopped` where port gave up.
+#[derive(Debug)]
+pub struct Flight {
+    pub traj: Trajectory,
+    pub from_tick: usize,
+    pub parted: Option<(usize, f64)>,
+    pub stopped: Option<(usize, Unsupported)>,
+}
+
+/// A recorded tape's flight as a trajectory that starts in the air, at the end of tape
+/// tick `from` (default: the last jump press before the first pose outside the start area,
+/// i.e. the deploy it left on), with the velocity that tick's move gives. why? a glide
+/// reproduces from its pose and velocity, and what comes before it (walking, jumping,
+/// double-tapped sprint on a client that disables that) often doesn't, while a seed needs
+/// only the flight. Row `t` is tape tick `from + t`, and arrivals shift with it.
+pub fn flight_from_tape(
+    tape: &Tape,
+    world: &World,
+    course: &Course,
+    source: &str,
+    from: Option<usize>,
+) -> Result<Flight, String> {
+    let from = match from {
+        Some(f) => f,
+        None => {
+            let start = &course.region("start_area")?.working;
+            let exit = tape
+                .rows
+                .iter()
+                .find(|r| !start.contains(r.pos))
+                .ok_or("the tape never leaves the start area")?
+                .t;
+            tape.rows
+                .iter()
+                .filter(|r| r.t < exit && r.keys.contains('J'))
+                .next_back()
+                .ok_or("no jump press before the tape leaves the start area")?
+                .t
+        }
+    };
+    if from < 2 || from > tape.rows.len() {
+        return Err(format!("from {from}: the tape has rows 1..={}", tape.rows.len()));
+    }
+    let row = |t: usize| &tape.rows[t - 1];
+    let (a, b) = (row(from - 1).pos, row(from).pos);
+    let mut p = LocalPlayer::new(
+        port::Vec3::new(b[0], b[1], b[2]),
+        row(from).yaw,
+        row(from).pitch,
+    );
+    p.delta_movement = port::Vec3::new(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+    p.fall_flying = true;
+    p.pose = port::Pose::FallFlying;
+    p.on_ground = false;
+    p.set_sprinting(row(from).keys.contains('R'));
+    let initial = FullState::from(&p);
+    let arrivals: Vec<Arrival> = tape
+        .arrivals
+        .iter()
+        .filter(|a| a.tick > from)
+        .map(|a| Arrival {
+            tick: a.tick - from,
+            event: a.event,
+        })
+        .collect();
+    let (mut rows, mut parted, mut stopped) = (Vec::new(), None, None);
+    for r in &tape.rows[from..] {
+        let t = r.t - from;
+        server::apply_at(&mut p, &arrivals, t, world);
+        let input = InputRow {
+            yaw: r.yaw as f64,
+            pitch: r.pitch as f64,
+            keys: r.keys.clone(),
+        };
+        let ti = input.tick_input()?;
+        if let Err(u) = tick(&mut p, &ti, world) {
+            stopped = Some((r.t, u));
+            break;
+        }
+        server::end_tick(&mut p, &arrivals, t);
+        let pos = [p.position.x, p.position.y, p.position.z];
+        let miss = (0..3).map(|k| (pos[k] - r.pos[k]).abs()).fold(0.0, f64::max);
+        if parted.is_none() && miss > crate::verify::RECORD_TOL {
+            parted = Some((r.t, miss));
+        }
+        rows.push(Row {
+            t,
+            input,
+            state: FullState::from(&p),
+        });
+    }
+    Ok(Flight {
+        traj: Trajectory {
+            header: Header::new(Some(course), "recorded", source),
+            initial,
+            arrivals,
+            rows,
+        },
+        from_tick: from,
+        parted,
+        stopped,
+    })
+}
+
 /// A recorded tape with ebounces, as perfect bounces: its rotations and keys, except
 /// that jump is held on every tick that starts on the ground while gliding (the
 /// bounce jump) and released on every gliding tick in the air. why? a replay shows no

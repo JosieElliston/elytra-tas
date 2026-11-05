@@ -8,7 +8,7 @@ use rayon::prelude::*;
 use etas::course::Course;
 use etas::plan::{self as eplan, plan_from};
 use etas::tape::Tape;
-use etas::trajectory::{Trajectory, from_tape};
+use etas::trajectory::{flight_from_tape, Trajectory, from_tape};
 use etas::verify::{Plan, verify};
 
 #[derive(Parser)]
@@ -52,6 +52,18 @@ enum Cmd {
         course: PathBuf,
         #[arg(short, long)]
         out: PathBuf,
+    },
+    /// A recorded tape's flight -> trajectory starting in the air, for seeding: from tape
+    /// tick `--from`, by default the deploy it left the start area on. Exit 1 if the flight
+    /// doesn't reproduce the tape's poses.
+    Flight {
+        tape: PathBuf,
+        #[arg(long)]
+        course: PathBuf,
+        #[arg(short, long)]
+        out: PathBuf,
+        #[arg(long)]
+        from: Option<usize>,
     },
     /// Trajectory (or .tas) -> plan: its tape, the plan header, and an @react for
     /// every planned perfect bounce; then verifies the plan (exit 1 if it fails).
@@ -186,6 +198,30 @@ fn run(cli: Cli) -> Result<bool, String> {
                 return Ok(false);
             }
             Ok(true)
+        }
+        Cmd::Flight {
+            tape,
+            course,
+            out,
+            from,
+        } => {
+            let (c, w) = Course::load(&course)?;
+            let t = Tape::read(&tape)?;
+            let f = flight_from_tape(&t, &w, &c, &tape.display().to_string(), from)?;
+            f.traj.write(&out)?;
+            println!(
+                "wrote {} ticks from tape tick {} to {}",
+                f.traj.rows.len(),
+                f.from_tick,
+                out.display()
+            );
+            if let Some((tick, u)) = &f.stopped {
+                eprintln!("port stopped at tape tick {tick}: {u:?}");
+            }
+            if let Some((tick, miss)) = f.parted {
+                eprintln!("parts from the tape at tick {tick}, by {miss:.1e}");
+            }
+            Ok(f.stopped.is_none() && f.parted.is_none())
         }
         Cmd::Plan { traj, course, out } => {
             let (c, w) = Course::load(&course)?;
