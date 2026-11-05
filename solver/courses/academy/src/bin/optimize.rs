@@ -25,7 +25,10 @@
 //! With `--hybrid`, the same on `runs/hybrid/`: a flight with a stretch from another attempt, to
 //! try its route.
 //!
-//! `cargo run --release -p academy --bin optimize [--relax | --hybrid] [NAME_SUBSTRING ...]`
+//! With `--open-top`, the start area's top is its outer bound, not the highest anyone was seen
+//! inside it, for `dome`'s flights from under the roof, above any recording.
+//!
+//! `cargo run --release -p academy --bin optimize [--relax | --hybrid] [--open-top] [NAME_SUBSTRING ...]`
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -465,11 +468,15 @@ fn scan_ticks(course: &Course, rec: &Trajectory) -> Result<Option<(usize, usize)
 
 fn run() -> Result<(), String> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let (course, world) = Course::load(dir)?;
+    let (mut course, world) = Course::load(dir)?;
     let mut only: Vec<String> = std::env::args().skip(1).collect();
     let hybrids = only.iter().any(|a| a == "--hybrid");
     let relaxing = hybrids || only.iter().any(|a| a == "--relax");
-    only.retain(|a| a != "--relax" && a != "--hybrid");
+    if only.iter().any(|a| a == "--open-top") {
+        let start = course.regions.get_mut("start_area").ok_or("no start area")?;
+        start.working.max[1] = start.outer.max[1];
+    }
+    only.retain(|a| a != "--relax" && a != "--hybrid" && a != "--open-top");
     let mut runs = Vec::new();
     let seeds = if hybrids {
         "runs/hybrid"
