@@ -49,6 +49,11 @@ missing tools / poorly configured tools / missing docs / general frictions / gen
   finish minus exit, and `Goal` only has terminal costs. Top exit speeds in `splits.md` are remote
   and rough, but deftenvy's 1.65 and lqmbda's 1.80 against rambells' 2.2-3.0 suggest ticks there.
 
+- **A PASS doesn't say which glide-off delays a plan survives.** `etas verify` passed the first
+  plan with `@react 24 29` for a landing at 21, and singleplayer's delay of 2 ticks aborted it on
+  line 23 (2026-11-05 00:27 EST). `verify` could print "delays covered: 3..8, aborts on 2" beside
+  the PASS. `tas` now adds a branch for delay 2.
+
 ### Docs and tools
 
 - **`etas view` has no way to compare time.** The runs are drawn with dots every 10 ticks, but
