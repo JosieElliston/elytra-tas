@@ -54,6 +54,26 @@ missing tools / poorly configured tools / missing docs / general frictions / gen
   aborted it on line 23 (2026-11-05 00:27 EST; other singleplayer logs show 1 to 3 ticks, or none). `verify` could print "delays covered: 3..8, aborts on 2" beside
   the PASS. To test a plan's main line there, `/etas play hold_glide=1`.
 
+### Smoothing and routes (2026-11-05)
+
+- **A whole-run solve can't take a rate price.** On academy, weight 1 moved rotation travel by
+  under 1%: every stage spent its iterations on steps that barely change the cost. The same price
+  on windows pinned at both ends cut yaw travel about a third, at no cost in time. `optimize
+  --relax` uses windows for this reason.
+- **`first_plan` can't always seed a splice.** 12 of 15 route hybrids failed with `last piece:
+  clearance -0.5`, since a failed piece merges forward until the whole tail is one solve. So those
+  routes are untested, not slower: both z = 178 x = -23 classes among them.
+- **`verify` can't read a spliced trajectory,** as it replays the rows and stops at the splice.
+  `optimize --hybrid` scans for the timer and finish by position instead.
+- **A cross section can't tell the sides of a free-hanging obstacle.** `route_hybrids.py` labels
+  openings, which separates the hall's windows, but the candle room is one component at every
+  plane, so it falls back on bands of x and y.
+- **Remote attempts are sampled about every other tick.** Counting their rows halves their time,
+  and their exit speeds are noisy. Use `t`, and compare with local attempts first.
+- **Yaw flips at pitch 89 survive smoothing.** A window's warm start stays on its branch. Reseeding
+  with a steady turn either way ended inside a wall or solved no smoother, at four flips tried
+  (2026-11-05, plan ticks 109, 246, 322, 329). Not proof they're optimal.
+
 ### Docs and tools
 
 - **`etas view` has no way to compare time.** The runs are drawn with dots every 10 ticks, but

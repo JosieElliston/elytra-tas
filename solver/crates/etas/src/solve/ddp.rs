@@ -16,6 +16,10 @@
 //! (turning bleeds speed) is in the dynamics alone. Dual numbers take the branch the value takes, so at the kernel's kinks
 //! (pitch 0, `v_y = 0` after gravity) the derivative is one-sided, never a stencil
 //! straddling the kink, which corner-time found pins pitch at 0.
+//!
+//! An optional price on the rotation's change per tick ([`Rate`]) couples consecutive
+//! ticks, so the backward pass's state is `(x, previous yaw, previous pitch)`. It's off by
+//! default; off, those two rows are zero and the solve is the same.
 
 use std::f64::consts::PI;
 
@@ -71,6 +75,43 @@ pub enum Goal {
     Reach { target: X, scale: X },
 }
 
+/// A price on how far the rotation moves in a tick, yaw and pitch each, in radians: the
+/// pseudo-Huber `weight * delta^2 * (sqrt(1 + (d / delta)^2) - 1)`, so `weight * d^2 / 2`
+/// under `delta` and about `weight * delta * |d|` over it. why not plain quadratic? one big
+/// snap costs what the same travel costs in chatter, so with a small `delta` chatter goes
+/// and the snaps a route needs stay. For continuation: solve with it, shrink it, end at 0.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Rate {
+    /// 0 turns the price off.
+    pub weight: f64,
+    pub delta: f64,
+    /// The rotation before the first tick, `[yaw, pitch]` in radians, to price the first
+    /// tick's change too. None leaves the first tick free.
+    pub from: Option<[f64; 2]>,
+}
+
+impl Rate {
+    pub fn new(weight: f64, delta: f64) -> Self {
+        Rate {
+            weight,
+            delta,
+            from: None,
+        }
+    }
+
+    /// The price of a change `d`, its slope, and its slope over `d` (a Gauss-Newton
+    /// curvature that majorizes the price, so never negative).
+    fn price(&self, d: f64) -> (f64, f64, f64) {
+        let r = (1.0 + (d / self.delta).powi(2)).sqrt();
+        let curv = self.weight / r;
+        (
+            self.weight * self.delta * self.delta * (r - 1.0),
+            curv * d,
+            curv,
+        )
+    }
+}
+
 /// The augmented Lagrangian's schedule and the solve's tolerances.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Opts {
@@ -89,6 +130,7 @@ pub struct Opts {
     pub goal_weight: f64,
     /// Reach: done when every scaled error is under this.
     pub tol: f64,
+    pub rate: Rate,
 }
 
 impl Default for Opts {
@@ -101,6 +143,7 @@ impl Default for Opts {
             iters: 60,
             goal_weight: 100.0,
             tol: 1e-7,
+            rate: Rate::default(),
         }
     }
 }
@@ -230,11 +273,67 @@ fn hess<const N: usize>(
     (r.re, g, h)
 }
 
+/// The backward pass's state: the position, the velocity, the previous yaw and pitch.
+const NS: usize = 8;
+/// [`NS`] and the control.
+const NZ: usize = NS + 2;
+/// `z`'s index of the lead; the pitch is next.
+const UZ: usize = NS;
+
+/// `(v_x, v_z)`'s partials of the velocity heading. 0 for no horizontal velocity, where
+/// it's undefined.
+fn heading_grad(x: &X) -> [f64; 2] {
+    let h = x[3] * x[3] + x[5] * x[5];
+    if h > 0.0 {
+        [-x[5] / h, x[3] / h]
+    } else {
+        [0.0; 2]
+    }
+}
+
+/// The absolute yaw a control flies, radians, on no particular branch.
+fn yaw_rad(x: &X, u: &U) -> f64 {
+    heading(&[x[3], x[4], x[5]]) + u[0]
+}
+
+/// A tick's rotation, `[yaw, pitch]` in radians: what [`Rate::from`] wants.
+pub fn rotation(x: &X, u: &U) -> [f64; 2] {
+    [yaw_rad(x, u), u[1]]
+}
+
+/// Radians, into [-pi, pi).
+fn wrap(d: f64) -> f64 {
+    (d + PI).rem_euclid(2.0 * PI) - PI
+}
+
 /// A tick's first derivatives in `z = (x, u)`: the next state's Jacobian, and per
 /// leg its PHR slope `a` and clearance gradient (zero where inactive).
 struct TickDerivs {
     fz: [[f64; 8]; 6],
     walls: Vec<(f64, [f64; 8])>,
+}
+
+/// `z = (x, prev, u)`'s index of an index into `(x, u)`.
+fn lift(i: usize) -> usize {
+    if i < 6 { i } else { i + 2 }
+}
+
+impl TickDerivs {
+    /// The Jacobian of the lifted state's next value in `z`.
+    fn lifted(&self, x: &X) -> [[f64; NZ]; NS] {
+        let mut f = [[0.0; NZ]; NS];
+        for r in 0..6 {
+            for i in 0..8 {
+                f[r][lift(i)] = self.fz[r][i];
+            }
+        }
+        let hg = heading_grad(x);
+        f[6][3] = hg[0];
+        f[6][5] = hg[1];
+        f[6][UZ] = 1.0;
+        f[7][UZ + 1] = 1.0;
+        f
+    }
 }
 
 impl Plan {
@@ -400,8 +499,93 @@ impl<'a> Problem<'a> {
             for (p, (c, _)) in self.clearances(&x[k], u[k]).iter().enumerate() {
                 j += phr(*c, m.walls[k][p], m.rho, self.opts.margin).0;
             }
+            for d in self.rate_changes(k, x, u).into_iter().flatten() {
+                j += self.opts.rate.price(d).0;
+            }
         }
         j
+    }
+
+    /// The rotation before tick `k`, `[yaw, pitch]`, where [`Rate`] prices tick `k`.
+    fn rate_prev(&self, k: usize, x: &[X], u: &[U]) -> Option<[f64; 2]> {
+        if self.opts.rate.weight <= 0.0 {
+            None
+        } else if k == 0 {
+            self.opts.rate.from
+        } else {
+            Some([yaw_rad(&x[k - 1], &u[k - 1]), u[k - 1][1]])
+        }
+    }
+
+    /// Tick `k`'s change in yaw and pitch, where [`Rate`] prices it.
+    fn rate_changes(&self, k: usize, x: &[X], u: &[U]) -> Option<[f64; 2]> {
+        self.rate_prev(k, x, u)
+            .map(|p| [wrap(yaw_rad(&x[k], &u[k]) - p[0]), u[k][1] - p[1]])
+    }
+
+    /// Tick `k`'s price in `z`: its gradient, and its Gauss-Newton Hessian if `hess`.
+    fn rate_terms(
+        &self,
+        k: usize,
+        x: &[X],
+        u: &[U],
+        qz: &mut [f64; NZ],
+        qzz: Option<&mut [[f64; NZ]; NZ]>,
+    ) {
+        let Some([dy, dp]) = self.rate_changes(k, x, u) else {
+            return;
+        };
+        let hg = heading_grad(&x[k]);
+        let dyaw: [(usize, f64); 4] = [(3, hg[0]), (5, hg[1]), (6, -1.0), (UZ, 1.0)];
+        let dpitch: [(usize, f64); 2] = [(7, -1.0), (UZ + 1, 1.0)];
+        let (_, sy, cy) = self.opts.rate.price(dy);
+        let (_, sp, cp) = self.opts.rate.price(dp);
+        for (i, g) in dyaw {
+            qz[i] += sy * g;
+        }
+        for (i, g) in dpitch {
+            qz[i] += sp * g;
+        }
+        if let Some(q) = qzz {
+            for (i, a) in dyaw {
+                for (j, b) in dyaw {
+                    q[i][j] += cy * a * b;
+                }
+            }
+            for (i, a) in dpitch {
+                for (j, b) in dpitch {
+                    q[i][j] += cp * a * b;
+                }
+            }
+        }
+    }
+
+    /// The plan's whole [`Rate`] price.
+    pub fn rate_price(&self, x: &[X], u: &[U]) -> f64 {
+        (0..u.len())
+            .flat_map(|k| self.rate_changes(k, x, u).into_iter().flatten())
+            .map(|d| self.opts.rate.price(d).0)
+            .sum()
+    }
+
+    /// How far a plan's rotation travels, degrees: yaw, pitch, summed over its ticks, and
+    /// the same sums of the changes under 15 degrees. why those? a snap and chatter can
+    /// travel the same distance; the second pair reads the chatter without the snaps.
+    pub fn travel(&self, x: &[X], u: &[U]) -> [f64; 4] {
+        let mut t = [0.0; 4];
+        for k in 1..u.len() {
+            let dy = wrap(yaw_rad(&x[k], &u[k]) - yaw_rad(&x[k - 1], &u[k - 1])).abs() / D2R;
+            let dp = (u[k][1] - u[k - 1][1]).abs() / D2R;
+            t[0] += dy;
+            t[1] += dp;
+            if dy < 15.0 {
+                t[2] += dy;
+            }
+            if dp < 15.0 {
+                t[3] += dp;
+            }
+        }
+        t
     }
 
     fn derivs(&self, m: &Multipliers, k: usize, x: &X, u: U) -> TickDerivs {
@@ -431,18 +615,24 @@ impl<'a> Problem<'a> {
     pub fn gradient(&self, m: &Multipliers, u: &[U]) -> (f64, Vec<U>) {
         let x = self.rollout(u);
         let n = u.len();
-        let (_, mut vx, _) = hess(|d| self.goal_cost(m, d, n), &x[n]);
+        let (_, vx6, _) = hess(|d| self.goal_cost(m, d, n), &x[n]);
+        let mut vx = [0.0; NS];
+        vx[..6].copy_from_slice(&vx6);
         let mut g = vec![[0.0; 2]; n];
         for k in (0..n).rev() {
             let d = self.derivs(m, k, &x[k], u[k]);
-            let mut qz = [0.0; 8];
+            let f = d.lifted(&x[k]);
+            let mut qz = [0.0; NZ];
             for (i, q) in qz.iter_mut().enumerate() {
-                *q = (0..6).map(|r| d.fz[r][i] * vx[r]).sum::<f64>();
-                for (a, gw) in &d.walls {
-                    *q -= a * gw[i];
+                *q = (0..NS).map(|r| f[r][i] * vx[r]).sum::<f64>();
+            }
+            for (a, gw) in &d.walls {
+                for i in 0..8 {
+                    qz[lift(i)] -= a * gw[i];
                 }
             }
-            g[k] = [qz[6], qz[7]];
+            self.rate_terms(k, &x, u, &mut qz, None);
+            g[k] = [qz[UZ], qz[UZ + 1]];
             vx = std::array::from_fn(|i| qz[i]);
         }
         (self.cost(m, &x, u), g)
@@ -459,34 +649,43 @@ impl<'a> Problem<'a> {
         x: &[X],
         u: &[U],
         mu: f64,
-    ) -> Option<(Vec<U>, Vec<[[f64; 6]; 2]>, f64, f64)> {
+    ) -> Option<(Vec<U>, Vec<[[f64; NS]; 2]>, f64, f64)> {
         let n = u.len();
         let rho = m.rho;
-        let (_, mut vx, mut vxx) = hess(|d| self.goal_cost(m, d, n), &x[n]);
+        let (_, vx6, vxx6) = hess(|d| self.goal_cost(m, d, n), &x[n]);
+        let mut vx = [0.0; NS];
+        vx[..6].copy_from_slice(&vx6);
+        let mut vxx = [[0.0; NS]; NS];
+        for i in 0..6 {
+            vxx[i][..6].copy_from_slice(&vxx6[i]);
+        }
         let mut ks = vec![[0.0; 2]; n];
-        let mut gains = vec![[[0.0; 6]; 2]; n];
+        let mut gains = vec![[[0.0; NS]; 2]; n];
         let (mut dv1, mut dv2) = (0.0, 0.0);
         let lim = PITCH_LIMIT * D2R;
         for k in (0..n).rev() {
             let (xk, uk) = (&x[k], u[k]);
             let d = self.derivs(m, k, xk, uk);
-            // Q_z = f_z' V_x, Q_zz = f_z' V_xx f_z (8 x 8, z = (x, u))
-            let mut qz = [0.0; 8];
-            let mut qzz = [[0.0; 8]; 8];
-            let mut vf = [[0.0; 8]; 6]; // V_xx f_z
-            for r in 0..6 {
-                for j in 0..8 {
-                    vf[r][j] = (0..6).map(|s| vxx[r][s] * d.fz[s][j]).sum();
+            let f = d.lifted(xk);
+            // Q_z = f_z' V_x, Q_zz = f_z' V_xx f_z (z = (x, prev, u))
+            let mut qz = [0.0; NZ];
+            let mut qzz = [[0.0; NZ]; NZ];
+            let mut vf = [[0.0; NZ]; NS]; // V_xx f_z
+            for r in 0..NS {
+                for j in 0..NZ {
+                    vf[r][j] = (0..NS).map(|s| vxx[r][s] * f[s][j]).sum();
                 }
             }
-            for i in 0..8 {
-                qz[i] = (0..6).map(|r| d.fz[r][i] * vx[r]).sum();
-                for j in 0..8 {
-                    qzz[i][j] = (0..6).map(|r| d.fz[r][i] * vf[r][j]).sum();
+            for i in 0..NZ {
+                qz[i] = (0..NS).map(|r| f[r][i] * vx[r]).sum();
+                for j in 0..NZ {
+                    qzz[i][j] = (0..NS).map(|r| f[r][i] * vf[r][j]).sum();
                 }
             }
             // second-order dynamics: V_x weighs the new velocity through both the
-            // position and the velocity, and the new velocity depends on (v, u) only
+            // position and the velocity, and the new velocity depends on (v, u) only.
+            // The heading's own curvature, through the yaw's row, is left out: it blows up
+            // as the horizontal speed goes to 0, and the rate price is Gauss-Newton anyway.
             let w = [vx[0] + vx[3], vx[1] + vx[4], vx[2] + vx[5]];
             let z5 = [xk[3], xk[4], xk[5], uk[0], uk[1]];
             let (_, _, h2) = hess(
@@ -496,26 +695,31 @@ impl<'a> Problem<'a> {
                 },
                 &z5,
             );
+            let at5 = [3, 4, 5, UZ, UZ + 1];
             for i in 0..5 {
                 for j in 0..5 {
-                    qzz[3 + i][3 + j] += h2[i][j];
+                    qzz[at5[i]][at5[j]] += h2[i][j];
                 }
             }
             // walls, Gauss-Newton
             for (a, g) in &d.walls {
                 if *a > 0.0 {
                     for i in 0..8 {
-                        qz[i] -= a * g[i];
+                        qz[lift(i)] -= a * g[i];
                         for j in 0..8 {
-                            qzz[i][j] += rho * g[i] * g[j];
+                            qzz[lift(i)][lift(j)] += rho * g[i] * g[j];
                         }
                     }
                 }
             }
-            let qu = [qz[6], qz[7]];
-            let quu = [[qzz[6][6], qzz[6][7]], [qzz[7][6], qzz[7][7]]];
-            let qux: [[f64; 6]; 2] =
-                std::array::from_fn(|a| std::array::from_fn(|j| qzz[6 + a][j]));
+            self.rate_terms(k, x, u, &mut qz, Some(&mut qzz));
+            let qu = [qz[UZ], qz[UZ + 1]];
+            let quu = [
+                [qzz[UZ][UZ], qzz[UZ][UZ + 1]],
+                [qzz[UZ + 1][UZ], qzz[UZ + 1][UZ + 1]],
+            ];
+            let qux: [[f64; NS]; 2] =
+                std::array::from_fn(|a| std::array::from_fn(|j| qzz[UZ + a][j]));
             // regularized, boxed solve for the step
             let r = [[quu[0][0] + mu, quu[0][1]], [quu[1][0], quu[1][1] + mu]];
             let det = r[0][0] * r[1][1] - r[0][1] * r[1][0];
@@ -530,34 +734,34 @@ impl<'a> Problem<'a> {
                 -(inv[0][0] * qu[0] + inv[0][1] * qu[1]),
                 -(inv[1][0] * qu[0] + inv[1][1] * qu[1]),
             ];
-            let mut gk = [[0.0; 6]; 2];
+            let mut gk = [[0.0; NS]; 2];
             let p_new = uk[1] + kk[1];
             if p_new > lim || p_new < -lim {
                 // pitch on its bound: no pitch feedback, lead solved given the pitch step
                 kk[1] = p_new.clamp(-lim, lim) - uk[1];
                 kk[0] = -(qu[0] + r[0][1] * kk[1]) / r[0][0];
-                for j in 0..6 {
+                for j in 0..NS {
                     gk[0][j] = -qux[0][j] / r[0][0];
                 }
             } else {
                 for i in 0..2 {
-                    for j in 0..6 {
+                    for j in 0..NS {
                         gk[i][j] = -(inv[i][0] * qux[0][j] + inv[i][1] * qux[1][j]);
                     }
                 }
             }
             // the value at k
-            let mut nvx: [f64; 6] = std::array::from_fn(|i| qz[i]);
-            let mut nvxx: [[f64; 6]; 6] =
+            let mut nvx: [f64; NS] = std::array::from_fn(|i| qz[i]);
+            let mut nvxx: [[f64; NS]; NS] =
                 std::array::from_fn(|i| std::array::from_fn(|j| qzz[i][j]));
-            for i in 0..6 {
+            for i in 0..NS {
                 for a in 0..2 {
                     nvx[i] += gk[a][i] * qu[a] + qux[a][i] * kk[a];
                     for b in 0..2 {
                         nvx[i] += gk[a][i] * quu[a][b] * kk[b];
                     }
                 }
-                for j in 0..6 {
+                for j in 0..NS {
                     for a in 0..2 {
                         nvxx[i][j] += gk[a][i] * qux[a][j] + qux[a][i] * gk[a][j];
                         for b in 0..2 {
@@ -566,7 +770,7 @@ impl<'a> Problem<'a> {
                     }
                 }
             }
-            for i in 0..6 {
+            for i in 0..NS {
                 for j in 0..i {
                     let s = 0.5 * (nvxx[i][j] + nvxx[j][i]);
                     nvxx[i][j] = s;
@@ -593,16 +797,23 @@ impl<'a> Problem<'a> {
         x: &[X],
         u: &[U],
         ks: &[U],
-        gains: &[[[f64; 6]; 2]],
+        gains: &[[[f64; NS]; 2]],
         alpha: f64,
     ) -> (Vec<X>, Vec<U>) {
         let mut nx = Vec::with_capacity(x.len());
         nx.push(self.x0);
         let mut nu = Vec::with_capacity(u.len());
         for k in 0..u.len() {
-            let dx: [f64; 6] = std::array::from_fn(|i| nx[k][i] - x[k][i]);
+            let mut dx = [0.0; NS];
+            for i in 0..6 {
+                dx[i] = nx[k][i] - x[k][i];
+            }
+            if k > 0 && self.opts.rate.weight > 0.0 {
+                dx[6] = wrap(yaw_rad(&nx[k - 1], &nu[k - 1]) - yaw_rad(&x[k - 1], &u[k - 1]));
+                dx[7] = nu[k - 1][1] - u[k - 1][1];
+            }
             let mut uk: U = std::array::from_fn(|a| {
-                u[k][a] + alpha * ks[k][a] + (0..6).map(|j| gains[k][a][j] * dx[j]).sum::<f64>()
+                u[k][a] + alpha * ks[k][a] + (0..NS).map(|j| gains[k][a][j] * dx[j]).sum::<f64>()
             });
             clamp_pitch(&mut uk);
             nu.push(uk);

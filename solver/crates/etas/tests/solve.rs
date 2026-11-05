@@ -2,7 +2,7 @@
 //! goal plane slanted toward the wall, so the fastest way there leans on it), and the
 //! swept-leg distance its wall constraints use.
 
-use etas::solve::ddp::{Goal, Multipliers, Opts, Problem, U, X, control};
+use etas::solve::ddp::{Goal, Multipliers, Opts, Problem, Rate, U, X, control};
 use etas::solve::refly::refly;
 use etas::solve::walls::Walls;
 use sim::generic::Generic;
@@ -136,8 +136,22 @@ fn gradient_through_a_rollout_matches_finite_differences() {
         target: std::array::from_fn(|i| target[i] + 0.3 * (i as f64 - 2.5)),
         scale: [1.0, 1.0, 1.0, 0.05, 0.05, 0.05],
     };
-    for goal in [pb.goal.clone(), reach] {
+    let plane = pb.goal.clone();
+    let rates = [
+        (plane.clone(), Rate::default()),
+        (reach, Rate::default()),
+        (
+            plane,
+            Rate {
+                weight: 2.0,
+                delta: 0.05,
+                from: Some([0.3, -0.2]),
+            },
+        ),
+    ];
+    for (goal, rate) in rates {
         pb.goal = goal;
+        pb.opts.rate = rate;
         let (j, g) = pb.gradient(&m, &u);
         let active = (0..n).any(|k| pb.worst(&x[k..k + 2], &u[k..k + 1]) < pb.opts.margin);
         assert!(active, "the walls should be active somewhere");

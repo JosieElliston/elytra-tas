@@ -21,9 +21,7 @@ use std::process::ExitCode;
 use etas::course::Course;
 use etas::plan::{Plan, plan_from, verify_paths};
 use etas::solve::bounces::{SCALE, flight, fly, state_at};
-use etas::solve::ddp::{
-    Goal, Opts, Plan as DPlan, Problem, U, X, control, lead_of,
-};
+use etas::solve::ddp::{Goal, Opts, Plan as DPlan, Problem, U, X, control, lead_of};
 use etas::solve::refly::track;
 use etas::solve::stretch::resample;
 use etas::solve::walls::Walls;
@@ -41,6 +39,9 @@ const TAIL: usize = 7;
 const MARGIN: f64 = 0.02;
 const JOINS: [usize; 6] = [15, 25, 40, 60, 80, 110];
 const TRACK_WINDOWS: [usize; 4] = [24, 12, 6, 3];
+/// How far past the seed's own horizon a join looks. why so far? ticks in the start area are
+/// free, so a join that spends more of them diving can arrive faster.
+const HORIZON_UP: usize = 60;
 
 fn finish_goal(course: &Course, cap: usize) -> Result<Goal, String> {
     let f = &course.region("finish")?.working;
@@ -79,9 +80,15 @@ fn run() -> Result<bool, String> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let (course, world) = Course::load(dir)?;
     let name = std::env::args().nth(1).ok_or("want a flight name")?;
+    // a flight's path under `runs/`, as `relax/NAME`, or a name in `optimize/`
+    let name = if name.contains('/') {
+        name
+    } else {
+        format!("optimize/{name}")
+    };
     let prefix = std::env::args().nth(2).unwrap_or(PREFIX.to_string());
     let prefix = prefix.as_str();
-    let best = Trajectory::read(&dir.join(format!("runs/optimize/{name}.traj.jsonl")))?;
+    let best = Trajectory::read(&dir.join(format!("runs/{name}.traj.jsonl")))?;
     let r = verify(&course, &world, VPlan::Trajectory(&best));
     let (b_timer, b_finish) = r
         .timer_tick()
@@ -133,10 +140,14 @@ fn run() -> Result<bool, String> {
                 opts: opts(MARGIN),
             };
             let seed_n = seed_exit + j;
-            let seed = controls(&seed_flight.traj, 0, seed_n.min(seed_flight.traj.rows.len()));
+            let seed = controls(
+                &seed_flight.traj,
+                0,
+                seed_n.min(seed_flight.traj.rows.len()),
+            );
             let mut out = Vec::new();
             let mut u = seed;
-            for n in (seed_n.saturating_sub(25)..=seed_n + 15).rev() {
+            for n in (seed_n.saturating_sub(25)..=seed_n + HORIZON_UP).rev() {
                 let s = pb.solve(&resample(&u, n));
                 let loose = Problem {
                     opts: opts(MARGIN - 0.003),
@@ -161,9 +172,24 @@ fn run() -> Result<bool, String> {
     let mut found = found;
     found.sort_by_key(|f| f.0);
     for f in found.iter().take(8) {
-        println!("join +{} in {} ticks: predicted timed {}", f.1, f.2, f.0);
+        let e =
+            f.3.x
+                .iter()
+                .position(|x| !start_area.contains([x[0], x[1], x[2]]))
+                .unwrap_or(0);
+        let v = f.3.x[e];
+        println!(
+            "join +{} in {} ticks: predicted timed {}, exit tick {e}, speed {:.2}",
+            f.1,
+            f.2,
+            f.0,
+            (v[3] * v[3] + v[4] * v[4] + v[5] * v[5]).sqrt()
+        );
     }
-    let (timed, j, _n, join) = found.into_iter().next().ok_or("no join reaches the flight")?;
+    let (timed, j, _n, join) = found
+        .into_iter()
+        .next()
+        .ok_or("no join reaches the flight")?;
     println!("join chosen: +{j}, predicted {timed} timed");
 
     // the whole plan, generic: the join, then the flight's rotations as controls
@@ -209,7 +235,10 @@ fn run() -> Result<bool, String> {
         rep.event
     );
 
-    let mut inputs: Vec<InputRow> = rest.rows[..deploy].iter().map(|r| r.input.clone()).collect();
+    let mut inputs: Vec<InputRow> = rest.rows[..deploy]
+        .iter()
+        .map(|r| r.input.clone())
+        .collect();
     let keys = rest.rows[deploy].input.keys.replace('J', "");
     let row = |u: &sim::state::Input<f32>| InputRow {
         yaw: u.yaw as f64,
@@ -222,12 +251,9 @@ fn run() -> Result<bool, String> {
     let mut h = Header::new(
         Some(&course),
         OBJECTIVE,
-        &format!("tas: {prefix} to its deploy, then optimize/{name}"),
+        &format!("tas: {prefix} to its deploy, then {name}"),
     );
-    h.tas_header = Some(vec![(
-        "source".to_string(),
-        format!("academy optimize {name}"),
-    )]);
+    h.tas_header = Some(vec![("source".to_string(), format!("academy {name}"))]);
     let (traj, stopped) = fly(&rest.initial, &inputs, &[], &world, h);
     if let Some((t, u)) = stopped {
         return Err(format!("port stopped at {t}: {u:?}"));
@@ -242,7 +268,10 @@ fn run() -> Result<bool, String> {
         if report.ok() { "PASS" } else { "FAIL" },
         report.timer_tick(),
         report.finish_tick(),
-        report.failures.first().map_or(String::new(), |e| format!(": {e}"))
+        report
+            .failures
+            .first()
+            .map_or(String::new(), |e| format!(": {e}"))
     );
     let file = out.join("academy.tas");
     std::fs::write(&file, plan.write()).map_err(|e| e.to_string())?;

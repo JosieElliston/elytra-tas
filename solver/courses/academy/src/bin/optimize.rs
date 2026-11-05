@@ -18,7 +18,14 @@
 //!
 //! Then `refly::track` flies the plan under the faithful kernel.
 //!
-//! `cargo run --release -p academy --bin optimize [NAME_SUBSTRING ...]`
+//! With `--relax`, the seeds are `runs/optimize/`'s flights and the results go to
+//! `runs/relax/`: the first plan, [`smooth`]ed at each price in `RELAX`, the rounds again, and
+//! [`smooth`] once more at `FINAL`.
+//!
+//! With `--hybrid`, the same on `runs/hybrid/`: a flight with a stretch from another attempt, to
+//! try its route.
+//!
+//! `cargo run --release -p academy --bin optimize [--relax | --hybrid] [NAME_SUBSTRING ...]`
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -26,7 +33,9 @@ use std::time::Instant;
 
 use etas::course::Course;
 use etas::solve::bounces::{SCALE, flight, fly, state_at};
-use etas::solve::ddp::{Goal, Multipliers, Opts, Plan as DPlan, Problem, U, X, control, lead_of};
+use etas::solve::ddp::{
+    Goal, Multipliers, Opts, Plan as DPlan, Problem, Rate, U, X, control, lead_of, rotation,
+};
 use etas::solve::refly::track;
 use etas::solve::stretch::resample;
 use etas::solve::walls::Walls;
@@ -59,6 +68,16 @@ const TRACK_MARGIN: f64 = 0.004;
 /// The clearance a solve is taken at, short of `MARGIN`: the augmented Lagrangian closes on
 /// the margin from below, and stops at 0.01999 as often as not.
 const LOOSE: f64 = 0.003;
+
+/// The prices [`relax`] steps down, the last 0. why this `DELTA`, radians (5 degrees)? chatter
+/// is smaller than that, and a route's snaps are far bigger.
+const RELAX: [f64; 3] = [1.0, 0.1, 0.01];
+const DELTA: f64 = 0.087;
+/// The price the finished plan is smoothed at. Free, since the windows keep their end states.
+const FINAL: f64 = 0.1;
+/// [`smooth_pass`]'s window lengths and first cuts.
+const SMOOTH_WINDOWS: [(usize, usize); 6] =
+    [(40, 0), (40, 20), (25, 12), (60, 30), (25, 0), (40, 10)];
 
 struct Run {
     name: String,
@@ -166,7 +185,9 @@ fn first_plan(run: &Run, walls: &Walls, gate: &Problem) -> Result<DPlan, String>
     let mut t = a + FIRST;
     while t + FIRST / 2 < f {
         // a cut on a tick in normal flight; a contact's neighbors won't do
-        let c = (t..f).find(|&c| ok(c) && ok(c + 1)).ok_or("no flight to cut at")?;
+        let c = (t..f)
+            .find(|&c| ok(c) && ok(c + 1))
+            .ok_or("no flight to cut at")?;
         cuts.push(c);
         t = c + FIRST;
     }
@@ -191,8 +212,10 @@ fn first_plan(run: &Run, walls: &Walls, gate: &Problem) -> Result<DPlan, String>
             .map(|p| p.u)
             .ok_or(format!("piece {from}..{to}: no reach"))
     };
-    let pieces: Vec<Result<Vec<U>, String>> =
-        (0..cuts.len() - 1).into_par_iter().map(|i| piece(i, i + 1)).collect();
+    let pieces: Vec<Result<Vec<U>, String>> = (0..cuts.len() - 1)
+        .into_par_iter()
+        .map(|i| piece(i, i + 1))
+        .collect();
     // a piece that fails ends on a state only contact gets to (a wall hit's): it merges
     // with the next, or the last with the one before
     let mut u = Vec::new();
@@ -272,7 +295,81 @@ fn better(gate: &Problem, new: DPlan, best: &mut DPlan) -> bool {
     ok
 }
 
+/// One pass of [`Rate`]-priced windows of `w` ticks: each piece flown between the plan's own
+/// states in the same ticks, so the time doesn't change. A piece is kept if it solves at a
+/// lower price. The piece to the finish stays. Returns the controls and the pieces kept.
+fn smooth_pass(walls: &Walls, plan: &DPlan, w: usize, off: usize, weight: f64) -> (Vec<U>, usize) {
+    let n = plan.u.len();
+    let mut cuts = vec![0];
+    let mut t = if off == 0 { w } else { off };
+    while t + w / 2 < n {
+        cuts.push(t);
+        t += w;
+    }
+    let pieces: Vec<(Vec<U>, bool)> = cuts
+        .par_windows(2)
+        .map(|c| {
+            let seed = &plan.u[c[0]..c[1]];
+            let from = (c[0] > 0).then(|| rotation(&plan.x[c[0] - 1], &plan.u[c[0] - 1]));
+            let pb = Problem {
+                kernel: Generic::default(),
+                walls,
+                x0: plan.x[c[0]],
+                goal: Goal::Reach {
+                    target: plan.x[c[1]],
+                    scale: SCALE,
+                },
+                opts: Opts {
+                    rate: Rate {
+                        from,
+                        ..Rate::new(weight, DELTA)
+                    },
+                    ..opts()
+                },
+            };
+            let s = pb.solve(seed);
+            let lower =
+                pb.rate_price(&s.plan.x, &s.plan.u) < pb.rate_price(&plan.x[c[0]..=c[1]], seed);
+            if solved(&pb, &s.plan) && lower {
+                (s.plan.u, true)
+            } else {
+                (seed.to_vec(), false)
+            }
+        })
+        .collect();
+    let kept = pieces.iter().filter(|p| p.1).count();
+    let mut u: Vec<U> = pieces.into_iter().flat_map(|p| p.0).collect();
+    u.extend_from_slice(&plan.u[*cuts.last().unwrap()..]);
+    (u, kept)
+}
+
+/// Passes of [`smooth_pass`] at `weight`, each kept if it's clear and no slower.
+fn smooth(walls: &Walls, gate: &Problem, plan: &mut DPlan, weight: f64, log: &mut Vec<String>) {
+    let before = gate.travel(&plan.x, &plan.u);
+    let mut kept = 0;
+    for (w, off) in SMOOTH_WINDOWS {
+        let (u, k) = smooth_pass(walls, plan, w, off, weight);
+        let new = roll(gate, &u);
+        let n = new.x.len() - 1;
+        if gate.worst(&new.x, &new.u) >= KEEP
+            && n > 0
+            && gate.crossed(&new.x[n - 1], &new.x[n])
+            && gate.value(&new.x) <= gate.value(&plan.x) + 0.01
+        {
+            *plan = new;
+            kept += k;
+        }
+    }
+    let t = gate.travel(&plan.x, &plan.u);
+    log.push(format!(
+        "\n  smooth {weight}: {:.2}, {kept} pieces, yaw {:.0}>{:.0} pitch {:.0}>{:.0}, small {:.0}>{:.0} {:.0}>{:.0}",
+        gate.value(&plan.x),
+        before[0], t[0], before[1], t[1], before[2], t[2], before[3], t[3],
+    ));
+}
+
 fn one(
+    relaxing: bool,
     dir: &Path,
     course: &Course,
     world: &World,
@@ -295,6 +392,11 @@ fn one(
         gate.value(&best.x),
         gate.worst(&best.x, &best.u)
     )];
+    if relaxing {
+        for weight in RELAX {
+            smooth(walls, &gate, &mut best, weight, &mut log);
+        }
+    }
     let stiff = Problem {
         opts: Opts {
             c0: 1e3,
@@ -319,6 +421,9 @@ fn one(
         if before - gate.value(&best.x) < MIN_GAIN {
             break;
         }
+    }
+    if relaxing {
+        smooth(walls, &gate, &mut best, FINAL, &mut log);
     }
     let generic = gate.value(&best.x);
     let t1 = t0.elapsed().as_secs_f64();
@@ -354,9 +459,19 @@ fn one(
         &format!("optimize: {} from tick {a}", run.name),
     );
     h.tas_header = run.rec.header.tas_header.clone();
-    let arrivals: Vec<_> = run.rec.arrivals.iter().filter(|x| x.tick <= a).copied().collect();
+    let arrivals: Vec<_> = run
+        .rec
+        .arrivals
+        .iter()
+        .filter(|x| x.tick <= a)
+        .copied()
+        .collect();
     let (traj, stopped) = fly(&run.rec.initial, &inputs, &arrivals, world, h);
-    let out = dir.join("runs/optimize");
+    let out = dir.join(if relaxing {
+        "runs/relax"
+    } else {
+        "runs/optimize"
+    });
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
     traj.write(&out.join(format!("{}.traj.jsonl", run.name)))?;
     let r = verify(course, world, Plan::Trajectory(&traj));
@@ -367,7 +482,10 @@ fn one(
         rec = run.finish + 1 - run.timer,
         res = timed.map_or("-".into(), |t| format!("{t} ({:.2} s)", t as f64 * 0.05)),
         verdict = if r.ok() { "PASS" } else { "FAIL" },
-        why = r.failures.first().map_or(String::new(), |e| format!(": {e}")),
+        why = r
+            .failures
+            .first()
+            .map_or(String::new(), |e| format!(": {e}")),
         log = log.join(" "),
         nt = rep.inputs.len(),
         np = best.u.len(),
@@ -375,17 +493,41 @@ fn one(
         rt = rep.secs,
         c = &rep.contacts[..rep.contacts.len().min(8)],
         e = rep.event,
-        sec = r.secant_seconds().map_or("-".into(), |s| format!("{:.2}", s / 0.05)),
+        sec = r
+            .secant_seconds()
+            .map_or("-".into(), |s| format!("{:.2}", s / 0.05)),
     ))
+}
+
+/// The timer start and the finish, by the rows' positions alone: the first tick past the start
+/// area, and the first crossing into the finish.
+fn scan_ticks(course: &Course, rec: &Trajectory) -> Result<Option<(usize, usize)>, String> {
+    let start = &course.region("start_area")?.working;
+    let at = course.region("finish")?.working.min[2].ok_or("finish has no z_min")?;
+    let pos = |t: usize| state_at(rec, t).position;
+    let n = rec.rows.len();
+    let timer = (1..n).find(|&t| !start.contains(pos(t)));
+    let finish = timer.and_then(|a| (a..n).find(|&t| pos(t - 1)[2] <= at && pos(t)[2] > at));
+    Ok(timer.zip(finish))
 }
 
 fn run() -> Result<(), String> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let (course, world) = Course::load(dir)?;
-    let only: Vec<String> = std::env::args().skip(1).collect();
+    let mut only: Vec<String> = std::env::args().skip(1).collect();
+    let hybrids = only.iter().any(|a| a == "--hybrid");
+    let relaxing = hybrids || only.iter().any(|a| a == "--relax");
+    only.retain(|a| a != "--relax" && a != "--hybrid");
     let mut runs = Vec::new();
-    let mut paths: Vec<_> = std::fs::read_dir(dir.join("runs/flights"))
-        .map_err(|e| format!("runs/flights: {e}; run the `flights` phase first"))?
+    let seeds = if hybrids {
+        "runs/hybrid"
+    } else if relaxing {
+        "runs/optimize"
+    } else {
+        "runs/flights"
+    };
+    let mut paths: Vec<_> = std::fs::read_dir(dir.join(seeds))
+        .map_err(|e| format!("{seeds}: {e}; run the phase before it first"))?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.to_string_lossy().ends_with(".traj.jsonl"))
         .collect();
@@ -402,7 +544,13 @@ fn run() -> Result<(), String> {
         }
         let rec = Trajectory::read(&p)?;
         let r = verify(&course, &world, Plan::Trajectory(&rec));
-        match r.timer_tick().zip(r.finish_tick()) {
+        // a hybrid's rows don't replay, so verify stops at the splice: its ticks by position
+        let ticks = if hybrids {
+            scan_ticks(&course, &rec)?
+        } else {
+            r.timer_tick().zip(r.finish_tick())
+        };
+        match ticks {
             Some((timer, finish)) => runs.push(Run {
                 name,
                 rec,
@@ -417,10 +565,11 @@ fn run() -> Result<(), String> {
         .flat_map(|r| r.rec.rows.iter().map(|x| x.state.position))
         .collect();
     let walls = Walls::around(&world, &pts, 6.0, 1.0);
-    runs.par_iter().for_each(|r| match one(dir, &course, &world, &walls, r) {
-        Ok(s) => println!("{s}"),
-        Err(e) => println!("{}: {e}", r.name),
-    });
+    runs.par_iter()
+        .for_each(|r| match one(relaxing, dir, &course, &world, &walls, r) {
+            Ok(s) => println!("{s}"),
+            Err(e) => println!("{}: {e}", r.name),
+        });
     Ok(())
 }
 
