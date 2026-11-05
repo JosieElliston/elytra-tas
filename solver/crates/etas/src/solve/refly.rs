@@ -202,8 +202,10 @@ pub fn repair(
 }
 
 /// Fly a whole generic plan under the faithful kernel by short reaches: every `window`
-/// ticks, re-solve the next `window` ticks from the flown state to the plan's state at
-/// their end, and the last stretch to `pb.goal`. why not [`repair`]? on a course-long
+/// ticks, re-solve the next `2 * window` ticks from the flown state to the plan's state at
+/// their end, fly the first half of that, and solve the last stretch to `pb.goal`. why only
+/// half? a reach pays its end state's error in its last controls, so flying them all kicks
+/// the rotation every window. why not [`repair`]? on a course-long
 /// horizon its re-solve costs seconds per tick and, with the whole run's time to gain,
 /// wanders off the plan, into walls. Tracking leaves the optimizing to the plan: the
 /// faithful kernel is only ~1e-5 blocks a tick off the generic one, which a short reach
@@ -235,7 +237,7 @@ pub fn track(
     for k in 0..n + extra {
         let x = *out.flown.last().unwrap();
         if k < n && k % window == 0 {
-            let end = k + window;
+            let end = k + 2 * window;
             out.resolves += 1;
             if end + window / 2 < n && !finishing {
                 let sub = Problem {
@@ -248,7 +250,7 @@ pub fn track(
                 };
                 let s = sub.solve(&u[k..end]);
                 if s.feasible {
-                    u[k..end].copy_from_slice(&s.plan.u);
+                    u[k..k + window].copy_from_slice(&s.plan.u[..window]);
                 }
             } else if !finishing {
                 finishing = true;

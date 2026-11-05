@@ -34,9 +34,10 @@ use std::time::Instant;
 use etas::course::Course;
 use etas::solve::bounces::{SCALE, flight, fly, state_at};
 use etas::solve::ddp::{
-    Goal, Multipliers, Opts, Plan as DPlan, Problem, Rate, U, X, control, lead_of, rotation,
+    Goal, Multipliers, Opts, Plan as DPlan, Problem, Rate, U, X, control, lead_of,
 };
 use etas::solve::refly::track;
+use etas::solve::smooth::{DELTA, WINDOWS as SMOOTH_WINDOWS, smooth_pass};
 use etas::solve::stretch::resample;
 use etas::solve::walls::Walls;
 use etas::trajectory::{Header, InputRow, Trajectory};
@@ -69,15 +70,10 @@ const TRACK_MARGIN: f64 = 0.004;
 /// the margin from below, and stops at 0.01999 as often as not.
 const LOOSE: f64 = 0.003;
 
-/// The prices [`relax`] steps down, the last 0. why this `DELTA`, radians (5 degrees)? chatter
-/// is smaller than that, and a route's snaps are far bigger.
+/// The prices [`relax`] steps down, the last 0.
 const RELAX: [f64; 3] = [1.0, 0.1, 0.01];
-const DELTA: f64 = 0.087;
 /// The price the finished plan is smoothed at. Free, since the windows keep their end states.
 const FINAL: f64 = 0.1;
-/// [`smooth_pass`]'s window lengths and first cuts.
-const SMOOTH_WINDOWS: [(usize, usize); 6] =
-    [(40, 0), (40, 20), (25, 12), (60, 30), (25, 0), (40, 10)];
 
 struct Run {
     name: String,
@@ -295,61 +291,17 @@ fn better(gate: &Problem, new: DPlan, best: &mut DPlan) -> bool {
     ok
 }
 
-/// One pass of [`Rate`]-priced windows of `w` ticks: each piece flown between the plan's own
-/// states in the same ticks, so the time doesn't change. A piece is kept if it solves at a
-/// lower price. The piece to the finish stays. Returns the controls and the pieces kept.
-fn smooth_pass(walls: &Walls, plan: &DPlan, w: usize, off: usize, weight: f64) -> (Vec<U>, usize) {
-    let n = plan.u.len();
-    let mut cuts = vec![0];
-    let mut t = if off == 0 { w } else { off };
-    while t + w / 2 < n {
-        cuts.push(t);
-        t += w;
-    }
-    let pieces: Vec<(Vec<U>, bool)> = cuts
-        .par_windows(2)
-        .map(|c| {
-            let seed = &plan.u[c[0]..c[1]];
-            let from = (c[0] > 0).then(|| rotation(&plan.x[c[0] - 1], &plan.u[c[0] - 1]));
-            let pb = Problem {
-                kernel: Generic::default(),
-                walls,
-                x0: plan.x[c[0]],
-                goal: Goal::Reach {
-                    target: plan.x[c[1]],
-                    scale: SCALE,
-                },
-                opts: Opts {
-                    rate: Rate {
-                        from,
-                        ..Rate::new(weight, DELTA)
-                    },
-                    ..opts()
-                },
-            };
-            let s = pb.solve(seed);
-            let lower =
-                pb.rate_price(&s.plan.x, &s.plan.u) < pb.rate_price(&plan.x[c[0]..=c[1]], seed);
-            if solved(&pb, &s.plan) && lower {
-                (s.plan.u, true)
-            } else {
-                (seed.to_vec(), false)
-            }
-        })
-        .collect();
-    let kept = pieces.iter().filter(|p| p.1).count();
-    let mut u: Vec<U> = pieces.into_iter().flat_map(|p| p.0).collect();
-    u.extend_from_slice(&plan.u[*cuts.last().unwrap()..]);
-    (u, kept)
-}
-
 /// Passes of [`smooth_pass`] at `weight`, each kept if it's clear and no slower.
 fn smooth(walls: &Walls, gate: &Problem, plan: &mut DPlan, weight: f64, log: &mut Vec<String>) {
     let before = gate.travel(&plan.x, &plan.u);
     let mut kept = 0;
+    let priced = Opts {
+        rate: Rate::new(weight, DELTA),
+        ..opts()
+    };
     for (w, off) in SMOOTH_WINDOWS {
-        let (u, k) = smooth_pass(walls, plan, w, off, weight);
-        let new = roll(gate, &u);
+        let (piecewise, k) = smooth_pass(walls, plan, w, off, &priced, LOOSE);
+        let new = roll(gate, &piecewise.u);
         let n = new.x.len() - 1;
         if gate.worst(&new.x, &new.u) >= KEEP
             && n > 0

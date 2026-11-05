@@ -23,9 +23,9 @@
 
 use std::f64::consts::PI;
 
-use sim::generic::{Generic, PITCH_MAX, PITCH_MIN};
 use sim::generic::ghost::{l_move, leg_sdf};
 use sim::generic::num_dual::{Dual2SVec64, DualNum, DualSVec64};
+use sim::generic::{Generic, PITCH_MAX, PITCH_MIN};
 use sim::state::Input;
 
 use super::walls::Walls;
@@ -86,6 +86,10 @@ pub struct Rate {
     /// The rotation before the first tick, `[yaw, pitch]` in radians, to price the first
     /// tick's change too. None leaves the first tick free.
     pub from: Option<[f64; 2]>,
+    /// The rotation after the last tick, `[yaw, pitch]` in radians, to price the change into
+    /// it too. why? a reach's last control is where its end state's error is cheapest to pay,
+    /// so without this it snaps there and back.
+    pub to: Option<[f64; 2]>,
 }
 
 impl Rate {
@@ -94,6 +98,7 @@ impl Rate {
             weight,
             delta,
             from: None,
+            to: None,
         }
     }
 
@@ -384,7 +389,6 @@ pub fn control(lead: f64, pitch_deg: f64) -> U {
     [lead, pitch_deg.clamp(PITCH_MIN, PITCH_MAX) * D2R]
 }
 
-
 fn clamp_pitch(u: &mut U) {
     u[1] = u[1].clamp(PITCH_MIN * D2R, PITCH_MAX * D2R);
 }
@@ -501,6 +505,9 @@ impl<'a> Problem<'a> {
             for d in self.rate_changes(k, x, u).into_iter().flatten() {
                 j += self.opts.rate.price(d).0;
             }
+            for d in self.rate_exit(k, x, u).into_iter().flatten() {
+                j += self.opts.rate.price(d).0;
+            }
         }
         j
     }
@@ -522,6 +529,16 @@ impl<'a> Problem<'a> {
             .map(|p| [wrap(yaw_rad(&x[k], &u[k]) - p[0]), u[k][1] - p[1]])
     }
 
+    /// The change from the last tick's rotation into [`Rate::to`], where it's priced.
+    fn rate_exit(&self, k: usize, x: &[X], u: &[U]) -> Option<[f64; 2]> {
+        let to = self
+            .opts
+            .rate
+            .to
+            .filter(|_| self.opts.rate.weight > 0.0 && k + 1 == u.len())?;
+        Some([wrap(to[0] - yaw_rad(&x[k], &u[k])), to[1] - u[k][1]])
+    }
+
     /// Tick `k`'s price in `z`: its gradient, and its Gauss-Newton Hessian if `hess`.
     fn rate_terms(
         &self,
@@ -529,31 +546,39 @@ impl<'a> Problem<'a> {
         x: &[X],
         u: &[U],
         qz: &mut [f64; NZ],
+        mut qzz: Option<&mut [[f64; NZ]; NZ]>,
+    ) {
+        let hg = heading_grad(&x[k]);
+        if let Some([dy, dp]) = self.rate_changes(k, x, u) {
+            let dyaw = [(3, hg[0]), (5, hg[1]), (6, -1.0), (UZ, 1.0)];
+            let dpitch = [(7, -1.0), (UZ + 1, 1.0)];
+            self.rate_term(dy, &dyaw, qz, qzz.as_deref_mut());
+            self.rate_term(dp, &dpitch, qz, qzz.as_deref_mut());
+        }
+        if let Some([dy, dp]) = self.rate_exit(k, x, u) {
+            let dyaw = [(3, -hg[0]), (5, -hg[1]), (UZ, -1.0)];
+            let dpitch = [(UZ + 1, -1.0)];
+            self.rate_term(dy, &dyaw, qz, qzz.as_deref_mut());
+            self.rate_term(dp, &dpitch, qz, qzz);
+        }
+    }
+
+    /// One change `d`'s price in `z`, `grad` its nonzero derivatives.
+    fn rate_term(
+        &self,
+        d: f64,
+        grad: &[(usize, f64)],
+        qz: &mut [f64; NZ],
         qzz: Option<&mut [[f64; NZ]; NZ]>,
     ) {
-        let Some([dy, dp]) = self.rate_changes(k, x, u) else {
-            return;
-        };
-        let hg = heading_grad(&x[k]);
-        let dyaw: [(usize, f64); 4] = [(3, hg[0]), (5, hg[1]), (6, -1.0), (UZ, 1.0)];
-        let dpitch: [(usize, f64); 2] = [(7, -1.0), (UZ + 1, 1.0)];
-        let (_, sy, cy) = self.opts.rate.price(dy);
-        let (_, sp, cp) = self.opts.rate.price(dp);
-        for (i, g) in dyaw {
-            qz[i] += sy * g;
-        }
-        for (i, g) in dpitch {
-            qz[i] += sp * g;
+        let (_, s, c) = self.opts.rate.price(d);
+        for &(i, g) in grad {
+            qz[i] += s * g;
         }
         if let Some(q) = qzz {
-            for (i, a) in dyaw {
-                for (j, b) in dyaw {
-                    q[i][j] += cy * a * b;
-                }
-            }
-            for (i, a) in dpitch {
-                for (j, b) in dpitch {
-                    q[i][j] += cp * a * b;
+            for &(i, a) in grad {
+                for &(j, b) in grad {
+                    q[i][j] += c * a * b;
                 }
             }
         }
@@ -562,7 +587,10 @@ impl<'a> Problem<'a> {
     /// The plan's whole [`Rate`] price.
     pub fn rate_price(&self, x: &[X], u: &[U]) -> f64 {
         (0..u.len())
-            .flat_map(|k| self.rate_changes(k, x, u).into_iter().flatten())
+            .flat_map(|k| {
+                let enter = self.rate_changes(k, x, u).into_iter().flatten();
+                enter.chain(self.rate_exit(k, x, u).into_iter().flatten())
+            })
             .map(|d| self.opts.rate.price(d).0)
             .sum()
     }

@@ -8,6 +8,8 @@
 //!   start, on the generic kernel, over horizons around the prefix tape's own. Horizons and
 //!   joins are searched for the fewest timed ticks over the whole run. why timed? ticks before
 //!   the timer starts cost nothing, so the least ticks to the join isn't the goal.
+//! - The smoothing: [`smooth_pass`]es over the join and the flight together, whose pinned ends
+//!   keep the flight's time. why here too? the join has had none, and it ends in a snap.
 //! - The rest: the flight's own states as targets for `refly::track`, flown with port from
 //!   rest, then `plan_from` and `verify_paths`.
 //!
@@ -21,8 +23,9 @@ use std::process::ExitCode;
 use etas::course::Course;
 use etas::plan::{Plan, plan_from, verify_paths};
 use etas::solve::bounces::{SCALE, flight, fly, state_at};
-use etas::solve::ddp::{Goal, Opts, Plan as DPlan, Problem, U, X, control, lead_of};
+use etas::solve::ddp::{Goal, Opts, Plan as DPlan, Problem, Rate, U, X, control, lead_of};
 use etas::solve::refly::track;
+use etas::solve::smooth::{DELTA, WINDOWS, smooth_pass};
 use etas::solve::stretch::resample;
 use etas::solve::walls::Walls;
 use etas::tape::Tape;
@@ -46,6 +49,14 @@ const HORIZON_UP: usize = 60;
 /// seed capped at 89 joins and an uncapped one finds nothing, under either pitch bound
 /// (2026-11-05). Not understood; 89.5 fails too, so this may be luck.
 const SEED_PITCH_CAP: f64 = 89.0;
+/// The prices the plan is smoothed at, in turn, `(weight, delta)`. The last `delta` is wide (about
+/// 30 degrees). why? the price is about linear past `delta`, so under [`DELTA`] a 40 degree swing
+/// costs the same in one tick as spread over five. why last? a [`DELTA`] stage after it spikes the
+/// swings again (academy, 2026-11-05: ticks with roughness 10 or more, 6 to 13). It leaves a few
+/// small reversals, mostly under 1 degree a tick.
+const SMOOTH: [(f64, f64); 3] = [(1.0, DELTA), (0.1, DELTA), (0.1, 0.5)];
+/// The clearance a smoothing solve is taken at, short of `MARGIN`.
+const LOOSE: f64 = 0.003;
 
 fn finish_goal(course: &Course, cap: usize) -> Result<Goal, String> {
     let f = &course.region("finish")?.working;
@@ -221,7 +232,43 @@ fn run() -> Result<bool, String> {
         .chain((target_tick + 1..=end).map(|t| flight(state_at(&best, t))))
         .collect();
     println!("plan: {} ticks", u.len());
-    let plan = DPlan { u, x };
+    let mut plan = DPlan { u, x };
+
+    // smooth, unless the timer would start sooner: the windows keep the ticks, not the exit
+    let exit_of = |p: &DPlan| {
+        p.x.iter()
+            .position(|x| !start_area.contains([x[0], x[1], x[2]]))
+    };
+    let exit = exit_of(&plan);
+    let before = pb.travel(&plan.x, &plan.u);
+    let from = Some([
+        rest.rows[deploy - 1].input.yaw.to_radians(),
+        rest.rows[deploy - 1].input.pitch.to_radians(),
+    ]);
+    for (weight, delta) in SMOOTH {
+        let priced = Opts {
+            rate: Rate {
+                from,
+                ..Rate::new(weight, delta)
+            },
+            ..opts(MARGIN)
+        };
+        for (w, off) in WINDOWS {
+            let (new, _) = smooth_pass(&walls, &plan, w, off, &priced, LOOSE);
+            if exit_of(&new) >= exit {
+                plan = new;
+            }
+        }
+        let t = pb.travel(&plan.x, &plan.u);
+        println!(
+            "smooth {weight} {delta}: yaw {:.0}>{:.0} pitch {:.0}>{:.0}, exit {:?}",
+            before[0],
+            t[0],
+            before[1],
+            t[1],
+            exit_of(&plan)
+        );
+    }
 
     // faithful, from rest
     let tracker = Problem {

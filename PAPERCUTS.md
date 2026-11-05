@@ -60,6 +60,13 @@ missing tools / poorly configured tools / missing docs / general frictions / gen
   2325) and pitch 13%, then lower weights moved it about 1% more, most stages accepting no step.
   The same price on windows pinned at both ends cut both about a third, at no cost in time.
   `optimize --relax` uses windows for this reason.
+- **A reach pays its end state's error in its last controls.** Flown as is, each end is a kink: the
+  tracker's windows every 24 ticks, smoothing cuts, and a join's end (pitch 27, 24, 0, 17 on academy,
+  2026-11-05). `track` now flies only the first half of each solve, and `smooth_pass` prices the
+  change out of a window too (`Rate::to`). Other callers of `Goal::Reach` still need to think of it.
+- **The approach to academy's finish stays unsmoothed.** Pitch holds 0 to t645, then goes -23, -28,
+  -23, -6, about 0.004 off the floor (2026-11-05). My guess is that `smooth_pass` rejects those
+  windows, since 0.004 is under its 0.017 clearance. Not checked.
 - **`first_plan` can't always seed a splice.** 12 of 15 route hybrids failed with `last piece:
   clearance -0.5`, since a failed piece merges forward until the whole tail is one solve. So those
   routes are untested, not slower: both z = 178 x = -23 classes among them.

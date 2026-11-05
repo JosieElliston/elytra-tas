@@ -146,6 +146,7 @@ fn gradient_through_a_rollout_matches_finite_differences() {
                 weight: 2.0,
                 delta: 0.05,
                 from: Some([0.3, -0.2]),
+                to: Some([-0.1, 0.4]),
             },
         ),
     ];
