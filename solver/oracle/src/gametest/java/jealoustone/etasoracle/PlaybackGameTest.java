@@ -323,6 +323,7 @@ public final class PlaybackGameTest implements FabricClientGameTest {
         String tick = "1 " + hex(0.0F) + " " + hex(0.0F) + " - " + hex(0.5) + " " + hex(-60.0) + " " + hex(0.5);
         Map<String, List<String>> plans = new TreeMap<>();
         plans.put("ok", List.of("format=etas-plan 1", "account=" + user, start, tick));
+        plans.put("ok-alt-account", List.of("format=etas-plan 1", "account=deftenvy", start, tick));
         plans.put("bad-format", List.of("format=etas-plan 3", start, tick));
         String seg = "@segment s 2";
         String tick2 = "2 " + hex(0.0F) + " " + hex(0.0F) + " - " + hex(0.5) + " " + hex(-60.0) + " " + hex(0.5);
@@ -340,7 +341,10 @@ public final class PlaybackGameTest implements FabricClientGameTest {
         plans.put("unknown-at", List.of("format=etas-plan 1", start, "@branch 1 2 x y", tick));
         plans.put("unknown-event", List.of("format=etas-plan 1", start, "@react 1 1 landing press_jump", tick));
         plans.put("plain-with-react", List.of(start, "@react 1 1 glide_off press_jump", tick));
-        plans.put("account", List.of("format=etas-plan 1", "account=" + (user.equals("lqmbda") ? "deftenvy" : "lqmbda"), start, tick));
+        plans.put("account", List.of("format=etas-plan 1", "account=other", start, tick));
+        if (user.equals(Playback.ALT)) {
+            plans.put("main-account", List.of("format=etas-plan 1", "account=lqmbda", start, tick));
+        }
         plans.put("ticks", List.of("format=etas-plan 1", start, "ticks=2", tick));
         plans.put("no-start", List.of("format=etas-plan 1", tick));
         Path dir = context.computeOnClient(Playback::dir);

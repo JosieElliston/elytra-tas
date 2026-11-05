@@ -58,7 +58,7 @@ up don't show what the client saw.
 
 ```
 cd mod && ./gradlew build
-cp build/libs/elytra-tas-0.5.1.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
+cp build/libs/elytra-tas-0.5.2.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
 ```
 
 Rename the previous version's jar in `mods/` to `.disabled`, as with emc-replay, and
@@ -155,7 +155,7 @@ abort (leaving the plan after "Course complete!" counts as done, not as an abort
 (default 3). `/etas stop` stops and hands the keyboard back; `/etas status` shows the
 line, segment, divergences, reactions and the last attempts with the segments they flew.
 While it plays, keys and mouse don't move you. The logger records it as `P` records
-(netlog.py). Mod 0.5.1; 0.4.0 flies version 1 only. Tests: solver/oracle/README.md,
+(netlog.py). Mod 0.5.2; 0.4.0 flies version 1 only. Tests: solver/oracle/README.md,
 "Playback tests".
 
 - **A version-2 plan branches on what the server sends.** Before each line, the
@@ -167,7 +167,8 @@ While it plays, keys and mouse don't move you. The logger records it as `P` reco
   segment ending where a branch waited for an event that never came ("missing"). After
   "Course complete!" an unlisted one ends the attempt as a success instead. Version 1 and
   plain tapes keep version 1's behavior: nothing aborts on an observation.
-- **It allows `deftenvy`, plus `lqmbda` in singleplayer.** The plan's `account=` (if any) must match,
+- **It allows `deftenvy`, plus `lqmbda` in singleplayer.** The plan's `account=` (if any) must match
+  (singleplayer also lets `lqmbda` play a plan for `deftenvy`),
   and the server is whitelisted for the logger's own packets; singleplayer always counts.
   It also refuses what PLAN-FORMAT.md's "Checks" lists (an `@` line its version doesn't
   have, another `format=`, plan keys or directives without `format=`, a `ticks=` that

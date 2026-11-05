@@ -125,7 +125,8 @@ cd .. && ORACLE_CASES_DIR=$PWD/oracle/build/playback/cases CARGO_TARGET_DIR=targ
 ```
 
 - account checks: `deftenvy` is allowed everywhere, `lqmbda` only in singleplayer,
-  other accounts nowhere; valid plans start for both permitted singleplayer accounts.
+  other accounts nowhere; valid plans start for both permitted singleplayer accounts,
+  and `lqmbda` can also play plans marked `account=deftenvy` there.
 - refusals: an unapproved account, and plans with `format=etas-plan 3`, `@branch` or
   `@segment` in version 1, an unknown event, `@react` in a plain tape, a mismatched `account=`, a
   wrong `ticks=`, no `start=`; in version 2 an unknown `@` line, `@server`, a

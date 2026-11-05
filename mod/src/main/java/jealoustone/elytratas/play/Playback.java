@@ -164,7 +164,10 @@ public final class Playback {
             return "refusing " + stem + ": " + e.getMessage();
         }
         String account = pl.get("account");
-        if (account != null && !account.equals(user)) return "refusing " + stem + ": it is for account=" + account + ", this is " + user;
+        boolean mainPlayingAltPlan = singleplayer && "lqmbda".equals(user) && ALT.equals(account);
+        if (account != null && !account.equals(user) && !mainPlayingAltPlan) {
+            return "refusing " + stem + ": it is for account=" + account + ", this is " + user;
+        }
 
         if (!NetLog.active() && ElytraTasClient.CONFIG.enabled) {
             NetLog.start(mc.getConnection().getConnection(), server, mc);
