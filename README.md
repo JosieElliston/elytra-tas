@@ -44,6 +44,12 @@ Flashback replays live in `<profile>/flashback/replays/`. `tas_play.pyj`,
   ebounces lost the glide into a branching plan (`runs/downtown.tas`): perfect bounces
   with `@react` windows, and a `@branch … glide_off` to a lost-glide flight wherever a
   glide-off can come at a tick no jump press rescues.
+  `etas view RUN... --course solver/courses/NAME -o out.png [--ticks A B] [--collision]`
+  renders runs in their world from above, the side and in perspective, with `verify`'s
+  findings marked; a course program uses the `view` crate and `etas::draw` directly for
+  anything else (`crates/view/src/lib.rs`). Textures come from the client jar
+  (`$ETAS_MC_JAR`, then the loom and Modrinth copies); with none, flat-colored collision
+  boxes, with a warning.
 - `fit_course.py COURSE -o solver/courses/COURSE/course.json`: fits a course's timer
   start, finish and kill rules from the replays and logger logs its `COURSES` entry
   lists, each rule with the bracket its data allows; its docstring is the format spec.

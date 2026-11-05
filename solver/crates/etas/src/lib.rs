@@ -9,9 +9,11 @@
 //! - [`record`]: replay a recorded run under port and the faithful kernel, no course
 //! - [`verify`]: the gate every plan passes before it goes to the mod
 //! - [`solve`]: the first solver, re-solving a stretch of a recorded run
+//! - [`draw`]: runs, courses and reports as annotations on a `view::Frame`
 
 pub mod booster;
 pub mod course;
+pub mod draw;
 pub mod plan;
 pub mod record;
 pub mod server;

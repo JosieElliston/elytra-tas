@@ -103,6 +103,16 @@ impl std::fmt::Display for UnknownSpace {
 
 impl Error for UnknownSpace {}
 
+/// One stored section, for code that walks a whole world (the renderer). Cell indices
+/// are `(y << 8) | (z << 4) | x` within the section. `u16::MAX` in [`SectionView::Cells`]
+/// is an unknown cell.
+#[derive(Debug, Clone, Copy)]
+pub enum SectionView<'a> {
+    Unknown,
+    Uniform(StateId),
+    Cells(&'a [u16; 4096]),
+}
+
 /// The rest of a state's table row, which [`BlockInfo`] doesn't carry.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BlockDetail {
@@ -727,6 +737,19 @@ impl World {
     /// The file's header; None for a world made by [`World::air`].
     pub fn header(&self) -> Option<&Header> {
         self.header.as_ref()
+    }
+
+    /// Every stored section by section coordinate (block coordinate `>> 4`). A section
+    /// not listed is unknown, except outside the build height, where cells are air.
+    pub fn sections(&self) -> impl Iterator<Item = ([i32; 3], SectionView<'_>)> {
+        self.sections.iter().map(|(k, s)| {
+            let v = match s {
+                Section::Unknown => SectionView::Unknown,
+                Section::Uniform(v) => SectionView::Uniform(*v as StateId),
+                Section::Cells(c) => SectionView::Cells(c),
+            };
+            (*k, v)
+        })
     }
 
     /// (min_y, height) of the build height, if the world has one.

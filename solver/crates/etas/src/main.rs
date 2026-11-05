@@ -62,6 +62,29 @@ enum Cmd {
         #[arg(short, long)]
         out: PathBuf,
     },
+    /// Render runs in their course's world to a PNG contact sheet: from above, from the
+    /// side and in perspective, ceilings over the path cut away. One run is colored by
+    /// speed; several get one color each. A branching plan draws its paths.
+    View {
+        /// Trajectories (.jsonl) and tapes or plans (.tas).
+        runs: Vec<PathBuf>,
+        #[arg(long)]
+        course: PathBuf,
+        #[arg(short, long)]
+        out: PathBuf,
+        /// Frame this tick range (the run is still drawn whole).
+        #[arg(long, num_args = 2, value_names = ["FROM", "TO"])]
+        ticks: Vec<usize>,
+        /// Draw the collision boxes the physics sees, not the block models.
+        #[arg(long)]
+        collision: bool,
+        /// Only the course and runs, without replaying them through `verify`.
+        #[arg(long)]
+        no_verify: bool,
+        /// Width of each panel, pixels.
+        #[arg(long, default_value_t = 1100)]
+        width: u32,
+    },
     /// Trajectory -> .tas tape (the branchless plan tas_play flies).
     Traj2tas {
         traj: PathBuf,
@@ -194,6 +217,50 @@ fn run(cli: Cli) -> Result<bool, String> {
             let report = verify(&c, &w, Plan::Reactive(&eplan::Plan::read(&out)?));
             print!("{report}");
             Ok(report.ok())
+        }
+        Cmd::View {
+            runs,
+            course,
+            out,
+            ticks,
+            collision,
+            no_verify,
+            width,
+        } => {
+            let (c, w) = Course::load(&course)?;
+            let mut items = Vec::new();
+            for path in &runs {
+                let name = path
+                    .file_name()
+                    .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+                let name = name
+                    .trim_end_matches(".jsonl")
+                    .trim_end_matches(".traj")
+                    .trim_end_matches(".tas")
+                    .to_string();
+                items.extend(etas::draw::load_runs(path, &name, &c, &w)?);
+            }
+            if items.is_empty() {
+                return Err("nothing to draw".into());
+            }
+            if !no_verify {
+                items.par_iter_mut().for_each(|r| {
+                    r.report = Some(verify(&c, &w, Plan::Trajectory(&r.traj)));
+                });
+            }
+            let scene = view::Scene::new(&w)?;
+            for warning in scene.warnings() {
+                eprintln!("view: {warning}");
+            }
+            let opts = etas::draw::SheetOptions {
+                ticks: (ticks.len() == 2).then(|| (ticks[0], ticks[1])),
+                collision,
+                width,
+                ..Default::default()
+            };
+            etas::draw::sheet(&scene, Some(&c), &items, &opts).save(&out)?;
+            println!("wrote {}", out.display());
+            Ok(true)
         }
         Cmd::Traj2tas { traj, out } => {
             let t = Trajectory::read(&traj)?;

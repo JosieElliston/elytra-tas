@@ -39,6 +39,7 @@ solver/                     cargo workspace
   crates/port/              mechanical port of MC 26.2 movement, for fuzzing and verify
   crates/sim/               faithful, generic and specialized kernels, collision models,
                             world queries
+  crates/view/              renders the world and annotations to images; knows only `world`
   crates/etas/              the toolkit: problems, solvers, seeders, transforms, analysis,
                             artifacts, verify; plus the `etas` CLI for the generic tools
   courses/<name>/           one crate per course: its phases as binaries, its runs/
@@ -47,7 +48,9 @@ solver/                     cargo workspace
 
 Python stays where the work is empirical: `world.py` and `flashback.py` for reading
 replays, and course-boundary fitting from logs. Python writes the world and course
-files; Rust reads them. Plotting is Python, off artifact files.
+files; Rust reads them. Pictures of runs in the world are Rust (`view`, `etas::draw`,
+`etas view`), since course programs want them inline; charts of values over ticks are
+Python, off artifact files.
 
 ## Physics: written several times, on purpose
 
@@ -270,6 +273,10 @@ before. why? shooting, DDP and the tunnel DP need different state and terminal v
 - **Analysis**: flyability (curvature, chatter), ablation comparisons (what chatter buys:
   the same problem under the generic kernel with and without the ablation, or with and
   without a roughness price).
+- **Pictures**: `etas view` for a contact sheet of runs; `view` and `etas::draw` from a
+  course program for anything else. Primitives first, helpers are plain functions over
+  them. why a CPU ray tracer? clips, masks and orthographic views are simple ray and cell
+  tests, with no meshing and no graphics stack, and it's fast enough to not matter so far.
 
 Course crates are where composition happens. A typical one: phase 1 flies the start
 (a recorded prefix, or ebounces) to the exit of the start area, the usual cut; later
