@@ -46,7 +46,7 @@ marked fixed:
   the world file's tags: a `can_glide_through` block is flown through while gliding,
   as in the game, and EMC sends no such tag, so there vines end the glide.
 - Fixed: survival or adventure, no effects, no item in use, food above 6, no
-  vehicle, auto-jump off, default attributes, sprint window 7. Creative flight,
+  vehicle, auto-jump off, default attributes, sprint window 0 (`local_player.rs` says why). Creative flight,
   swimming, riding are not ported.
 - No entity collisions (boats, shulkers) and no world border.
 - The glide ends only when the server says so, and boosters and the wall-hit echo

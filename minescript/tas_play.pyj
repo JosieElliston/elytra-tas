@@ -106,6 +106,13 @@ if player_name() != ALT:
   echo(f"tas_play: refusing to run on {player_name()}; this only drives {ALT}")
   sys.exit(1)
 
+# why? tapes sprint with R and port has no double-tap sprint; another window can sprint a
+# tape's W presses.
+sprint_window = int(mc.options.sprintWindow().get())
+if sprint_window != 0:
+  echo(f"tas_play: sprint window is {sprint_window}, tapes assume 0 (Options, Controls, Sprint Window)")
+  sys.exit(1)
+
 # --- tape -------------------------------------------------------------------
 
 
@@ -197,7 +204,7 @@ move_field.setAccessible(True)
 auto_jump_field = player0.getClass().getDeclaredField("autoJumpTime")
 auto_jump_field.setAccessible(True)
 # The same early sampling applies to hasForwardImpulse, which only feeds the
-# double-tap-W sprint timer; tapes sprint with R, so that difference is harmless.
+# double-tap-W sprint timer; at sprint window 0 (asserted above) that does nothing.
 
 
 def set_keys(keys, prev_keys=None):

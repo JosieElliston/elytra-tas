@@ -139,6 +139,9 @@ public final class Playback {
         if (p == null || mc.gameMode == null || mc.getConnection() == null) return "not in a world";
         String user = mc.getUser().getName();
         if (!ALT.equals(user)) return "refusing to drive " + user + ": playback only drives " + ALT + " (AGENTS.md)";
+        // why? plans come from port, which has no double-tap sprint; another window can sprint a tape's W presses
+        int sprintWindow = mc.options.sprintWindow().get();
+        if (sprintWindow != 0) return "sprint window is " + sprintWindow + ", plans assume 0 (Options → Controls → Sprint Window)";
         // why? playback is input no vanilla client makes; it goes only where the logger may send its own packets
         boolean singleplayer = mc.getSingleplayerServer() != null;
         ServerData server = mc.getCurrentServer();

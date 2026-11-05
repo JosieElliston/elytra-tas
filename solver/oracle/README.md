@@ -80,6 +80,11 @@ autoJumpTime, crouching. Floats are written widened to double, as the logger doe
 
 ## What it doesn't cover
 
+- **Double-tap sprint, at any sprint window.** The driver sets the keys before `aiStep`
+  samples last tick's, as playback does, so a press never counts as new: in 18910 records
+  of the default cases, recorded at window 7, `sprintTriggerTime` was always 0, and port
+  matched them at both 7 and 0 (2026-11-04 21:58 EST). The test client runs at 0 anyway,
+  as port does.
 - **The JVM is this machine's, not the one the game is played on.** `Math.cos`, which
   the lift uses, may differ in the last place between JVMs and platforms, so a case
   from here is the game on this JVM. On aarch64, Temurin 25.0.5 (the gametest's) and

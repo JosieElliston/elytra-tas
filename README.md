@@ -230,10 +230,12 @@ While it plays, keys and mouse don't move you. The logger records it as `P` reco
   rejected at load. `world.py` takes only 776, as its block table is 26.2's. A 774 replay's
   flight reproduces under port: all 5 finished academy runs of the 1.21.11 replay of
   2026-11-04.
-- **A tape's pre-drop can be unflyable on our client.** Sprint from a double-tapped W is
-  vanilla, and port does it; that replay's `W W - - - W` jumps didn't sprint. Its mod list
-  has Tweakeroo, which can disable it (suspected, not tested). So `etas flight` starts seeds
-  in the air.
+- **Sprint window is 0 everywhere; `/etas play` and `tas_play` refuse any other.** It's a
+  client option (Controls, 0-10, vanilla default 7), and at 0 a double-tapped W never
+  sprints. why? a recorded tape's sprints come from its sprint flag as `R`, whatever window
+  that player used, so port needs no window of theirs: at 7, `refit` had to change keys in
+  2 of Luna's 5 academy runs (W presses it took for a double tap) and at 0 in none, and
+  901 runs of our own replays gave the same results at both (2026-11-04 21:50 EST).
 - **A tape's pre-drop can be unflyable on our client,** so `etas flight` starts seeds in the
   air.
 

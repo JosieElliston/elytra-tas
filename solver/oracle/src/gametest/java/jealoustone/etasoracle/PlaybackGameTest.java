@@ -122,7 +122,10 @@ public final class PlaybackGameTest implements FabricClientGameTest {
         User before = context.computeOnClient(Minecraft::getUser);
         try (TestSingleplayerContext sp = context.worldBuilder().create()) {
             sp.getConnection().waitForChunksRender();
-            context.runOnClient(c -> c.options.renderDistance().set(12));
+            context.runOnClient(c -> {
+                c.options.renderDistance().set(12);
+                c.options.sprintWindow().set(0); // port's SPRINT_WINDOW; Playback refuses others
+            });
             for (String command : List.of("gamemode survival @a",
                     "item replace entity @a armor.chest with elytra[unbreakable={}]",
                     "item replace entity @a hotbar.0 with stick",
@@ -342,6 +345,16 @@ public final class PlaybackGameTest implements FabricClientGameTest {
             boolean shouldStart = alt && name.startsWith("ok");
             check(shouldStart == (why == null), (alt ? "" : "not the alt: ") + "refuse-" + name + ": "
                     + (why == null ? "started" : why));
+        }
+        if (alt) {
+            String why = context.computeOnClient(c -> {
+                c.options.sprintWindow().set(7);
+                String r = Playback.start(c, "refuse-ok", new Playback.Options(1, 1, 1));
+                Playback.stop("refusal test");
+                c.options.sprintWindow().set(0);
+                return r;
+            });
+            check(why != null && why.contains("sprint window"), "refuse-ok at sprint window 7: " + (why == null ? "started" : why));
         }
     }
 

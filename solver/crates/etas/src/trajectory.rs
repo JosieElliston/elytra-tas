@@ -272,9 +272,9 @@ pub struct Flight {
 /// A recorded tape's flight as a trajectory that starts in the air, at the end of tape
 /// tick `from` (default: the last jump press before the first pose outside the start area,
 /// i.e. the deploy it left on), with the velocity that tick's move gives. why? a glide
-/// reproduces from its pose and velocity, and what comes before it (walking, jumping,
-/// double-tapped sprint on a client that disables that) often doesn't, while a seed needs
-/// only the flight. Row `t` is tape tick `from + t`, and arrivals shift with it.
+/// reproduces from its pose and velocity, and what comes before it (walking, jumping)
+/// often doesn't, while a seed needs only the flight. Row `t` is tape tick `from + t`, and
+/// arrivals shift with it.
 pub fn flight_from_tape(
     tape: &Tape,
     world: &World,

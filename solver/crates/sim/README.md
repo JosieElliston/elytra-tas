@@ -68,7 +68,8 @@ holds the rotation terms; reuse it across velocities.
 - **The full mode: `Faithful::step_full`**, any client tick from a `FullState` and
   the tick's keys: ticks without the glide (walking with the ground's friction and
   speed factor, falling, jumping with the sprint boost, air control, the sprint
-  double tap and sprint key, sneak backing off ledges, crouching under a ceiling),
+  key (and the double tap, which never fires at sprint window 0), sneak backing off
+  ledges, crouching under a ceiling),
   the jump edge that starts a glide, gliding in any pose (the standing box on the
   tick after the server's glide-off), and the pose update. The server's packets go
   on the state between ticks: `FullState::apply_glide_off(Faithful::server_pose(..))`

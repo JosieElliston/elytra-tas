@@ -37,8 +37,8 @@ use crate::state::{FullState, Input, Keys, Pose};
 /// `0.3F` (`ADD_MULTIPLIED_TOTAL`).
 const SPEED: f64 = 0.1f32 as f64;
 const SPRINT_MODIFIER: f64 = 0.3f32 as f64;
-/// `Options.sprintWindow` default.
-const SPRINT_WINDOW: i32 = 7;
+/// `Options.sprintWindow`: 0, as in port's `local_player.rs`, which says why.
+const SPRINT_WINDOW: i32 = 0;
 /// `LivingEntity.maxUpStep()`.
 const MAX_UP_STEP: f32 = 0.6;
 

@@ -11,8 +11,11 @@ use crate::{Input, LocalPlayer, Pose, TickEvents, Unsupported};
 
 type R<T> = Result<T, Unsupported>;
 
-/// `Options.sprintWindow` default.
-const SPRINT_WINDOW: i32 = 7;
+/// `Options.sprintWindow`, as set on our client (vanilla's default is 7). why not a setting?
+/// tapes sprint with the sprint key, recorded ones included (`extract_run.py`), so only a
+/// double-tap sprint on our own client could need another value, and at 0 there are none.
+/// `/etas play` and `tas_play` refuse another value; the oracle client sets this one.
+const SPRINT_WINDOW: i32 = 0;
 /// `Attributes.SNEAKING_SPEED` default.
 const SNEAKING_SPEED: f64 = 0.3;
 

@@ -52,7 +52,10 @@ public final class OracleGameTest implements FabricClientGameTest {
         long t0 = System.nanoTime();
         try (TestSingleplayerContext sp = context.worldBuilder().create()) {
             sp.getConnection().waitForChunksRender();
-            context.runOnClient(c -> c.options.renderDistance().set(12));
+            context.runOnClient(c -> {
+                c.options.renderDistance().set(12);
+                c.options.sprintWindow().set(0); // port's SPRINT_WINDOW
+            });
             for (String command : List.of("gamemode survival @a",
                     "item replace entity @a armor.chest with elytra[unbreakable={}]",
                     "effect give @a saturation infinite 4 true")) {
