@@ -38,8 +38,8 @@ pub type U = [f64; 2];
 const D2R: f64 = PI / 180.0;
 /// Constraints per tick: the legs of the L-shaped move.
 pub const NP: usize = 3;
-/// Legs priced per tick: the move's, then the server's ([`Opts::server`]).
-pub const NL: usize = 2 * NP;
+/// Legs priced per tick: the move's, then the server's two ([`Opts::server`]).
+pub const NL: usize = 3 * NP;
 /// The plane goal's floor on the rate toward the plane, so a horizon that never
 /// reaches it and turns away isn't worth minus a lot.
 const RATE_MIN: f64 = 0.05;
@@ -141,8 +141,10 @@ pub struct Opts {
     /// clean flight is the client's: `p_t + v_t` (singleplayer log, to 2e-4), a box the client
     /// never flies through in a turn. A hit there zeroes that axis of its velocity, and one
     /// losing over 0.3 b/t of horizontal speed comes back as damage and a `set_entity_motion`
-    /// that throws the client off the plan (academy, 2026-11-05: all three aborts). The
-    /// horizon's last tick isn't held: its end is a pin or past the finish.
+    /// that throws the client off the plan (academy, 2026-11-05: all three aborts). Also holds
+    /// `p_t + v_(t-1)`, a copy a tick behind. why? all 8 aborts of 25 flown on the server
+    /// (2026-11-05 03:14) were at ticks only that box hit. The horizon's last tick isn't held:
+    /// its end is a pin or past the finish.
     pub server: bool,
 }
 
@@ -261,7 +263,8 @@ fn server_legs<D: DualNum<Primitive = f64> + Copy>(pos: [D; 3], v: [D; 3]) -> [[
     [[pos, a], [a, b], [b, e]]
 }
 
-/// The legs of a tick: the move's, then the server's from where the move ended.
+/// The legs of a tick: the move's, then the server's from where the move ended, by the new
+/// velocity and by the one before it.
 fn tick_legs<D: DualNum<Primitive = f64> + Copy>(
     k: &Generic,
     x: &[D; 6],
@@ -269,12 +272,11 @@ fn tick_legs<D: DualNum<Primitive = f64> + Copy>(
 ) -> ([D; 6], [[[D; 3]; 2]; NL]) {
     let (n, c) = step(k, x, u);
     let server = server_legs([n[0], n[1], n[2]], [n[3], n[4], n[5]]);
-    let legs = std::array::from_fn(|l| {
-        if l < NP {
-            [c[l], c[l + 1]]
-        } else {
-            server[l - NP]
-        }
+    let behind = server_legs([n[0], n[1], n[2]], [x[3], x[4], x[5]]);
+    let legs = std::array::from_fn(|l| match l / NP {
+        0 => [c[l], c[l + 1]],
+        1 => server[l - NP],
+        _ => behind[l - 2 * NP],
     });
     (n, legs)
 }
@@ -285,10 +287,17 @@ pub fn server_hits(walls: &Walls, x: &[X]) -> Vec<(usize, f64)> {
     x.iter()
         .enumerate()
         .filter_map(|(t, s)| {
-            let c = server_legs([s[0], s[1], s[2]], [s[3], s[4], s[5]])
-                .iter()
-                .map(|[a, b]| walls.clearance(*a, *b).0)
-                .fold(f64::INFINITY, f64::min);
+            let pos = [s[0], s[1], s[2]];
+            let clear = |v: [f64; 3]| {
+                server_legs(pos, v)
+                    .iter()
+                    .map(|[a, b]| walls.clearance(*a, *b).0)
+                    .fold(f64::INFINITY, f64::min)
+            };
+            let behind = t
+                .checked_sub(1)
+                .map_or(f64::INFINITY, |p| clear([x[p][3], x[p][4], x[p][5]]));
+            let c = clear([s[3], s[4], s[5]]).min(behind);
             (c < 0.0).then_some((t, c))
         })
         .collect()

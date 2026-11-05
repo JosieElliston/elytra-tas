@@ -105,10 +105,12 @@ fn the_servers_box_is_where_the_velocity_would_carry_it() {
     // the wall's face is at 3.0 and the box reaches 0.3 past the feet
     let hit = [2.0, 100.0, 10.0, 0.9, 0.0, 0.0];
     let clear = [2.0, 100.0, 10.0, 0.5, 0.0, 0.0];
-    let hits = server_hits(&walls, &[clear, hit]);
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].0, 1);
-    assert!((hits[0].1 + 0.2).abs() < 1e-6, "{hits:?}");
+    // on its own velocity, then on the same velocity a tick behind
+    let hits = server_hits(&walls, &[clear, hit, clear]);
+    assert_eq!(hits.iter().map(|h| h.0).collect::<Vec<_>>(), [1, 2]);
+    for h in &hits {
+        assert!((h.1 + 0.2).abs() < 1e-6, "{hits:?}");
+    }
 }
 
 /// A control schedule near the wall, away from the kernel's kinks.

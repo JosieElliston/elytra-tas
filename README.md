@@ -298,7 +298,8 @@ gives false contradictions.
   its velocity zeroes and stays wrong, so later hits vary by attempt. Creative takes no damage
   and gets no echo, so singleplayer won't show it unless you read the `X` records. Academy's
   aborts of 2026-11-05 02:39 were this, at plan ticks 267, 584 and 617. `Opts::server` keeps
-  that box clear; `tas` prints any hit left.
+  that box clear, and `p_t + v_(t-1)`, a copy a tick behind, which is where all 8 aborts of 25
+  flown on 2026-11-05 03:14 hit. `tas` prints any hit left and fails on it.
 - **Timer** is wall-clock time between the "Timer started!" and "Course complete!"
   server ticks, rounded to 0.02 s: five identical 647-tick runs gave 32.34 or 32.36
   depending on whether that interval was under or over 32.35 s.

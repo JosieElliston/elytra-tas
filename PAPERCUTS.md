@@ -73,8 +73,13 @@ missing tools / poorly configured tools / missing docs / general frictions / gen
   a failure. `tas`'s server windows accept 1e-3 and let the tracker take it up. Why they stop is
   unknown.
 - **`verify` doesn't model the server's copy,** so a plan can PASS and be thrown off by a wall only the
-  server hits. `tas` checks this itself, and only for `p_t + v_t`: a server a tick behind still hits at
-  t267, t519, t584 and t617 of the 2026-11-05 plan.
+  server hits. `tas` checks this itself, for `p_t + v_t` and `p_t + v_(t-1)`.
+- **Academy's route can't hold the tick-behind box at t267, at 537 ticks.** It goes through a slot
+  between a pillar (x 13-14, z 6-7) and a wall (z 9-10), and that box ends in the pillar under either
+  axis order. Repair windows up to 350 ticks stopped 0.11 blocks short, and `tas` now exits 1 on this
+  route, with a plan that also hits on `p_t + v_t` (2026-11-05). So `runs/tas/academy.tas`, as flown
+  (17 of 25, 26.84-26.86 s), is from f2dd3cf, which holds only `p_t + v_t`. Not proof: nothing tried
+  spending ticks or another route.
 - **`first_plan` can't always seed a splice.** 12 of 15 route hybrids failed with `last piece:
   clearance -0.5`, since a failed piece merges forward until the whole tail is one solve. So those
   routes are untested, not slower: both z = 178 x = -23 classes among them.
