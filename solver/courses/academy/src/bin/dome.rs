@@ -64,6 +64,10 @@
 //! The -38 window holds 528 past the lamp either way. Over the block at (13, 134, 6) reached only 531, one pass, 2 of 6
 //! seeds failing. Without `--server` these all read a tick better, 527, on server hits at x 13.5, y 134.4, z 7.9 (t225).
 //!
+//! As of 2026-11-06 06:02 EST, rotation priced with `ideas calm`: the pitch snap past the door (t75, 18 degrees) was the
+//! seam between a simple head and its polish, and goes for free (largest step 6). The finish's dive to pitch 90 (t569-574,
+//! 74 degree snap back) is worth little: peak 65, largest step 30, still 528. Peak 55, step 11, crosses the finish a tick late.
+//!
 //! `cargo run --release -p academy --bin dome -- PHASE`
 
 use std::io::Write;

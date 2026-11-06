@@ -12,6 +12,10 @@
 //!   port. Written to `runs/relax/OUT` if it holds as flown, and as a seed `runs/hybrid/OUT` from the door on anyway.
 //! - `blend A B T0 T1 OUT`: A, then between ticks T0 and T1 a smooth fade to B, then B, as `runs/hybrid/OUT`.
 //! - `bump BASE T0 T1 DX DY DZ OUT`: BASE's positions moved by a smooth bump that peaks halfway, as `runs/hybrid/OUT`.
+//! - `calm BASE T0 T1 OUT [WEIGHT...]`: re-fly BASE's ticks T0..T1 with rotation priced at each weight, pinned to
+//!   BASE's state at T1 (0 for T1: free to the finish, so time pays for rotation), the rest kept, then flown under
+//!   port and judged by `verify`, for whether a snap there buys anything. Each is `runs/relax/OUT_WEIGHT`, and
+//!   `runs/relax/OUT_base` is BASE as flown.
 //!
 //! `optimize --hybrid` then polishes these.
 //!
@@ -20,12 +24,15 @@
 use std::path::Path;
 
 use etas::course::Course;
-use etas::solve::bounces::{flight, fly};
-use etas::solve::ddp::X;
+use etas::solve::bounces::{SCALE, flight, fly, state_at as state_at_full};
+use etas::solve::ddp::{Goal, Opts, Plan as DPlan, Problem, Rate, X, control, lead_of, rotation};
+use etas::solve::refly::track;
+use etas::solve::smooth::DELTA;
 use etas::solve::gate::{Gate, ValueTable};
 use etas::solve::walls::Walls;
 use etas::trajectory::{InputRow, Row, Trajectory};
 use rayon::prelude::*;
+use sim::generic::Generic;
 use world::{BlockPos, Cell, World};
 
 /// As in `dome`: the door's plane, and the table over it.
@@ -380,6 +387,114 @@ fn graft(dir: &Path, course: &Course, w: &World, a: &str, b: &str, out: &str) ->
     write_seed(dir, &b, &f, d, out)
 }
 
+/// The largest change of pitch and of yaw in one tick, over rows `a..b` of `inputs`, in degrees; and the pitch's travel.
+fn snap(inputs: &[InputRow], a: usize, b: usize) -> (f64, f64, f64) {
+    let (mut p, mut y, mut travel) = (0.0f64, 0.0f64, 0.0);
+    for k in a.max(1)..b.min(inputs.len()) {
+        let dp = (inputs[k].pitch - inputs[k - 1].pitch).abs();
+        p = p.max(dp);
+        travel += dp;
+        y = y.max(((inputs[k].yaw - inputs[k - 1].yaw + 180.0).rem_euclid(360.0) - 180.0).abs());
+    }
+    (p, y, travel)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn calm(dir: &Path, course: &Course, w: &World, base_name: &str, t0: usize, t1: usize, out: &str, weights: &[f64]) -> Result<(), String> {
+    let base = relax(dir, base_name)?;
+    let walls = glide_walls(w, &base);
+    let f = &course.region("finish")?.working;
+    let at = f.min[2].ok_or("finish has no z_min")?;
+    let n = base.rows.len();
+    let end = (t0..n).find(|&t| state_at_full(&base, t).position[2] <= at && state_at_full(&base, t + 1).position[2] > at).ok_or("no finish")? + 1;
+    let ctl = |t: usize| {
+        let i = &base.rows[t].input;
+        control(lead_of(&flight(state_at_full(&base, t)), i.yaw), i.pitch)
+    };
+    let opts = Opts { tol: 1e-6, margin: MARGIN, server: true, ..Opts::default() };
+    let gate = Problem {
+        kernel: Generic::default(),
+        walls: &walls,
+        x0: flight(state_at_full(&base, t0)),
+        goal: Goal::Gate {
+            normal: [0.0, 0.0, 1.0],
+            at,
+            cap: end - t0 + 80,
+            lo: [f.min[0].unwrap_or(f64::NEG_INFINITY), f.min[1].unwrap_or(f64::NEG_INFINITY), f64::NEG_INFINITY],
+            hi: f.max.map(|m| m.unwrap_or(f64::INFINITY)),
+        },
+        opts: opts.clone(),
+    };
+    let whole = DPlan { u: (t0..end).map(ctl).collect(), x: (t0..=end).map(|t| flight(state_at_full(&base, t))).collect() };
+    let last = if t1 == 0 { end } else { t1 };
+    let flown_inputs: Vec<InputRow> = base.rows.iter().map(|r| r.input.clone()).collect();
+    let judge = |inputs: &[InputRow], name: &str| -> Result<(), String> {
+        let (tr, stopped) = fly(&base.initial, inputs, &[], w, base.header.clone());
+        let r = etas::verify::verify(course, w, etas::verify::Plan::Trajectory(&tr));
+        let timed = r.timer_tick().zip(r.finish_tick()).map(|(s, e)| e - s);
+        let (dp, dy, travel) = snap(inputs, t0, last + 1);
+        if let Some(e) = r.failures.first() {
+            println!("  {name}: {e}");
+        }
+        println!(
+            "{name:18} {} timed {timed:?} secant {} stopped {stopped:?}; in the stretch: biggest dpitch {dp:.1}, dyaw {dy:.1}, pitch travel {travel:.0}",
+            if r.ok() { "PASS" } else { "FAIL" },
+            r.secant_seconds().map_or("-".into(), |s| format!("{:.2}", s / 0.05)),
+        );
+        if stopped.is_none() {
+            tr.write(&dir.join(format!("runs/relax/{name}.traj.jsonl")))?;
+        }
+        Ok(())
+    };
+    judge(&flown_inputs, &format!("{out}_base"))?;
+    let solved: Vec<_> = weights
+        .par_iter()
+        .map(|&weight| {
+            let prev = (t0 > 0).then(|| rotation(&flight(state_at_full(&base, t0 - 1)), &ctl(t0 - 1)));
+            let rate = |to| Rate { from: prev, to, ..Rate::new(weight, DELTA) };
+            let priced: DPlan = if t1 == 0 {
+                let pb = Problem { opts: Opts { rate: rate(None), ..opts.clone() }, ..gate.clone() };
+                let s = pb.solve(&whole.u);
+                println!("  weight {weight}: solve feasible {}, clear {:.4} (seed {:.4}), value {:.3} (seed {:.3}), pitch travel {:.0} (seed {:.0})", s.feasible, pb.worst(&s.plan.x, &s.plan.u), pb.worst(&whole.x, &whole.u), pb.value(&s.plan.x), pb.value(&whole.x), pb.travel(&s.plan.x, &s.plan.u)[1], pb.travel(&whole.x, &whole.u)[1]);
+                s.plan
+            } else {
+                let pb = Problem {
+                    goal: Goal::Reach { target: whole.x[t1 - t0], scale: SCALE },
+                    opts: Opts { rate: rate(Some(rotation(&whole.x[t1 - t0], &whole.u[t1 - t0]))), ..opts.clone() },
+                    ..gate.clone()
+                };
+                let s = pb.solve(&whole.u[..t1 - t0]);
+                println!("  weight {weight}: reach feasible {}, clear {:.4} (seed {:.4}), price {:.3} (seed {:.3}), pitch travel {:.0} (seed {:.0})", s.feasible, pb.worst(&s.plan.x, &s.plan.u), pb.worst(&whole.x[..=t1 - t0], &whole.u[..t1 - t0]), pb.rate_price(&s.plan.x, &s.plan.u), pb.rate_price(&whole.x[..=t1 - t0], &whole.u[..t1 - t0]), pb.travel(&s.plan.x, &s.plan.u)[1], pb.travel(&whole.x[..=t1 - t0], &whole.u[..t1 - t0])[1]);
+                let mut u = s.plan.u;
+                let mut x = s.plan.x;
+                u.extend_from_slice(&whole.u[t1 - t0..]);
+                x.extend_from_slice(&whole.x[t1 - t0 + 1..]);
+                DPlan { u, x }
+            };
+            (weight, priced)
+        })
+        .collect();
+    let yaw_from = state_at_full(&base, t0).y_rot;
+    for (weight, plan) in solved {
+        let name = format!("{out}_{weight}");
+        // free to the finish, priced too, or its re-solves put back what the price took out; pinned, a price
+        // would rework all of the rest of the run
+        let rate = if t1 == 0 { Rate::new(weight, DELTA) } else { Rate::default() };
+        let tracker = Problem { opts: Opts { margin: 0.004, rate, ..opts.clone() }, ..gate.clone() };
+        let k0 = plan.u.len().min(last - t0);
+        println!("  {name} solved pitch: {:?}", plan.u[..k0].iter().map(|u| (u[1] / std::f64::consts::PI * 180.0).round() as i32).collect::<Vec<_>>());
+        let reps: Vec<_> = [24usize, 12, 6, 3].iter().map(|&k| track(w, &tracker, &plan, yaw_from, k, SCALE)).collect();
+        let Some(rep) = reps.iter().find(|r| r.clean()).or(reps.first()) else { continue };
+        let mut inputs: Vec<InputRow> = base.rows[..t0].iter().map(|r| r.input.clone()).collect();
+        let row = |u: &sim::state::Input<f32>| InputRow { yaw: u.yaw as f64, pitch: u.pitch as f64, keys: "WR".to_string() };
+        inputs.extend(rep.inputs.iter().map(row));
+        let l = *rep.inputs.last().ok_or("empty track")?;
+        inputs.extend((0..7).map(|_| row(&l)));
+        judge(&inputs, &name)?;
+    }
+    Ok(())
+}
+
 fn smoothstep(u: f64) -> f64 {
     let u = u.clamp(0.0, 1.0);
     u * u * (3.0 - 2.0 * u)
@@ -512,11 +627,15 @@ fn main() -> Result<(), String> {
         Some("setupgrid") => setupgrid(dir, &w, &args[1]),
         Some("door") => door(dir, &w, &args[1]),
         Some("graft") => graft(dir, &course, &w, &args[1], &args[2], &args[3]),
+        Some("calm") => {
+            let weights: Vec<f64> = args[5..].iter().map(|s| s.parse().unwrap()).collect();
+            calm(dir, &course, &w, &args[1], args[2].parse().unwrap(), args[3].parse().unwrap(), &args[4], &weights)
+        }
         Some("blend") => blend(dir, &args[1], &args[2], args[3].parse().unwrap(), args[4].parse().unwrap(), &args[5]),
         Some("bump") => {
             let v: Vec<f64> = args[4..7].iter().map(|s| s.parse().unwrap()).collect();
             bump(dir, &args[1], args[2].parse().unwrap(), args[3].parse().unwrap(), [v[0], v[1], v[2]], &args[7])
         }
-        _ => Err("blocks | clear | setup | setupgrid | door | blend | bump".into()),
+        _ => Err("blocks | clear | setup | setupgrid | door | graft | blend | bump | calm".into()),
     }
 }
