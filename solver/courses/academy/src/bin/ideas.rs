@@ -613,7 +613,7 @@ fn finish(dir: &Path, course: &Course, w: &World, base_name: &str, t0: usize, ou
     }
     let pb = problem(defects.clone());
     let plan = DPlan { x: pb.rollout(&u), u };
-    // why 96? at 24 and 48 a correction still shows as a bump, 96 ticks away from any wall (academy, 2026-11-06)
+    // why 96? at 24 and 48 a correction still shows as a bump away from any wall; at 96 they're all near one (academy, 2026-11-06)
     let horizon = 96;
     let rep = follow(w, &Problem { opts: Opts { margin: 0.01, ..pb.opts.clone() }, ..pb.clone() }, &plan, yaw_from, horizon, SCALE);
     println!("follow: {} re-solves, {:.1} s, contacts {:?}, event {:?}", rep.resolves, rep.secs, &rep.contacts[..rep.contacts.len().min(6)], rep.event);
