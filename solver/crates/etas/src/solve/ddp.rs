@@ -37,7 +37,7 @@ pub type X = [f64; 6];
 /// `[lead, pitch]`, radians.
 pub type U = [f64; 2];
 
-const D2R: f64 = PI / 180.0;
+pub const D2R: f64 = PI / 180.0;
 /// Constraints per tick: the legs of the L-shaped move.
 pub const NP: usize = 3;
 /// Legs priced per tick: the move's, then the server's two ([`Opts::server`]).

@@ -15,7 +15,8 @@
 //! - `calm BASE T0 T1 OUT [WEIGHT...]`: re-fly BASE's ticks T0..T1 with rotation priced at each weight, pinned to
 //!   BASE's state at T1 (0 for T1: free to the finish, so time pays for rotation), the rest kept, then flown under
 //!   port and judged by `verify`, for whether a snap there buys anything. Each is `runs/relax/OUT_WEIGHT`, and
-//!   `runs/relax/OUT_base` is BASE as flown.
+//!   `runs/relax/OUT_base` is BASE as flown. From the tick after the deploy to the finish (`calm BASE 60 0 OUT 0.1`) it's
+//!   a finishing pass over the whole run, with no joins in it.
 //!
 //! `optimize --hybrid` then polishes these.
 //!
@@ -489,7 +490,8 @@ fn calm(dir: &Path, course: &Course, w: &World, base_name: &str, t0: usize, t1: 
             reps.swap_remove(at)
         };
         // each at its own price: unpriced, the stretch gets its wobble back; priced, all of the rest gets reworked
-        let priced = Opts { margin: 0.004, rate: Rate::new(weight, DELTA), ..opts.clone() };
+        // why 0.01? tracked at 0.004, every wall on the run sags to it; 0.01 costs 0.02 ticks and keeps them all over 0.009
+        let priced = Opts { margin: 0.01, rate: Rate::new(weight, DELTA), ..opts.clone() };
         let mut inputs: Vec<InputRow> = base.rows[..t0].iter().map(|r| r.input.clone()).collect();
         let k0 = last - t0;
         let flown = if t1 == 0 {

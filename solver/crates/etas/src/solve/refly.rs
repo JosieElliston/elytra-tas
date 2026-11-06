@@ -12,7 +12,7 @@ use sim::faithful::{Event, Faithful};
 use sim::state::{FlightState, Input};
 use world::World;
 
-use super::ddp::{Goal, Multipliers, Plan, Problem, Solved, X, input_at};
+use super::ddp::{D2R, Goal, Multipliers, Plan, Problem, Solved, X, input_at};
 
 fn fs(x: &X) -> FlightState<f64> {
     FlightState {
@@ -238,6 +238,13 @@ pub fn track(
         if k < n && k % window == 0 {
             let end = k + 2 * window;
             out.resolves += 1;
+            // a priced re-solve starts from the rotation flown, or each window opens with a free tick
+            let mut opts = pb.opts.clone();
+            if opts.rate.weight > 0.0 {
+                if let Some(i) = out.inputs.last() {
+                    opts.rate.from = Some([i.yaw as f64 * D2R, i.pitch as f64 * D2R]);
+                }
+            }
             if end + window / 2 < n && !finishing {
                 let sub = Problem {
                     x0: x,
@@ -245,6 +252,7 @@ pub fn track(
                         target: plan.x[end],
                         scale: reach_scale,
                     },
+                    opts: opts.clone(),
                     ..pb.clone()
                 };
                 let s = sub.solve(&u[k..end]);
@@ -255,6 +263,7 @@ pub fn track(
                 finishing = true;
                 let sub = Problem {
                     x0: x,
+                    opts,
                     ..pb.clone()
                 };
                 let s = sub.solve(&u[k..]);

@@ -31,6 +31,8 @@
 //! With `--hybrid`, the same on `runs/hybrid/`: a flight with a stretch from another attempt, to
 //! try its route.
 //!
+//! With `--plain`, those without any price on rotation, for what a seed is worth on time alone.
+//!
 //! With `--open-top`, the start area's top is its outer bound, not the highest anyone was seen
 //! inside it, for `dome`'s flights from under the roof, above any recording.
 //!
@@ -45,7 +47,7 @@
 //! - The finish needs a block-changing move after the first pose past the plane. academy's wall at z -98.3 denies one
 //!   when that pose is past z -99, so a crossing late in a tick reads 529 and verifies at 533 or never finishes.
 //!
-//! `cargo run --release -p academy --bin optimize [--relax | --hybrid] [--open-top] [--server] [--margin BLOCKS] [--forbid X0 Y0 Z0 X1 Y1 Z1]... [NAME_SUBSTRING ...]`
+//! `cargo run --release -p academy --bin optimize [--relax | --hybrid] [--plain] [--open-top] [--server] [--margin BLOCKS] [--forbid X0 Y0 Z0 X1 Y1 Z1]... [NAME_SUBSTRING ...]`
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -127,6 +129,8 @@ fn goal(course: &Course, cap: usize) -> Result<Goal, String> {
     })
 }
 
+/// `--plain`: `--relax` or `--hybrid` with no price on rotation anywhere, for what a seed is worth on time alone.
+static PLAIN: AtomicBool = AtomicBool::new(false);
 /// `--server`: hold [`Opts::server`] through the whole optimization.
 static SERVER: AtomicBool = AtomicBool::new(false);
 /// `--margin BLOCKS`, to see what clearance costs; [`MARGIN`] without it.
@@ -217,6 +221,16 @@ fn first_plan(run: &Run, walls: &Walls, gate: &Problem) -> Result<DPlan, String>
         let s = state_at(&run.rec, t);
         s.fall_flying && !s.on_ground && !s.horizontal_collision && !s.vertical_collision
     };
+    // Whole, if it will. why? a seed already flown needs no pieces, and pieces lose it a tick: each has to reach the
+    // seed's state in the seed's ticks at the solve's margin, which a seed tracked at `TRACK_MARGIN` doesn't have, so one
+    // that can't takes a tick more and the rounds never get it back (academy, 2026-11-06: a 527.99 came back 528.94).
+    if (a..f).all(ok) {
+        let seed: Vec<U> = (a..f).map(ctl).collect();
+        let s = gate.solve(&seed);
+        if solved(gate, &s.plan) {
+            return Ok(s.plan);
+        }
+    }
     let mut cuts = vec![a];
     let mut t = a + FIRST;
     while t + FIRST / 2 < f {
@@ -462,7 +476,7 @@ fn one(
         gate.value(&best.x),
         gate.worst(&best.x, &best.u)
     )];
-    if relaxing {
+    if relaxing && !PLAIN.load(Ordering::Relaxed) {
         for weight in RELAX {
             smooth(walls, &gate, &mut best, weight, &mut log);
         }
@@ -497,7 +511,7 @@ fn one(
         better(&gate, new, &mut best);
         log.push(format!("to {:.2}", gate.value(&best.x)));
     }
-    if relaxing {
+    if relaxing && !PLAIN.load(Ordering::Relaxed) {
         smooth(walls, &gate, &mut best, FINAL, &mut log);
     }
     let generic = gate.value(&best.x);
@@ -592,6 +606,7 @@ fn run() -> Result<(), String> {
     let mut only: Vec<String> = std::env::args().skip(1).collect();
     let hybrids = only.iter().any(|a| a == "--hybrid");
     SERVER.store(only.iter().any(|a| a == "--server"), Ordering::Relaxed);
+    PLAIN.store(only.iter().any(|a| a == "--plain"), Ordering::Relaxed);
     if let Some(k) = only.iter().position(|a| a == "--margin") {
         let m: f64 = only.get(k + 1).and_then(|a| a.parse().ok()).expect("--margin BLOCKS");
         WALL_MARGIN.set(m).unwrap();
@@ -608,7 +623,7 @@ fn run() -> Result<(), String> {
         let start = course.regions.get_mut("start_area").ok_or("no start area")?;
         start.working.max[1] = start.outer.max[1];
     }
-    only.retain(|a| a != "--relax" && a != "--hybrid" && a != "--open-top");
+    only.retain(|a| a != "--relax" && a != "--hybrid" && a != "--open-top" && a != "--plain");
     let mut runs = Vec::new();
     let seeds = if hybrids {
         "runs/hybrid"

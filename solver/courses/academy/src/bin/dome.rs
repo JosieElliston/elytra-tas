@@ -58,7 +58,8 @@
 //! As of 2026-11-06 04:30 EST, the `slabland` bin flies these from the reset pose, by an ebounce onto the slab.
 //!
 //! As of 2026-11-06 05:45 EST, trying changes to the 528 under `--server --margin 0.012` (`ideas`): none beats 528.
-//! A polish from a seed loses about 2 ticks (the 528 itself comes back at 530), so read a change against that control.
+//! Those polishes lost a tick or two to a bug in `optimize`'s first plan, since fixed, so the numbers below read high: 528
+//! came back at 530 as its control. Read them against that control; see the note at the end.
 //! The south strafe mirrors for free, 373 degrees of turning to 277. The door's six pitch reversals aren't needed:
 //! three knots hold 528. S south, or no strafe north, polish to 530 against the mirror's 529 (one pass each).
 //! The -38 window holds 528 past the lamp either way. Over the block at (13, 134, 6) reached only 531, one pass, 2 of 6
@@ -73,6 +74,10 @@
 //! worth under 0.2 ticks, and it stays only for want of them. The door has 0.143 to give: row 73 is 0.23 blocks short of
 //! the plane. Taking it means z -0.22 at the spot, which puts the door pass into the lintel at (-28, 208, 207) and moves
 //! the whole tail a fraction of a tick, and one whole solve of the tail hits walls (clear -0.6). `optimize`'s polish might.
+//!
+//! As of 2026-11-06 06:38 EST, `optimize --plain` (no price on rotation) from seeds with the finish's dive smoothed away, one as far as peak
+//! 50 and a tick late, comes back to 527.94 from the timer with the dive back at pitch 90, as does the 528 itself. So
+//! the dive is a real feature of that optimum, not chatter from a stuck solve.
 //!
 //! `cargo run --release -p academy --bin dome -- PHASE`
 
