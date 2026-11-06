@@ -7,7 +7,6 @@ use crate::camera::{Camera, V3, View, add, dot, look_vector, norm, scale, sub};
 use crate::color::{Color, INK, Ramp, WHITE};
 use crate::frame::{Align, Frame, Marker, Stroke, TextStyle};
 use crate::scene::Scene;
-use crate::style::WorldStyle;
 
 const FLIGHT_WIDTH: f64 = 0.6;
 const FLIGHT_HEIGHT: f64 = 0.6;
@@ -329,13 +328,14 @@ pub fn readability(view: &View, paths: &[Vec<V3>]) -> Readability {
 }
 
 /// A perspective camera fitted to paths from the direction that scores best on
-/// [`readability`]. why this range of pitches? this view is for the shape in depth, and
-/// the top and side views of a sheet already cover the steep and the level.
+/// [`readability`]. why these pitches, and no yaw along a world axis? this view is for the
+/// shape in depth, and from straight along an axis, high up or level, it would repeat a
+/// top or side view.
 pub fn readable_view(scene: &Scene, paths: &[Vec<V3>], w: u32, h: u32, fov: f64) -> Camera {
     let pts: Vec<V3> = paths.concat();
     let mut best: Option<(f64, Camera)> = None;
     for pitch in [25.0, 35.0, 45.0, 55.0] {
-        for k in 0..16 {
+        for k in (0..16).filter(|k| k % 4 != 0) {
             let cam = Camera::fit(&pts).from(k as f64 * 22.5, pitch).fov(fov);
             let score = readability(scene.frame(&cam, w, h).view(), paths).score();
             if best.as_ref().is_none_or(|b| score > b.0) {
@@ -344,18 +344,4 @@ pub fn readable_view(scene: &Scene, paths: &[Vec<V3>], w: u32, h: u32, fov: f64)
         }
     }
     best.expect("candidates").1
-}
-
-/// The share of points a view can see in a style's world, sampling about 64 of them. The
-/// last 0.75 blocks of each sight line don't count, and neither does the edge of the image.
-pub fn share_in_sight(scene: &Scene, style: &WorldStyle, view: &View, pts: &[V3]) -> f64 {
-    let (mut seen, mut n) = (0, 0);
-    for p in pts.iter().step_by((pts.len() / 64).max(1)) {
-        n += 1;
-        let to = sub(*p, view.eye);
-        let dist = dot(to, to).sqrt();
-        let dir = scale(to, 1.0 / dist.max(1e-9));
-        seen += scene.raycast(style, view.eye, dir, (dist - 0.75).max(0.0)).is_none() as usize;
-    }
-    seen as f64 / n.max(1) as f64
 }

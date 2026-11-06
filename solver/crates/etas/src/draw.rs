@@ -652,17 +652,11 @@ pub fn sheet(scene: &Scene, c: Option<&Course>, runs: &[SheetRun], o: &SheetOpti
         }
         f.finish()
     };
-    // what the share below counts: the framed stretch, not everything drawn
-    let last = runs.iter().map(|r| r.traj.rows.len() - 1).max().unwrap_or(0);
-    let counted = o.ticks.map_or("the path".to_string(), |(a, b)| format!("ticks {a}-{}", b.min(last)));
     let view_of = |cam: &Camera| scene.frame(cam, o.width, o.height).view().clone();
     let top = Camera::top(&framed);
     let top_cut = TubeCut::new(&view_of(&top), &whole, o.radius, o.headroom);
     let persp = tools::readable_view(scene, &framed_paths, o.width, o.height, 50.0);
-    let persp_view = view_of(&persp);
-    let persp_cut = TubeCut::new(&persp_view, &whole, o.radius, o.headroom);
-    let persp_style = || base_style().keep(|p, _| persp_cut.keeps(p));
-    let seen = tools::share_in_sight(scene, &persp_style(), &persp_view, &framed);
+    let persp_cut = TubeCut::new(&view_of(&persp), &whole, o.radius, o.headroom);
     // the text gets its own strip, so it can't cover the start of a run
     let lines: Vec<String> = runs.iter().map(summary).collect();
     let hidden = if o.barriers {
@@ -690,11 +684,7 @@ pub fn sheet(scene: &Scene, c: Option<&Course>, runs: &[SheetRun], o: &SheetOpti
             &format!("side, looking along yaw {yaw:.0}"),
             base_style().keep(|p, _| backdrop.keeps(p)),
         ),
-        panel(
-            &persp,
-            &format!("perspective: {:.0}% of {counted} in sight", seen * 100.0),
-            persp_style(),
-        ),
+        panel(&persp, "perspective", base_style().keep(|p, _| persp_cut.keeps(p))),
     ];
     Image::grid(&images, 1)
 }

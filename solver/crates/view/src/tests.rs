@@ -235,6 +235,17 @@ fn tube_cut_clears_blocks_around_a_buried_eye() {
 }
 
 #[test]
+fn readable_view_never_looks_along_a_world_axis() {
+    // a straight descent along x, whose best view would otherwise be straight from the side
+    let path: Vec<[f64; 3]> = (0..100).map(|i| [i as f64, -(i as f64) * 2.0, 0.0]).collect();
+    let w = small();
+    let s = Scene::with_jar(&w, None).unwrap();
+    let cam = tools::readable_view(&s, &[path], 800, 600, 50.0);
+    let fwd = s.frame(&cam, 800, 600).view().fwd;
+    assert!(fwd[0].abs() > 0.1 && fwd[2].abs() > 0.1, "{fwd:?}");
+}
+
+#[test]
 fn readability_avoids_flying_at_the_camera() {
     let path: Vec<[f64; 3]> = (0..100).map(|i| [i as f64, 0.0, 0.0]).collect();
     let paths = [path.clone()];
