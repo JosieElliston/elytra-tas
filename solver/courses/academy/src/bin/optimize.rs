@@ -16,6 +16,12 @@
 //!    leftover along the run, but alone it stalls at a local optimum about 3 ticks in
 //!    (academy's fastest seed, 2026-11-04 23:45 EST: 622 to 618.6).
 //!
+//! 4. [`carry`], for a window's fraction of a tick. why? a window of step 2 flies to the plan's own state a
+//!    whole number of ticks on, so it keeps only whole ticks, and every flight ends the same fraction past a
+//!    whole tick, its reference's (academy, 2026-11-06: N.08 for every N, from any start). Often it stops short:
+//!    up to 0.49 ticks carried, then a window it can't hold, around tick 100, and a gate solve from there only
+//!    rejoins the old tail. Best seen 0.08 ticks at the finish.
+//!
 //! Then `refly::track` flies the plan under the faithful kernel.
 //!
 //! With `--relax`, the seeds are `runs/optimize/`'s flights and the results go to
@@ -28,10 +34,14 @@
 //! With `--open-top`, the start area's top is its outer bound, not the highest anyone was seen
 //! inside it, for `dome`'s flights from under the roof, above any recording.
 //!
-//! `cargo run --release -p academy --bin optimize [--relax | --hybrid] [--open-top] [NAME_SUBSTRING ...]`
+//! `--margin BLOCKS` sets the clearance from walls, `MARGIN` otherwise. It's the active constraint along a
+//! flight: academy's 529s reach 528 at 0.012 (2026-11-06), since they were 0.01 blocks short of the finish.
+//!
+//! `cargo run --release -p academy --bin optimize [--relax | --hybrid] [--open-top] [--server] [--margin BLOCKS] [NAME_SUBSTRING ...]`
 
 use std::path::Path;
 use std::process::ExitCode;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
@@ -58,6 +68,12 @@ const WINDOWS: [usize; 6] = [30, 60, 120, 240, 40, 90];
 /// Rounds, at most; stops after a round that gains under `MIN_GAIN` ticks.
 const ROUNDS: usize = 8;
 const MIN_GAIN: f64 = 0.05;
+/// [`carry`]'s windows and first cuts, its first try at a window's gain in ticks, and the most it tries.
+const CARRY: [(usize, usize); 4] = [(40, 0), (60, 30), (30, 15), (90, 45)];
+const CARRY_FIRST: f64 = 0.03;
+const CARRY_MOST: f64 = 1.0;
+/// How far off a [`carry`] window may end, by [`Goal::Reach`]'s value: blocks and b/t over `SCALE`.
+const CARRY_MISS: f64 = 0.05;
 /// Infeasible horizons tried below the least that reached, before giving up on a window.
 const PATIENCE: usize = 2;
 /// A window's shortest horizon, as a fraction of its length.
@@ -105,11 +121,17 @@ fn goal(course: &Course, cap: usize) -> Result<Goal, String> {
 
 /// `--server`: hold [`Opts::server`] through the whole optimization.
 static SERVER: AtomicBool = AtomicBool::new(false);
+/// `--margin BLOCKS`, to see what clearance costs; [`MARGIN`] without it.
+static WALL_MARGIN: OnceLock<f64> = OnceLock::new();
+
+fn wall_margin() -> f64 {
+    *WALL_MARGIN.get().unwrap_or(&MARGIN)
+}
 
 fn opts() -> Opts {
     Opts {
         tol: 1e-6,
-        margin: MARGIN,
+        margin: wall_margin(),
         server: SERVER.load(Ordering::Relaxed),
         ..Opts::default()
     }
@@ -119,7 +141,7 @@ fn opts() -> Opts {
 fn solved(pb: &Problem, plan: &DPlan) -> bool {
     let loose = Problem {
         opts: Opts {
-            margin: MARGIN - LOOSE,
+            margin: wall_margin() - LOOSE,
             ..pb.opts.clone()
         },
         ..pb.clone()
@@ -288,6 +310,84 @@ fn pass(walls: &Walls, gate: &Problem, plan: &DPlan, w: usize, off: usize) -> Ve
     pieces.concat()
 }
 
+/// Windows of `w` ticks from `off`, in order, each flown to the plan's state further along than its ticks: to
+/// where the plan is at `at + w + gain`, for the most gain it solves. A plan's state between ticks is the line
+/// between them. What's gained is carried into the next window, so the plan's fractions add up, and the last
+/// window is the gate's. If a window can't hold what's carried, the gate takes over from there.
+fn carry(walls: &Walls, gate: &Problem, plan: &DPlan, w: usize, off: usize, log: &mut Vec<String>) -> Vec<U> {
+    let n = plan.u.len();
+    let state = |t: f64| -> X {
+        let i = (t.floor() as usize).min(n - 1);
+        let f = t - i as f64;
+        std::array::from_fn(|k| plan.x[i][k] * (1.0 - f) + plan.x[i + 1][k] * f)
+    };
+    let (mut at, mut x, mut u) = (0.0f64, plan.x[0], Vec::new());
+    let mut gains = Vec::new();
+    let mut next = if off == 0 { w } else { off };
+    loop {
+        let ticks = next;
+        next = w;
+        let ahead = (at + ticks as f64 + 1.0).ceil() as usize;
+        if ahead + w / 2 >= n {
+            break;
+        }
+        let from = at.round() as usize;
+        let seed = &plan.u[from..(from + ticks).min(n)];
+        let aim = |gain: f64| {
+            let p = Problem {
+                kernel: Generic::default(),
+                walls,
+                x0: x,
+                goal: Goal::Reach {
+                    target: state(at + ticks as f64 + gain),
+                    scale: SCALE,
+                },
+                opts: opts(),
+            };
+            let s = p.solve(&resample(seed, ticks));
+            // why loose? the next window starts where this one ended, so a near miss costs nothing
+            let judge = Problem {
+                opts: Opts { tol: CARRY_MISS, ..p.opts.clone() },
+                ..p.clone()
+            };
+            solved(&judge, &s.plan).then_some(s.plan)
+        };
+        let mut got = None;
+        let mut gain = CARRY_FIRST;
+        while gain <= CARRY_MOST {
+            let Some(p) = aim(gain) else { break };
+            got = Some((gain, p));
+            gain *= 2.0;
+        }
+        if got.is_none() {
+            got = aim(CARRY_FIRST / 3.0).map(|p| (CARRY_FIRST / 3.0, p));
+        }
+        if got.is_none() {
+            got = aim(0.0).map(|p| (0.0, p));
+        }
+        let Some((gain, p)) = got else { break };
+        gains.push(gain);
+        at += ticks as f64 + gain;
+        x = *p.x.last().unwrap();
+        u.extend(p.u);
+    }
+    let from = (at.round() as usize).min(n - 1);
+    let pb = Problem {
+        x0: x,
+        opts: Opts {
+            c0: 1e3,
+            iters: 300,
+            ..opts()
+        },
+        ..gate.clone()
+    };
+    let s = pb.solve(&plan.u[from..]);
+    let ok = solved(&pb, &s.plan);
+    log.push(format!("\n  carry {w}: {:.2} over {} windows", at - u.len() as f64, gains.len()));
+    u.extend(if ok { s.plan.u } else { plan.u[from..].to_vec() });
+    u
+}
+
 /// Keep `new` over `best` if it is clear of the walls, in the gate, and faster.
 fn better(gate: &Problem, new: DPlan, best: &mut DPlan) -> bool {
     let n = new.x.len() - 1;
@@ -384,6 +484,11 @@ fn one(
             break;
         }
     }
+    for (w, off) in CARRY {
+        let new = roll(&gate, &carry(walls, &gate, &best, w, off, &mut log));
+        better(&gate, new, &mut best);
+        log.push(format!("to {:.2}", gate.value(&best.x)));
+    }
     if relaxing {
         smooth(walls, &gate, &mut best, FINAL, &mut log);
     }
@@ -479,6 +584,11 @@ fn run() -> Result<(), String> {
     let mut only: Vec<String> = std::env::args().skip(1).collect();
     let hybrids = only.iter().any(|a| a == "--hybrid");
     SERVER.store(only.iter().any(|a| a == "--server"), Ordering::Relaxed);
+    if let Some(k) = only.iter().position(|a| a == "--margin") {
+        let m: f64 = only.get(k + 1).and_then(|a| a.parse().ok()).expect("--margin BLOCKS");
+        WALL_MARGIN.set(m).unwrap();
+        only.drain(k..=k + 1);
+    }
     let relaxing = hybrids || only.iter().any(|a| a == "--relax");
     if only.iter().any(|a| a == "--open-top") {
         let start = course.regions.get_mut("start_area").ok_or("no start area")?;

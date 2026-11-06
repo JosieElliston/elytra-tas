@@ -19,6 +19,7 @@
 //!   or `PREFIX`K, for `optimize --hybrid --server slab_`.
 //! - `slabcheck NAME...`: flights in `runs/relax`, by `verify` and the server's box.
 //! - `slabdive`: the same late pull-out from the TAS's climb, with no landing.
+//! - `slabphase PREFIX NAME...`: heads flown again from nearby spots, for the most of a tick at the door.
 //! - `slabtime`: the slab's tick timings, every tick: run-up, W held after the jump, a sprint south once
 //!   past the lip, a sprint north, deploy, with and without touching the corner at y 280; then spot,
 //!   headings and keys around the best. `slabflights N runs/dome/slabtime.json tick_` flies them.
@@ -48,6 +49,11 @@
 //! still about 3 ticks of that: `optimize` found the 530's other 2 at 160-280 ticks past the door, and a
 //! near twin of its start got 532. The strafe north is what reads better; back keys and touching the corner
 //! at y 280 read the same, though the 530 and 531s all miss it, moving south.
+//!
+//! As of 2026-11-06 03:45 EST, under the timer's block-change rule, these flights crossed by
+//! `tools/route_cross.py` verify at 529, and at 528 with `optimize --margin 0.012`. Timed ticks count from the
+//! first pose past the door, so a head may be worth nearly a tick by where its poses fall (`slabphase`); that
+//! pose is 0.82 of a tick past the plane on the 528s from z 227.9 and 1.00 on the ones from z 228.66.
 //!
 //! `cargo run --release -p academy --bin dome -- PHASE`
 
@@ -1452,7 +1458,8 @@ fn slabflights(dir: &Path, course: &Course, w: &World, n: usize, file: &str, pre
 }
 
 /// `slabcheck NAME...`: flights in `runs/relax`, by what `tas` holds a plan to: `verify`, and the
-/// server's copy of the player clear of walls from the deploy to the finish.
+/// server's copy of the player clear of walls from the deploy to the finish. why not the last row before
+/// it? the move that fires the finish runs into the wall past it, and that's the end.
 fn slabcheck(dir: &Path, course: &Course, w: &World, names: &[String]) -> Result<(), String> {
     for name in names {
         let t = Trajectory::read(&dir.join(format!("runs/relax/{name}.traj.jsonl")))?;
@@ -1462,8 +1469,56 @@ fn slabcheck(dir: &Path, course: &Course, w: &World, names: &[String]) -> Result
         let walls = Walls::around(w, &pts, 8.0, 1.0);
         let flown: Vec<X> = t.rows.iter().map(|x| flight(&x.state)).collect();
         let deploy = t.rows.iter().position(|x| x.state.fall_flying).ok_or("no deploy")?;
-        let hits: Vec<_> = etas::solve::ddp::server_hits(&walls, &flown).into_iter().filter(|&(i, _)| i >= deploy && t.rows[i].t < end).map(|(i, c)| (t.rows[i].t, c)).collect();
+        let hits: Vec<_> = etas::solve::ddp::server_hits(&walls, &flown).into_iter().filter(|&(i, _)| i >= deploy && t.rows[i].t < end - 1).map(|(i, c)| (t.rows[i].t, c)).collect();
         println!("{name}: {} timed {} (timer {start}, finish {end}), server hits {hits:?}, failures {:?}", if r.ok() { "PASS" } else { "FAIL" }, end - start, r.failures.first());
+    }
+    Ok(())
+}
+
+/// `slabphase PREFIX NAME...`: flights in `runs/relax`, each with its head flown again from nearby spots, so
+/// its last pose before the door lands just inside the plane, as `runs/hybrid/PREFIXn_k`. why? timed ticks
+/// count from the first pose past the door, so the further past that pose is, the less of the flight is timed,
+/// and the head's ticks are free. Only heads as good by height and speed at the door count.
+fn slabphase(dir: &Path, w: &World, prefix: &str, names: &[String]) -> Result<(), String> {
+    for (n, name) in names.iter().enumerate() {
+        let t = Trajectory::read(&dir.join(format!("runs/relax/{name}.traj.jsonl")))?;
+        let d = t.rows.iter().position(|r| r.state.position[2] < EXIT_Z).ok_or("no door")?;
+        let inputs: Vec<InputRow> = t.rows[..=d].iter().map(|r| r.input.clone()).collect();
+        let at = t.rows[d].state.clone();
+        let spot = t.initial.position;
+        let mut found: Vec<(f64, f64, f64, Trajectory)> = (-140..=120i32).flat_map(|i| (-8..=8i32).map(move |j| (i, j))).collect::<Vec<_>>().par_iter().filter_map(|&(i, j)| {
+            let mut initial = t.initial.clone();
+            initial.position = [spot[0] + j as f64 * 0.05, spot[1], spot[2] + i as f64 * 0.01];
+            let (f, stopped) = fly(&initial, &inputs, &[], w, t.header.clone());
+            if stopped.is_some() || f.rows.len() != d + 1 {
+                return None;
+            }
+            let air = f.rows.iter().position(|r| r.input.keys.contains('J'))?;
+            if f.rows[air..].iter().any(|r| r.state.on_ground || r.state.horizontal_collision != false || r.state.vertical_collision) {
+                return None;
+            }
+            let (a, b) = (&f.rows[d - 1].state, &f.rows[d].state);
+            // inside by a hair, then out: the most past the plane the first pose outside can be
+            if !(a.position[2] >= EXIT_Z && a.position[2] < EXIT_Z + 0.02 && b.position[2] < EXIT_Z && b.fall_flying) {
+                return None;
+            }
+            let dv = (0..3).map(|k| (b.delta_movement[k] - at.delta_movement[k]).powi(2)).sum::<f64>().sqrt();
+            let dy = b.position[1] - at.position[1];
+            if dv > 0.03 || dy.abs() > 0.15 {
+                return None;
+            }
+            Some((dv + dy.abs() * 0.1, initial.position[0], initial.position[2], f))
+        }).collect();
+        found.sort_by(|a, b| a.0.total_cmp(&b.0));
+        println!("{name}: door pose z {:.3} y {:.3}, {} heads", at.position[2], at.position[1], found.len());
+        for (k, (off, x, z, f)) in found.iter().take(3).enumerate() {
+            let mut rows = f.rows.clone();
+            rows.extend(t.rows[d + 1..].iter().cloned());
+            let q = &f.rows[d].state;
+            println!("  {prefix}{n}_{k}: spot x {x:.2} z {z:.2}, off {off:.4}: before door z {:.4}, door z {:.3} y {:.3} v {:.3} {:.3} {:.3}", f.rows[d - 1].state.position[2], q.position[2], q.position[1], q.delta_movement[0], q.delta_movement[1], q.delta_movement[2]);
+            let out = Trajectory { header: t.header.clone(), initial: f.initial.clone(), arrivals: Vec::new(), rows };
+            out.write(&dir.join(format!("runs/hybrid/{prefix}{n}_{k}.traj.jsonl")))?;
+        }
     }
     Ok(())
 }
@@ -1546,6 +1601,7 @@ fn main() -> Result<(), String> {
     match args.first().map(|a| a.as_str()) {
         Some("slab") => slab(dir, &world),
         Some("slabtime") => slabtime(dir, &world),
+        Some("slabphase") => slabphase(dir, &world, &args[1], &args[2..]),
         Some("slabflights") => slabflights(
             dir,
             &course,
