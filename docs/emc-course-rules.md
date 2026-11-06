@@ -64,8 +64,17 @@ gives false contradictions.
   end), and repeats of one plan fire on the same move. Flown out of sample at 2026-11-05 23:30 EST:
   14 of 14 new passes fired on the move this picks, up to 6 ticks after the first pose outside
   (5 checked against poses predicted before flying, 9 against the poses they sent). `/etas queue`,
-  `tools/probe_timer.py`. Untested at a different ping. The finish hasn't been tested for this;
-  its lag band below still assumes tick-end chats.
+  `tools/probe_timer.py`. It holds at a spoofed ping too (14 of 14 at about 106 ms measured, /pingequalizer
+  at 150).
+- **The finish is the same rule the other way round: a move that changes your block while your
+  previous position was inside.** Academy, 2026-11-05 23:55 EST, with z >= -100: 7 of 7 passes
+  predicted before flying at normal ping, 5 of which "first pose at z >= -99" gets wrong, and 4 of 4
+  straight re-flights. Slow passes bracket z_min to (-100.20, -99.75]. So a run at z -100.07 then
+  -98.73 finishes a move later, and the 38.44 s run that passed -99.55 at y -56.67 without finishing
+  was just in one block until z crossed -99. x and y faces aren't found: it fired at x -7.26 to
+  -1.68 and y -55.3 to -53.4 on these flights. `lqmbda`'s chat lags, so judge its finishes by
+  the action bar. /pingequalizer sends moves in pairs 100 ms apart once it settles, so a reply can't
+  say which of a pair it answers: don't time rules under it.
 - **Timer and finish events reach you a constant delay after the pose they judged.** As long
   as the timer chat's delay: on academy, 2 ticks for 170 of 199 timer starts in the
   2026-11-03 20:52 log, 5 for 87 of 90 in the 1.21.11 replay. The action bar shows
@@ -78,9 +87,9 @@ gives false contradictions.
   2026-11-04 22:08 EST: academy y >= 199, z >= 205; burrowed grove x >= -6, finish x <= -35;
   downtown x < -27, 86 <= y < 99, z < -64; alpine z < -124, finish y <= 186, z >= 208. Offsetting
   by the 0.3 half-width doesn't fit: x >= -6 is bracketed to [-6.005, -5.955], x < -27 to
-  [-27.149, -26.989]. Not all are whole: downtown's finish z_max fits [-90.262, -90.152], and
-  academy's finish is set to z >= -99.7 (the hitbox wholly past -100; 9 of 12 timed finishes
-  match the chat's tick count, 4 for -100), provisionally, as no one box holds 38.44 s.
+  [-27.149, -26.989]. Not all fit whole: downtown's finish z_max fits [-90.262, -90.152]. These fits assume the first
+  pose over the face fires, which the two rules above replace, so they may shift. `course.json`'s
+  academy finish still says z >= -99.7, a value that compensated for this; the real face is -100.
   why it matters: at normal exit speed one tick of travel is ~1.5 blocks, so a wrong delay
   makes a wrong face look just as good. Academy's start also fits y >= 198.56, z >= 203.45 at
   a delay a tick shorter. It's rejected on the likelihood with +-1 tick per event (about 16
