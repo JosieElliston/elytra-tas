@@ -81,9 +81,11 @@ gives false contradictions.
   they don't wait for a tick. Most of the difference from whole ticks is the client's send timing:
   sends happen in frames, so they move with frame rate, while the network hardly varied.
 - **Minecraft's `inactivityFpsLimit: afk` changes that timing during playback, since playback isn't
-  input.** Measured on the 2026-11-05 22:49 log: idle under about 45 s, moves 48-53 ms apart; then
-  33/67 ms (30 fps); after about 15 minutes idle, 100 ms apart in pairs (10 fps), when a reply can't
-  say which of a pair it answers. Don't time rules at 10 fps.
+  input.** `FramerateLimitTracker` (26.2) caps at 30 fps 60 s after the last input and 10 fps after
+  600 s, and input means a key, mouse button, scroll, or mouse move in the active window. Moves are
+  48-53 ms apart uncapped, 33/67 ms at 30 fps, and 100 ms apart in pairs at 10 fps, when a reply
+  can't say which of a pair it answers, so don't time rules at 10 fps. The logger records keys but
+  not the mouse, so a log's time since the last key only bounds idle from above.
 - **Timer and finish events reach you a constant delay after the pose they judged.** As long
   as the timer chat's delay: on academy, 2 ticks for 170 of 199 timer starts in the
   2026-11-03 20:52 log, 5 for 87 of 90 in the 1.21.11 replay. The action bar shows
