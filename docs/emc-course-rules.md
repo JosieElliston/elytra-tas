@@ -87,15 +87,20 @@ gives false contradictions.
   the tick. So chat lateness is the wait plus the usual ~1.5 ms. Handling on the main thread is the
   plain reading. **The start clock waits too:** the action bar's ms value dates the reading, and it
   moves 0.86 +- 0.12 ms per ms of wait over those 41 flights plus one (1 = waits fully, 0 = read on
-  arrival). The finish clock isn't tested at a real wait; if it matches, a run with one end just
-  inside that band and the other just outside is off by up to the band's width. `tools/tick_wait.py`
+  arrival). Finished runs agree: over 22 `academy_535` runs, shown minus send gap falls -1.06 +- 0.29
+  ms per ms of start clock delay, including a 26.72 whose start clock read 24 ms late. The finish
+  clock is open: the same fit gives -0.77 +- 0.76 ms per ms of finish wait, where waiting would be
+  +1, but those waits only reach 8 ms and the finish chat barely follows them. `tools/tick_wait.py`
   places chats, probes and the clock in the tick, and its `--ping` shows whether the ping moved, as
   the phase can't be read while it does.
 - **With moves at the flush, the send gap picks a run's rounding.** 14 of 14 `academy_535` runs
   with mod 0.5.4, 2026-11-06 01:35-01:42 EST, moves within about 5 ms of the flush: 535 ticks, send
   gap 26746.8-26755.1 ms, shown 26.74 for gaps up to 26748.4 and 26.76 from 26748.7. Send gap minus
   ticks x 50 ms has sd 2.6, against 13 under the AFK frame limit, so that tightening is mostly the
-  patch and not the phase.
+  patch and not the phase. Deeper in tick work the send gap stops picking it (5 of 8 runs at
+  01:50-01:57, ping spikes in that batch), as a late start clock moves the time.
+- **Ping spikes abort playback.** In that batch 6 of 14 `academy_535` flights left the plan by 0.07-1.4
+  blocks, each with a ping spike of 162 ms or more in its last 8 s; of the 8 finishes, 7 stayed under 95 ms.
 - **Timer chat lateness differs by session or account, and phase doesn't explain it.** In 19 logs
   on `lqmbda` (2026-10-31 to 11-04, hand flown) the median chat is 15-24 ms late at every phase,
   against 1.4-10.2 ms in 7 logs on `deftenvy` (11-04 to 11-05), one of them between `lqmbda` logs on
