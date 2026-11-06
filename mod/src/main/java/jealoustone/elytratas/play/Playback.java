@@ -185,6 +185,8 @@ public final class Playback {
         // why? plans come from port, which has no double-tap sprint; another window can sprint a tape's W presses
         int sprintWindow = mc.options.sprintWindow().get();
         if (sprintWindow != 0) return "sprint window is " + sprintWindow + ", plans assume 0 (Options → Controls → Sprint Window)";
+        // why? with a free camera on, the plan's keys don't move the player, and the flight aborts at line 2
+        if (mc.getCameraEntity() != p) return "the camera isn't the player: turn off free camera";
         // why? playback is input no vanilla client makes; it goes only where the logger may send its own packets
         ServerData server = mc.getCurrentServer();
         if (!singleplayer && (server == null || !ElytraTasClient.CONFIG.whitelisted(user, server.ip))) {
@@ -257,6 +259,8 @@ public final class Playback {
 
     /** START_CLIENT_TICK: put back the rotation physics used, before anything in the tick reads it. */
     public static void tickStart(Minecraft mc) {
+        // why? playback isn't input, so inactivityFpsLimit=afk would cap frames mid-flight, and moves go out in frames
+        if (phase != Phase.IDLE) mc.getFramerateLimitTracker().onInputReceived();
         if (!camera || mc.player != player) return;
         checkMoved();
         setRot(exactYaw, exactPitch);
@@ -305,6 +309,10 @@ public final class Playback {
         }
         if (hub) {
             stop("sent to hub");
+            return;
+        }
+        if (mc.getCameraEntity() != p) {
+            stop("the camera isn't the player: turn off free camera");
             return;
         }
         // why? creative flight sits still at the start pose, looks ready, and flies line 2 off the plan

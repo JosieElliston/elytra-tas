@@ -118,7 +118,7 @@ autoJumpTime, crouching. Floats are written widened to double, as the logger doe
 
 `PlaybackGameTest` runs after the oracle cases in the same client, in its own world,
 and tests the mod's `/etas play` (`docs/playback.md` at the repo root). Its plans,
-logs and the held case go to `build/playback/`. `PLAYBACK_TESTS=a,b,c,d,e` picks (default
+logs and the held case go to `build/playback/`. `PLAYBACK_TESTS=a,b,c,d,e,f` picks (default
 all; `none` skips). The quick way to run only these:
 
 ```
@@ -155,6 +155,9 @@ cd .. && ORACLE_CASES_DIR=$PWD/oracle/build/playback/cases CARGO_TARGET_DIR=targ
 
 - (e) the queue (`docs/playback.md`): a plan with no finish gets its answer and the queue goes
   on; a refused plan gets `refused`, turns it off and leaves later plans unflown.
+- (f) with `inactivityFpsLimit: afk` and the last input marked 700 s old before every tick, a
+  flight is never throttled, and idle is throttled again after it; a camera that isn't the player
+  refuses a plan and stops a running one.
 - (d) branches (format 2), from Driver runs that get the same server events at the same
   lines as playback. The test hands them to the client through its own handlers
   (`handleSetEntityMotion`, and `handleSetEntityData` with the glide bit cleared) at

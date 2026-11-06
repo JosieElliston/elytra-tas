@@ -8,9 +8,15 @@ abort (leaving the plan after "Course complete!" counts as done, not as an abort
 (default 3). `/etas stop` stops and hands the keyboard back; `/etas status` shows the
 line, segment, divergences, reactions and the last attempts with the segments they flew.
 While it plays, keys and mouse don't move you. The logger records it as `P` records
-(netlog.py). Mod 0.5.3; 0.4.0 flies version 1 only. Tests: solver/oracle/README.md,
+(netlog.py). Mod 0.5.4; 0.4.0 flies version 1 only. Tests: solver/oracle/README.md,
 "Playback tests".
 
+- **While a plan flies, every tick counts as input to the game's frame limiter.** why? otherwise
+  `inactivityFpsLimit: afk` caps frames at 30 fps after 60 s and 10 fps after 10 minutes with no
+  keys or mouse, moves go out in frames, and timing changes partway through a long batch. The limit
+  applies again 60 s after a run or batch ends.
+- **It refuses to start, and stops, when the camera isn't the player.** why? with a free camera on,
+  the plan's keys don't move the player, and every flight aborts at line 2.
 - **A version-2 plan branches on what the server sends.** Before each line, the
   glide-offs and velocities (`set_entity_motion` for you; the last one counts) the client
   handled since the last tick are matched against the current segment's `@branch` lines

@@ -66,7 +66,7 @@ up don't show what the client saw.
 
 ```
 cd mod && ./gradlew build
-cp build/libs/elytra-tas-0.5.3.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
+cp build/libs/elytra-tas-0.5.4.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
 ```
 
 Rename the previous version's jar in `mods/` to `.disabled`, as with emc-replay, and

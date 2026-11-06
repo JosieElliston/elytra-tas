@@ -80,8 +80,8 @@ gives false contradictions.
   50 ms reaches 40 ms. The replies come a median 1.8 ms past the ping (max 8.3), so at this tick phase
   they don't wait for a tick. Most of the difference from whole ticks is the client's send timing:
   sends happen in frames, so they move with frame rate, while the network hardly varied.
-- **Minecraft's `inactivityFpsLimit: afk` changes that timing during playback, since playback isn't
-  input.** `FramerateLimitTracker` (26.2) caps at 30 fps 60 s after the last input and 10 fps after
+- **Minecraft's `inactivityFpsLimit: afk` changed that timing during playback before mod 0.5.4, when
+  playback didn't count as input, so check it when reading older logs.** `FramerateLimitTracker` (26.2) caps at 30 fps 60 s after the last input and 10 fps after
   600 s, and input means a key, mouse button, scroll, or mouse move in the active window. Moves are
   48-53 ms apart uncapped, 33/67 ms at 30 fps, and 100 ms apart in pairs at 10 fps, when a reply
   can't say which of a pair it answers, so don't time rules at 10 fps. The logger records keys but

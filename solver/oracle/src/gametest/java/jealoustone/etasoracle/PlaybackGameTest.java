@@ -12,7 +12,9 @@ import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
+import com.mojang.blaze3d.platform.FramerateLimitTracker;
 import net.minecraft.SharedConstants;
+import net.minecraft.client.InactivityFpsLimit;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.User;
 import net.minecraft.client.player.LocalPlayer;
@@ -26,6 +28,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.util.Util;
+import net.minecraft.world.entity.decoration.ArmorStand;
 import net.minecraft.world.entity.player.Input;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
@@ -54,7 +58,7 @@ import java.util.zip.GZIPInputStream;
 
 /**
  * The elytra-tas mod's {@code /etas play} in a singleplayer world (README.md "Playback
- * tests"). Which: {@code PLAYBACK_TESTS=a,b,c,e} (default all, {@code none} skips).
+ * tests"). Which: {@code PLAYBACK_TESTS=a,b,c,d,e,f} (default all, {@code none} skips).
  *
  * <ul>
  * <li>(a) a plan made from an oracle case ({@code PLAYBACK_CASE}, default air-1, read from
@@ -114,7 +118,7 @@ public final class PlaybackGameTest implements FabricClientGameTest {
 
     @Override
     public void runTest(ClientGameTestContext context) {
-        String which = System.getenv().getOrDefault("PLAYBACK_TESTS", "a,b,c,d,e");
+        String which = System.getenv().getOrDefault("PLAYBACK_TESTS", "a,b,c,d,e,f");
         if (which.equals("none")) return;
         Set<String> tests = Set.of(which.split(","));
         Path out = Path.of(System.getProperty("playback.out", "build/playback"));
@@ -157,7 +161,7 @@ public final class PlaybackGameTest implements FabricClientGameTest {
                     before.getAccessToken(), before.getXuid(), before.getClientId())));
             refusals(context, out, true);
 
-            if (tests.contains("a") || tests.contains("c") || tests.contains("e")) {
+            if (tests.contains("a") || tests.contains("c") || tests.contains("e") || tests.contains("f")) {
                 String name = System.getenv().getOrDefault("PLAYBACK_CASE", "air-1");
                 OracleCase oc = OracleCase.read(cases.resolve(name));
                 if (oc == null) {
@@ -167,6 +171,7 @@ public final class PlaybackGameTest implements FabricClientGameTest {
                     if (tests.contains("a")) caseA(context, sp, oc, out);
                     if (tests.contains("c")) caseC(context, sp, oc, out);
                     if (tests.contains("e")) caseE(context, oc);
+                    if (tests.contains("f")) caseF(context, sp, oc);
                 }
             }
             if (tests.contains("b")) caseB(context, sp, out);
@@ -531,6 +536,66 @@ public final class PlaybackGameTest implements FabricClientGameTest {
             summary.add("(e) queue: " + a.replace('\n', ' '));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
+        }
+    }
+
+    /** (f) the frame limiter stays off on every tick of a flight and comes back after; a free camera refuses and stops. */
+    private void caseF(ClientGameTestContext context, TestSingleplayerContext sp, OracleCase oc) {
+        Path dir = context.computeOnClient(Playback::dir);
+        String name = "limiter-" + oc.name();
+        write(dir.resolve(name + ".tas"), planLines("limiter test", oc.start(), oc.startYaw(), oc.startPitch(), oc.yaw(), oc.pitch(),
+                oc.keys(), oc.pos(), List.of(), -1, 0.0));
+        InactivityFpsLimit limitBefore = context.computeOnClient(c -> c.options.inactivityFpsLimit().get());
+        context.runOnClient(c -> {
+            c.options.inactivityFpsLimit().set(InactivityFpsLimit.AFK);
+            markIdle(c);
+        });
+        check(context.computeOnClient(PlaybackGameTest::throttled), "(f) idle is throttled before the flight");
+        int[] throttled = {0}, ticks = {0};
+        removeOnLine1 = scenario.platform;
+        // why mark idle again each tick? then each check shows that tick's own reset, not one left over from the start
+        Playback.Status s = play(context, sp, "etas play " + name + " runs=1", oc.lines(), 4000, st -> {
+            if (context.computeOnClient(PlaybackGameTest::throttled)) throttled[0]++;
+            ticks[0]++;
+            context.runOnClient(PlaybackGameTest::markIdle);
+        });
+        removeOnLine1 = null;
+        check(s.history().size() == 1 && s.history().getFirst().ok(), "(f) the flight finished; stop: " + s.stopReason());
+        check(throttled[0] == 0, "(f) throttled on " + throttled[0] + " of " + ticks[0] + " ticks");
+        context.runOnClient(PlaybackGameTest::markIdle);
+        context.waitTicks(3);
+        check(context.computeOnClient(PlaybackGameTest::throttled), "(f) idle is throttled again after the flight");
+
+        context.runOnClient(c -> c.setCameraEntity(new ArmorStand(c.level, c.player.getX(), c.player.getY(), c.player.getZ())));
+        String why = context.computeOnClient(c -> Playback.start(c, name, new Playback.Options(1, 10, 1)));
+        check(why != null && why.contains("camera"), "(f) a free camera refuses a plan: " + why);
+        context.runOnClient(c -> c.setCameraEntity(c.player));
+        context.runOnClient(c -> Playback.start(c, name, new Playback.Options(1, 10, 1)));
+        context.waitTicks(2);
+        check(context.computeOnClient(c -> Playback.active()), "(f) the plan starts with the camera back");
+        context.runOnClient(c -> c.setCameraEntity(new ArmorStand(c.level, c.player.getX(), c.player.getY(), c.player.getZ())));
+        context.waitTicks(2);
+        Playback.Status stopped = context.computeOnClient(c -> Playback.status());
+        check(stopped.phase() == Playback.Phase.IDLE && String.valueOf(stopped.stopReason()).contains("camera"),
+                "(f) a free camera stops a plan: " + stopped.stopReason());
+        context.runOnClient(c -> {
+            c.setCameraEntity(c.player);
+            c.options.inactivityFpsLimit().set(limitBefore);
+        });
+    }
+
+    private static boolean throttled(Minecraft c) {
+        return c.getFramerateLimitTracker().getThrottleReason() == FramerateLimitTracker.FramerateThrottleReason.LONG_AFK;
+    }
+
+    /** As if the last input were past the 10-minute limit. */
+    private static void markIdle(Minecraft c) {
+        try {
+            java.lang.reflect.Field f = FramerateLimitTracker.class.getDeclaredField("latestInputTime");
+            f.setAccessible(true);
+            f.setLong(c.getFramerateLimitTracker(), Util.getMillis() - 700_000L);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException(e);
         }
     }
 
