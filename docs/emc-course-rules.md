@@ -54,6 +54,16 @@ gives false contradictions.
 - **The number in the chat is the true time, in whole ticks.** Its digits below a tick are
   noise: the timer is wall-clock, up to 0.03 s off a whole number of ticks (academy: 31.22 s
   for 625).
+- **The timer starts on a move that changes your block while your previous position was outside
+  the start area.** As of 2026-11-05 23:05 EST, academy, with faces y >= 199 and z >= 205: exact
+  for 253 of 270 logged timer starts, and the other 17 all predict an earlier move (a late chat, not
+  a wrong rule). "First pose outside" gets 0 of the 153 prompt ones. So a slow exit runs on outside
+  the box until the next whole-number crossing on any axis: a fall at x, z fixed fires at y < 198,
+  which reads as y >= 198 if you assume the first pose outside. The message comes straight from the
+  move handler, one ping after that move (age within 3 ms of the ping on most, not at a tick
+  end), and repeats of one plan fire on the same move. A prediction test on unflown passes and a
+  different ping haven't been run. The finish hasn't been tested for this; its lag band below
+  still assumes tick-end chats.
 - **Timer and finish events reach you a constant delay after the pose they judged.** As long
   as the timer chat's delay: on academy, 2 ticks for 170 of 199 timer starts in the
   2026-11-03 20:52 log, 5 for 87 of 90 in the 1.21.11 replay. The action bar shows
