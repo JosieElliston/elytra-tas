@@ -1,7 +1,9 @@
 //! Tools built from the primitives; nothing here reaches inside a [`Frame`]. Copy one
 //! and change it if it doesn't fit.
 
-use crate::camera::{Camera, V3, add, dot, look_vector, scale, sub};
+use std::collections::HashMap;
+
+use crate::camera::{Camera, V3, View, add, dot, look_vector, norm, scale, sub};
 use crate::color::{Color, INK, Ramp, WHITE};
 use crate::frame::{Align, Frame, Marker, Stroke, TextStyle};
 use crate::scene::Scene;
@@ -217,49 +219,134 @@ pub fn every(f: &mut Frame, pts: &[V3], every: usize, marker: Marker) {
     }
 }
 
-/// A perspective camera fitted to `pts` from the direction that shows the most of them,
-/// by raycasting from candidate eyes. The share of points it can see comes back too.
-pub fn clearest_view(
-    scene: &Scene,
-    pts: &[V3],
-    style: &WorldStyle,
-    w: u32,
-    h: u32,
-    fov: f64,
-) -> (Camera, f64) {
-    let step = (pts.len() / 64).max(1);
-    let mut best: Option<(f64, Camera, f64)> = None;
-    for pitch in [25.0f64, 40.0, 55.0, 70.0] {
+/// Ticks in a stretch of [`Readability::worst_stretch`], and how far apart in time two
+/// ticks must be to count as an overlap: a second.
+const STRETCH_TICKS: usize = 20;
+/// Two far-apart ticks closer than this on the image count as an overlap.
+const OVERLAP_PX: f64 = 10.0;
+/// Most ticks per path to test for overlaps, since the test is quadratic in a crowded spot.
+const OVERLAP_TICKS: usize = 600;
+
+/// A tick and where it lands: pixel x, pixel y, depth.
+type ShownTick = (usize, [f64; 3]);
+
+/// How well a view shows the shape of paths, each term from 0 to 1. It looks only at the
+/// paths, not the world, which [`crate::TubeCut`] clears out of the way.
+#[derive(Debug, Clone, Copy)]
+pub struct Readability {
+    /// The share of a path's length left after projection, in its most foreshortened
+    /// stretch. why the worst? the average hides a stretch flown straight at the camera.
+    pub worst_stretch: f64,
+    /// The share of ticks that aren't drawn on top of a tick from much earlier or later.
+    /// Within a path only: paths of a plan share most of their ticks.
+    pub clear_of_itself: f64,
+    /// How much of the image's width and height the paths span, averaged. why not the
+    /// area of their box? a straight path would have none from most directions.
+    pub fill: f64,
+}
+
+impl Readability {
+    /// A product, so a view has to be decent at everything and no weights need tuning.
+    pub fn score(&self) -> f64 {
+        self.worst_stretch * self.clear_of_itself * self.fill
+    }
+}
+
+/// Scores a view of paths, given as separate lists so no line is imagined between them.
+pub fn readability(view: &View, paths: &[Vec<V3>]) -> Readability {
+    let mut worst_stretch: f64 = 1.0;
+    let (mut overlapped, mut tested) = (0, 0);
+    let (mut x0, mut x1, mut y0, mut y1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+    for path in paths {
+        // length and projected length per step, as running totals
+        let mut total = vec![(0.0, 0.0); path.len().max(1)];
+        for i in 1..path.len() {
+            let step = sub(path[i], path[i - 1]);
+            let sight = match view.ortho {
+                Some(_) => view.fwd,
+                None => norm(sub(path[i], view.eye)),
+            };
+            let across = sub(step, scale(sight, dot(step, sight)));
+            let (a, b) = total[i - 1];
+            total[i] = (a + dot(step, step).sqrt(), b + dot(across, across).sqrt());
+        }
+        let n = STRETCH_TICKS.min(path.len().saturating_sub(1)).max(1);
+        for w in total.windows(n + 1) {
+            let (len, seen) = (w[n].0 - w[0].0, w[n].1 - w[0].1);
+            // a player standing still has no shape to show
+            if len > 1.0 {
+                worst_stretch = worst_stretch.min(seen / len);
+            }
+        }
+        let every = (path.len() / OVERLAP_TICKS).max(1);
+        let shown: Vec<ShownTick> = path
+            .iter()
+            .enumerate()
+            .step_by(every)
+            .filter_map(|(i, p)| Some((i, view.project(*p)?)))
+            .collect();
+        let bin = |q: &[f64; 3]| ((q[0] / OVERLAP_PX).floor() as i64, (q[1] / OVERLAP_PX).floor() as i64);
+        let mut bins: HashMap<(i64, i64), Vec<ShownTick>> = HashMap::new();
+        for s in &shown {
+            bins.entry(bin(&s.1)).or_default().push(*s);
+            (x0, x1) = (x0.min(s.1[0]), x1.max(s.1[0]));
+            (y0, y1) = (y0.min(s.1[1]), y1.max(s.1[1]));
+        }
+        for (i, q) in &shown {
+            let (bx, by) = bin(q);
+            let hit = (bx - 1..=bx + 1).any(|x| {
+                (by - 1..=by + 1).any(|y| {
+                    bins.get(&(x, y)).is_some_and(|others| {
+                        others.iter().any(|(j, o)| {
+                            i.abs_diff(*j) > STRETCH_TICKS
+                                && (o[0] - q[0]).powi(2) + (o[1] - q[1]).powi(2) <= OVERLAP_PX * OVERLAP_PX
+                        })
+                    })
+                })
+            });
+            overlapped += hit as usize;
+            tested += 1;
+        }
+    }
+    Readability {
+        worst_stretch,
+        clear_of_itself: 1.0 - overlapped as f64 / (tested as f64).max(1.0),
+        fill: if x1 >= x0 {
+            (((x1 - x0) / view.w as f64 + (y1 - y0) / view.h as f64) * 0.5).clamp(0.0, 1.0)
+        } else {
+            0.0
+        },
+    }
+}
+
+/// A perspective camera fitted to paths from the direction that scores best on
+/// [`readability`]. why this range of pitches? this view is for the shape in depth, and
+/// the top and side views of a sheet already cover the steep and the level.
+pub fn readable_view(scene: &Scene, paths: &[Vec<V3>], w: u32, h: u32, fov: f64) -> Camera {
+    let pts: Vec<V3> = paths.concat();
+    let mut best: Option<(f64, Camera)> = None;
+    for pitch in [25.0, 35.0, 45.0, 55.0] {
         for k in 0..16 {
-            let yaw = k as f64 * 22.5;
-            let cam = Camera::fit(pts).from(yaw, pitch).fov(fov);
-            let view = scene.frame(&cam, w, h).view().clone();
-            let (mut seen, mut n) = (0, 0);
-            for p in pts.iter().step_by(step) {
-                n += 1;
-                let to = sub(*p, view.eye);
-                let dist = dot(to, to).sqrt();
-                let dir = scale(to, 1.0 / dist.max(1e-9));
-                let hit = scene.raycast(style, view.eye, dir, (dist - 0.75).max(0.0));
-                seen += hit.is_none() as usize;
-            }
-            let share = seen as f64 / n.max(1) as f64;
-            // how much of the image the points fill
-            let (mut x0, mut x1, mut y0, mut y1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-            for p in pts.iter().step_by(step) {
-                if let Some(q) = view.project(*p) {
-                    (x0, x1) = (x0.min(q[0]), x1.max(q[0]));
-                    (y0, y1) = (y0.min(q[1]), y1.max(q[1]));
-                }
-            }
-            let fill = ((x1 - x0) * (y1 - y0) / (w as f64 * h as f64)).clamp(0.0, 1.0);
-            // lower pitches read better, so a steep view has to earn it
-            let score = share + fill * 0.15 - (pitch - 25.0) * 0.001;
+            let cam = Camera::fit(&pts).from(k as f64 * 22.5, pitch).fov(fov);
+            let score = readability(scene.frame(&cam, w, h).view(), paths).score();
             if best.as_ref().is_none_or(|b| score > b.0) {
-                best = Some((score, cam, share));
+                best = Some((score, cam));
             }
         }
     }
-    let (_, cam, share) = best.expect("candidates");
-    (cam, share)
+    best.expect("candidates").1
+}
+
+/// The share of points a view can see in a style's world, sampling about 64 of them. The
+/// last 0.75 blocks of each sight line don't count, and neither does the edge of the image.
+pub fn share_in_sight(scene: &Scene, style: &WorldStyle, view: &View, pts: &[V3]) -> f64 {
+    let (mut seen, mut n) = (0, 0);
+    for p in pts.iter().step_by((pts.len() / 64).max(1)) {
+        n += 1;
+        let to = sub(*p, view.eye);
+        let dist = dot(to, to).sqrt();
+        let dir = scale(to, 1.0 / dist.max(1e-9));
+        seen += scene.raycast(style, view.eye, dir, (dist - 0.75).max(0.0)).is_none() as usize;
+    }
+    seen as f64 / n.max(1) as f64
 }

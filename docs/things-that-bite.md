@@ -17,6 +17,9 @@ Game and tooling facts that aren't specific to one part of the repo.
   a map would tint every view (academy has 2.8M cells of one, as of 2026-11-05). Some
   farther ones matter: start gates, walls that block a skip. Before concluding a new route
   is open, check with `etas view --barriers` or `verify`, not by eye.
+- **Pictures cut blocks away, and cut blocks still collide.** `etas view` hides what stands
+  between each camera and the path, so each panel is missing different blocks, and a gap
+  in one isn't a gap in the world. Check a route's clearance with `verify`.
 - **Tick order (MC 26.2, Fabric API 0.160):** `START_CLIENT_TICK` → keybinds →
   Minescript's `tick` event (Fabric `START_LEVEL_TICK`, head of `tickEntities`) →
   player physics → `END_CLIENT_TICK`; then per frame: mouse turn → camera → render.

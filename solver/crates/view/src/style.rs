@@ -1,6 +1,7 @@
 //! What the world part of a frame shows. Deliberately small: annotations are where the
 //! control lives.
 
+use crate::camera::View;
 use world::{BlockInfo, BlockPos};
 
 use crate::color::Color;
@@ -103,7 +104,7 @@ impl<'a> WorldStyle<'a> {
         self.clip(n, hi).clip(m, -lo)
     }
 
-    /// Draw a cell only if this returns true, e.g. with a [`crate::CellMask`] so a
+    /// Draw a cell only if this returns true, e.g. with a [`crate::TubeCut`] so a
     /// ceiling doesn't hide a path.
     pub fn keep(mut self, f: impl Fn(BlockPos, &BlockInfo) -> bool + Sync + 'a) -> Self {
         self.keep = Some(Box::new(f));
@@ -236,99 +237,118 @@ impl NearMask {
     }
 }
 
-/// A column-wise mask around points: cells within `radius` horizontally of a point, and
-/// between `below` under and `above` over the lowest and highest such point in that
-/// column. Cheap to test, for [`WorldStyle::keep`].
-pub struct CellMask {
-    min: [i32; 2],
-    dim: [i32; 2],
-    span: Vec<(i32, i32)>,
+/// Bins of a [`TubeCut`], pixels.
+const TUBE_BIN: f64 = 2.0;
+
+/// How much shallower a [`TubeCut`] gets per block away from the path, on the image.
+/// why not flat? a floor block on the camera's side of a path is nearer than the path and
+/// lands within its radius, so a flat cut bites holes in floors that hide nothing. A slope
+/// of 1 spares any floor seen from 45 degrees or steeper.
+const TUBE_SLOPE: f64 = 1.0;
+
+/// Hides what stands between a camera and a tube around points. A cell is cut if it lands on
+/// the image within `radius` of a point (measured at that point's depth) and is nearer than
+/// that point by more than `headroom` plus [`TUBE_SLOPE`] per block away from it, so the cut
+/// is a funnel opening toward the camera. Works from any rotation, since "nearer" is along
+/// the camera's own line of sight; for [`WorldStyle::keep`]. The deepest cut at a spot wins.
+/// why? a path that spirals passes behind itself, and a cut to its nearest pass would bury
+/// the others. Cells outside the image are kept, so they still cast shadows.
+///
+/// A cell counts by all of its footprint on the image, not its center. why? a block next
+/// to the eye covers much of the image, and a camera buried in terrain would otherwise see
+/// nothing. The footprint is rounded out to bins, so the cut can run a block or two wide.
+pub struct TubeCut {
+    view: View,
+    /// The depth cut down to per bin, then the same at half the resolution, and so on.
+    levels: Vec<TubeLevel>,
+    headroom: f64,
 }
 
-impl CellMask {
-    pub fn corridor(points: &[[f64; 3]], radius: f64, below: f64, above: f64) -> CellMask {
-        let r = radius.ceil() as i32 + 1;
-        let (mut lo, mut hi) = ([i32::MAX; 2], [i32::MIN; 2]);
+struct TubeLevel {
+    bin: f64,
+    size: [i64; 2],
+    far: Vec<f64>,
+}
+
+impl TubeLevel {
+    fn at(&self, i: i64, j: i64) -> f64 {
+        self.far[(j * self.size[0] + i) as usize]
+    }
+}
+
+impl TubeCut {
+    pub fn new(view: &View, points: &[[f64; 3]], radius: f64, headroom: f64) -> TubeCut {
+        let size = [
+            (view.w as f64 / TUBE_BIN).ceil() as i64,
+            (view.h as f64 / TUBE_BIN).ceil() as i64,
+        ];
+        let mut far = vec![f64::NEG_INFINITY; (size[0] * size[1]) as usize];
         for p in points {
-            let (x, z) = (p[0].floor() as i32, p[2].floor() as i32);
-            lo = [lo[0].min(x - r), lo[1].min(z - r)];
-            hi = [hi[0].max(x + r), hi[1].max(z + r)];
-        }
-        if points.is_empty() {
-            return CellMask {
-                min: [0, 0],
-                dim: [0, 0],
-                span: Vec::new(),
-            };
-        }
-        let dim = [hi[0] - lo[0] + 1, hi[1] - lo[1] + 1];
-        let mut span = vec![(i32::MAX, i32::MIN); (dim[0] * dim[1]) as usize];
-        let r2 = radius * radius;
-        for p in points {
-            let (ylo, yhi) = ((p[1] - below).floor() as i32, (p[1] + above).ceil() as i32);
-            let (cx, cz) = (p[0].floor() as i32, p[2].floor() as i32);
-            for z in cz - r..=cz + r {
-                for x in cx - r..=cx + r {
-                    let (dx, dz) = (x as f64 + 0.5 - p[0], z as f64 + 0.5 - p[2]);
-                    if dx * dx + dz * dz > r2 {
-                        continue;
+            let Some([x, y, z]) = view.project(*p) else { continue };
+            let r = radius * view.px_per_block(z);
+            let bx = (((x - r) / TUBE_BIN).floor() as i64).max(0)..=(((x + r) / TUBE_BIN) as i64).min(size[0] - 1);
+            let by = (((y - r) / TUBE_BIN).floor() as i64).max(0)..=(((y + r) / TUBE_BIN) as i64).min(size[1] - 1);
+            for j in by {
+                for i in bx.clone() {
+                    let (dx, dy) = ((i as f64 + 0.5) * TUBE_BIN - x, (j as f64 + 0.5) * TUBE_BIN - y);
+                    if dx * dx + dy * dy <= r * r {
+                        let e = &mut far[(j * size[0] + i) as usize];
+                        let off = (dx * dx + dy * dy).sqrt() / view.px_per_block(z);
+                        *e = e.max(z - TUBE_SLOPE * off);
                     }
-                    let i = ((z - lo[1]) * dim[0] + (x - lo[0])) as usize;
-                    span[i] = (span[i].0.min(ylo), span[i].1.max(yhi));
                 }
             }
         }
-        CellMask {
-            min: lo,
-            dim,
-            span,
-        }
-    }
-
-    /// A trench along points: within `radius` of a point horizontally, only cells up to
-    /// `headroom` above the lowest point nearby pass [`CellMask::not_above`]. why the
-    /// lowest? a path that spirals down passes under itself, and a cut to its highest
-    /// pass would bury the lower ones.
-    pub fn trench(points: &[[f64; 3]], radius: f64, headroom: f64) -> CellMask {
-        let mut m = CellMask::corridor(points, radius, 0.0, headroom);
-        let r = radius.ceil() as i32 + 1;
-        m.span.iter_mut().for_each(|s| *s = (i32::MAX, i32::MIN));
-        let r2 = radius * radius;
-        for p in points {
-            let top = (p[1] + headroom).ceil() as i32;
-            let (cx, cz) = (p[0].floor() as i32, p[2].floor() as i32);
-            for z in cz - r..=cz + r {
-                for x in cx - r..=cx + r {
-                    let (dx, dz) = (x as f64 + 0.5 - p[0], z as f64 + 0.5 - p[2]);
-                    if dx * dx + dz * dz > r2 {
-                        continue;
-                    }
-                    let i = ((z - m.min[1]) * m.dim[0] + (x - m.min[0])) as usize;
-                    let s = &mut m.span[i];
-                    *s = (i32::MIN, if s.1 == i32::MIN { top } else { s.1.min(top) });
+        let mut levels = vec![TubeLevel { bin: TUBE_BIN, size, far }];
+        while let Some(l) = levels.last().filter(|l| l.size[0] > 1 || l.size[1] > 1) {
+            let size = [(l.size[0] + 1) / 2, (l.size[1] + 1) / 2];
+            let mut far = vec![f64::NEG_INFINITY; (size[0] * size[1]) as usize];
+            for j in 0..l.size[1] {
+                for i in 0..l.size[0] {
+                    let e = &mut far[((j / 2) * size[0] + i / 2) as usize];
+                    *e = e.max(l.at(i, j));
                 }
             }
+            levels.push(TubeLevel { bin: l.bin * 2.0, size, far });
         }
-        m
+        TubeCut {
+            view: view.clone(),
+            levels,
+            headroom,
+        }
     }
 
-    /// Whether a cell isn't above this mask: true outside its columns. For cutting the
-    /// ceiling over a path while keeping everything around it.
-    pub fn not_above(&self, p: BlockPos) -> bool {
-        let (x, z) = (p.x - self.min[0], p.z - self.min[1]);
-        if x < 0 || z < 0 || x >= self.dim[0] || z >= self.dim[1] {
+    /// Whether a cell survives the cut.
+    pub fn keeps(&self, p: BlockPos) -> bool {
+        let center = [p.x as f64 + 0.5, p.y as f64 + 0.5, p.z as f64 + 0.5];
+        // half a cell's diagonal: how far the cell reaches from its center
+        const REACH: f64 = 0.87;
+        let Some([x, y, z]) = self.view.project(center) else {
+            // at or behind the eye: only a cell around the eye itself is in the way
+            let top = self.levels.last().expect("levels").far[0];
+            let v = [center[0] - self.view.eye[0], center[1] - self.view.eye[1], center[2] - self.view.eye[2]];
+            return top == f64::NEG_INFINITY || v[0] * v[0] + v[1] * v[1] + v[2] * v[2] > REACH * REACH;
+        };
+        // a cell closer than its own reach could hold the eye, so it counts as that close
+        let reach = REACH * self.view.px_per_block(z - REACH);
+        // the first level whose bins are as big as the footprint: at most 3 x 3 to look at
+        let l = self
+            .levels
+            .iter()
+            .find(|l| l.bin >= reach)
+            .unwrap_or_else(|| self.levels.last().expect("levels"));
+        let clamp = |v: f64, size: i64| ((v / l.bin).floor() as i64).clamp(0, size - 1);
+        let on_image = x + reach >= 0.0 && y + reach >= 0.0 && x - reach <= self.view.w as f64 && y - reach <= self.view.h as f64;
+        if !on_image {
             return true;
         }
-        let (a, b) = self.span[(z * self.dim[0] + x) as usize];
-        a > b || p.y <= b
-    }
-
-    pub fn contains(&self, p: BlockPos) -> bool {
-        let (x, z) = (p.x - self.min[0], p.z - self.min[1]);
-        if x < 0 || z < 0 || x >= self.dim[0] || z >= self.dim[1] {
-            return false;
+        for j in clamp(y - reach, l.size[1])..=clamp(y + reach, l.size[1]) {
+            for i in clamp(x - reach, l.size[0])..=clamp(x + reach, l.size[0]) {
+                if z < l.at(i, j) - self.headroom {
+                    return false;
+                }
+            }
         }
-        let (a, b) = self.span[(z * self.dim[0] + x) as usize];
-        a <= p.y && p.y <= b
+        true
     }
 }

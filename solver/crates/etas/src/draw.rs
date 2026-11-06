@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use view::color::{GREEN, INK, RED, SERIES, WHITE, YELLOW, series};
-use view::{Camera, CellMask, Color, Frame, Image, LabelStyle, Marker, Ramp, Scene, Shape, Stroke, TextStyle, V3, WorldStyle, tools};
+use view::{Camera, Color, Frame, Image, LabelStyle, Marker, Ramp, Scene, Shape, Stroke, TextStyle, TubeCut, V3, WorldStyle, tools};
 use world::World;
 
 use crate::course::{Bounds, Course};
@@ -435,9 +435,10 @@ pub struct SheetOptions {
     /// Pixels per panel.
     pub width: u32,
     pub height: u32,
-    /// Ceiling cut: blocks more than this above the path nearby are hidden.
+    /// The cut toward the camera: blocks more than this in front of the path are hidden.
+    /// why so little? more leaves blocks over the path, which hide it.
     pub headroom: f64,
-    /// How far around the path the ceiling cut reaches.
+    /// How far around the path the cut toward the camera reaches.
     pub radius: f64,
     /// The side panel shows blocks up to this far behind the path.
     pub slice: f64,
@@ -453,7 +454,7 @@ impl Default for SheetOptions {
             l_step: false,
             width: 1100,
             height: 720,
-            headroom: 4.0,
+            headroom: 1.0,
             radius: 10.0,
             slice: 40.0,
         }
@@ -570,6 +571,29 @@ impl Backdrop {
     }
 }
 
+/// What a panel cuts out of the world so the path shows.
+#[derive(Clone, Copy)]
+enum Cut<'a> {
+    Tube(&'a TubeCut),
+    Slice(&'a Backdrop),
+}
+
+fn sheet_style<'a>(o: &SheetOptions, near: &'a view::NearMask, cut: Cut<'a>) -> WorldStyle<'a> {
+    let mut style = WorldStyle::new();
+    if o.collision {
+        style = style.collision();
+    }
+    style = if o.barriers {
+        style.show_barriers()
+    } else {
+        style.solid_barriers().barriers_where(|p, _| near.contains(p))
+    };
+    match cut {
+        Cut::Tube(t) => style.keep(|p, _| t.keeps(p)),
+        Cut::Slice(b) => style.keep(|p, _| b.keeps(p)),
+    }
+}
+
 /// Top, side and perspective views of runs in one image, a text line per run.
 pub fn sheet(scene: &Scene, c: Option<&Course>, runs: &[SheetRun], o: &SheetOptions) -> Image {
     assert!(!runs.is_empty());
@@ -579,16 +603,16 @@ pub fn sheet(scene: &Scene, c: Option<&Course>, runs: &[SheetRun], o: &SheetOpti
         runs.len()
     );
     // what to frame
-    let mut framed: Vec<V3> = Vec::new();
+    let mut framed_paths: Vec<Vec<V3>> = Vec::new();
     let mut whole: Vec<V3> = Vec::new();
     for r in runs {
         let pts = points(&r.traj);
         let (a, b) = o.ticks.unwrap_or((0, pts.len() - 1));
         let (a, b) = (a.min(pts.len() - 1), b.min(pts.len() - 1));
-        framed.extend_from_slice(&pts[a..=b]);
+        framed_paths.push(pts[a..=b].to_vec());
         whole.extend_from_slice(&pts);
     }
-    let cut = CellMask::trench(&whole, o.radius, o.headroom);
+    let framed = framed_paths.concat();
     let near = view::NearMask::new(&whole, o.barrier_radius);
     let yaw = side_yaw(&framed);
     let backdrop = Backdrop::new(&whole, &framed, yaw, o.slice);
@@ -600,25 +624,9 @@ pub fn sheet(scene: &Scene, c: Option<&Course>, runs: &[SheetRun], o: &SheetOpti
     } else {
         None
     };
-    let make_style = |keep_slice: bool| {
-        let mut style = WorldStyle::new();
-        if o.collision {
-            style = style.collision();
-        }
-        style = if o.barriers {
-            style.show_barriers()
-        } else {
-            style.solid_barriers().barriers_where(|p, _| near.contains(p))
-        };
-        if keep_slice {
-            style.keep(|p, _| backdrop.keeps(p))
-        } else {
-            style.keep(|p, _| cut.not_above(p))
-        }
-    };
-    let panel = |cam: Camera, name: &str, keep_slice: bool| -> Image {
-        let mut f = scene.frame(&cam, o.width, o.height);
-        f.style(make_style(keep_slice));
+    let panel = |cam: &Camera, name: &str, cut: Cut| -> Image {
+        let mut f = scene.frame(cam, o.width, o.height);
+        f.style(sheet_style(o, &near, cut));
         if let Some(c) = c {
             course(&mut f, scene.bounds(), c);
         }
@@ -662,7 +670,13 @@ pub fn sheet(scene: &Scene, c: Option<&Course>, runs: &[SheetRun], o: &SheetOpti
     // what the share below counts: the framed stretch, not everything drawn
     let last = runs.iter().map(|r| r.traj.rows.len() - 1).max().unwrap_or(0);
     let counted = o.ticks.map_or("the path".to_string(), |(a, b)| format!("ticks {a}-{}", b.min(last)));
-    let (persp, seen) = tools::clearest_view(scene, &framed, &make_style(false), o.width, o.height, 50.0);
+    let view_of = |cam: &Camera| scene.frame(cam, o.width, o.height).view().clone();
+    let top = Camera::top(&framed);
+    let top_cut = TubeCut::new(&view_of(&top), &whole, o.radius, o.headroom);
+    let persp = tools::readable_view(scene, &framed_paths, o.width, o.height, 50.0);
+    let persp_view = view_of(&persp);
+    let persp_cut = TubeCut::new(&persp_view, &whole, o.radius, o.headroom);
+    let seen = tools::share_in_sight(scene, &sheet_style(o, &near, Cut::Tube(&persp_cut)), &persp_view, &framed);
     // the text gets its own strip, so it can't cover the start of a run
     let lines: Vec<String> = runs.iter().map(summary).collect();
     let barriers = if o.barriers {
@@ -681,16 +695,16 @@ pub fn sheet(scene: &Scene, c: Option<&Course>, runs: &[SheetRun], o: &SheetOpti
     };
     let images = [
         header,
-        panel(Camera::top(&framed), "top, ceilings over the path cut away", false),
+        panel(&top, "top, blocks over the path cut away", Cut::Tube(&top_cut)),
         panel(
-            Camera::side(&framed, yaw),
+            &Camera::side(&framed, yaw),
             &format!("side, looking along yaw {yaw:.0}, blocks in front of the path cut away"),
-            true,
+            Cut::Slice(&backdrop),
         ),
         panel(
-            persp,
-            &format!("perspective, the clearest direction: {:.0}% of {counted} in sight", seen * 100.0),
-            false,
+            &persp,
+            &format!("perspective, the most readable direction, blocks in front of the path cut away: {:.0}% of {counted} in sight", seen * 100.0),
+            Cut::Tube(&persp_cut),
         ),
     ];
     Image::grid(&images, 1)

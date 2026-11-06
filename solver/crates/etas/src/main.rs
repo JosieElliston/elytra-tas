@@ -75,7 +75,7 @@ enum Cmd {
         out: PathBuf,
     },
     /// Render runs in their course's world to a PNG contact sheet: from above, from the
-    /// side and in perspective, ceilings over the path cut away. One run is colored by
+    /// side and in perspective, blocks in front of the path cut away. One run is colored by
     /// speed; several get one color each. A branching plan draws its paths.
     View {
         /// Trajectories (.jsonl) and tapes or plans (.tas).

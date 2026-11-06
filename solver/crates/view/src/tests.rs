@@ -1,7 +1,7 @@
 use world::{BlockPos, World};
 
 use crate::color::{RED, WHITE};
-use crate::{Camera, CellMask, NearMask, Scene, Stroke, WorldStyle, find_jar};
+use crate::{Camera, NearMask, Scene, Stroke, TubeCut, WorldStyle, find_jar, tools};
 
 fn p(x: i32, y: i32, z: i32) -> BlockPos {
     BlockPos { x, y, z }
@@ -166,15 +166,96 @@ fn solid_barriers_block_only_where_kept() {
     assert!(shown[0] > 200 && shown[1] < 60, "opaque red, got {shown:?}");
 }
 
-#[test]
-fn trench_cuts_down_to_the_lowest_pass() {
-    let m = CellMask::trench(&[[0.5, 50.0, 0.5], [1.5, 10.0, 0.5]], 3.0, 2.0);
-    assert!(m.not_above(p(0, 12, 0)));
-    assert!(!m.not_above(p(0, 13, 0)), "above the lower pass");
-    assert!(m.not_above(p(40, 200, 0)), "away from the path, untouched");
+const BOUNDS: ([f64; 3], [f64; 3]) = ([-200.0, -200.0, -200.0], [200.0, 200.0, 200.0]);
+
+/// The block holding a position.
+fn at(v: [f64; 3]) -> BlockPos {
+    p(v[0].floor() as i32, v[1].floor() as i32, v[2].floor() as i32)
 }
 
-/// An annotation behind a wall is drawn at `occluded` opacity.
+fn along(from: [f64; 3], dir: [f64; 3], k: f64) -> [f64; 3] {
+    [from[0] + dir[0] * k, from[1] + dir[1] * k, from[2] + dir[2] * k]
+}
+
+#[test]
+fn tube_cut_from_above_digs_to_the_lowest_pass() {
+    let pts = [[0.5, 50.0, 0.5], [1.5, 10.0, 0.5], [-30.5, 10.0, 0.5], [30.5, 10.0, 0.5]];
+    let view = Camera::top(&pts).resolve(400, 400, BOUNDS);
+    let m = TubeCut::new(&view, &pts, 3.0, 2.0);
+    assert!(m.keeps(p(0, 11, 0)), "within the headroom of the lower pass");
+    assert!(!m.keeps(p(0, 13, 0)), "above the lower pass");
+    assert!(m.keeps(p(15, 200, 0)), "away from the path, untouched");
+}
+
+#[test]
+fn tube_cut_follows_a_tilted_camera() {
+    let at_p = [0.5, 50.5, 0.5];
+    let pts = [at_p, [20.5, 50.5, 0.5], [-20.5, 50.5, 0.5]];
+    let view = Camera::fit(&pts).from(30.0, 40.0).ortho().resolve(800, 600, BOUNDS);
+    let m = TubeCut::new(&view, &pts, 3.0, 2.0);
+    let (fwd, right) = (view.fwd, view.right);
+    assert!(!m.keeps(at(along(at_p, fwd, -8.0))), "between the camera and the path");
+    assert!(m.keeps(at(along(at_p, fwd, 8.0))), "behind the path");
+    assert!(m.keeps(at(along(along(at_p, fwd, -8.0), view.up, 8.0))), "in front, off to the side");
+    assert!(m.keeps(at(along(at_p, right, 2.0))), "beside the path, not in front of it");
+}
+
+#[test]
+fn tube_cut_narrows_toward_a_perspective_eye() {
+    let pt = [0.5, 0.5, 40.5];
+    let view = Camera::look_at([0.5, 0.5, 0.5], pt).resolve(800, 600, BOUNDS);
+    let m = TubeCut::new(&view, &[pt], 8.0, 2.0);
+    // halfway to the eye, the sight lines to the tube span half its radius
+    assert!(!m.keeps(p(2, 0, 20)), "in the cone");
+    assert!(m.keeps(p(8, 0, 20)), "outside the cone, though within the radius of the path's axis");
+}
+
+#[test]
+fn tube_cut_spares_a_floor_beside_the_path() {
+    // flying a block above a floor, seen from 55 degrees: a floor block toward the camera
+    // is nearer than the path, but in front of nothing
+    let pts: Vec<[f64; 3]> = (-20..=20).map(|x| [x as f64 + 0.5, 51.5, 0.5]).collect();
+    let view = Camera::fit(&pts).from(0.0, 55.0).ortho().resolve(800, 600, BOUNDS);
+    let m = TubeCut::new(&view, &pts, 10.0, 1.0);
+    for z in -8..=8 {
+        assert!(m.keeps(p(0, 49, z)), "floor at z = {z}");
+    }
+    assert!(!m.keeps(at(along(pts[20], view.fwd, -8.0))), "over the path");
+}
+
+#[test]
+fn tube_cut_clears_blocks_around_a_buried_eye() {
+    let pt = [0.5, 0.5, 40.5];
+    let view = Camera::look_at([0.5, 0.5, 0.5], pt).resolve(800, 600, BOUNDS);
+    let m = TubeCut::new(&view, &[pt], 2.0, 1.0);
+    assert!(!m.keeps(p(0, 0, 0)), "the block holding the eye");
+    assert!(!m.keeps(p(1, 1, 1)), "off the sight line at its center, but it covers it");
+    assert!(m.keeps(p(0, 0, -5)), "behind the eye");
+    assert!(m.keeps(p(0, 0, 45)), "behind the path");
+}
+
+#[test]
+fn readability_avoids_flying_at_the_camera() {
+    let path: Vec<[f64; 3]> = (0..100).map(|i| [i as f64, 0.0, 0.0]).collect();
+    let paths = [path.clone()];
+    let across = Camera::fit(&path).from(0.0, 30.0).resolve(800, 600, BOUNDS);
+    let along = Camera::fit(&path).from(-90.0, 30.0).resolve(800, 600, BOUNDS);
+    let (a, b) = (tools::readability(&across, &paths), tools::readability(&along, &paths));
+    assert!(a.worst_stretch > 0.8, "{a:?}");
+    assert!(b.worst_stretch < 0.7, "{b:?}");
+    assert!(a.score() > b.score());
+}
+
+#[test]
+fn readability_counts_a_path_over_itself_but_not_other_paths() {
+    let out: Vec<[f64; 3]> = (0..100).map(|i| [i as f64, 0.0, 0.0]).collect();
+    let back: Vec<[f64; 3]> = out.iter().rev().cloned().collect();
+    let there_and_back = [out.iter().chain(&back).cloned().collect::<Vec<_>>()];
+    let view = Camera::fit(&out).from(0.0, 30.0).resolve(800, 600, BOUNDS);
+    assert!(tools::readability(&view, &there_and_back).clear_of_itself < 0.2);
+    assert_eq!(tools::readability(&view, &[out, back]).clear_of_itself, 1.0);
+}
+
 #[test]
 fn strokes_respect_depth() {
     let mut w = small();
