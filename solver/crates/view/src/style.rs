@@ -1,9 +1,9 @@
 //! What the world part of a frame shows. Deliberately small: annotations are where the
 //! control lives.
 
-use crate::camera::View;
 use world::{BlockInfo, BlockPos};
 
+use crate::camera::{View, dot, sub};
 use crate::color::Color;
 
 /// Which shapes the world is drawn with.
@@ -104,8 +104,8 @@ impl<'a> WorldStyle<'a> {
         self.clip(n, hi).clip(m, -lo)
     }
 
-    /// Draw a cell only if this returns true, e.g. with a [`crate::TubeCut`] so a
-    /// ceiling doesn't hide a path.
+    /// Draw a cell only if this returns true, e.g. with a [`crate::TubeCut`] so nothing
+    /// hides a path.
     pub fn keep(mut self, f: impl Fn(BlockPos, &BlockInfo) -> bool + Sync + 'a) -> Self {
         self.keep = Some(Box::new(f));
         self
@@ -246,13 +246,16 @@ const TUBE_BIN: f64 = 2.0;
 /// of 1 spares any floor seen from 45 degrees or steeper.
 const TUBE_SLOPE: f64 = 1.0;
 
-/// Hides what stands between a camera and a tube around points. A cell is cut if it lands on
-/// the image within `radius` of a point (measured at that point's depth) and is nearer than
-/// that point by more than `headroom` plus [`TUBE_SLOPE`] per block away from it, so the cut
-/// is a funnel opening toward the camera. Works from any rotation, since "nearer" is along
-/// the camera's own line of sight; for [`WorldStyle::keep`]. The deepest cut at a spot wins.
-/// why? a path that spirals passes behind itself, and a cut to its nearest pass would bury
-/// the others. Cells outside the image are kept, so they still cast shadows.
+/// How far a cell reaches from its center: half its diagonal.
+const CELL_REACH: f64 = 0.87;
+
+/// Hides what stands between a camera and a tube around points, for [`WorldStyle::keep`].
+/// A cell is cut if it lands on the image within `radius` of a point (measured at that
+/// point's depth) and is nearer than that point by more than `headroom` plus [`TUBE_SLOPE`]
+/// per block away from it. So the cut is a funnel opening toward the camera, and works from
+/// any rotation. The deepest cut at a spot wins. why? a path that spirals passes behind
+/// itself, and a cut to its nearest pass would bury the others. Cells outside the image are
+/// kept, so they still cast shadows.
 ///
 /// A cell counts by all of its footprint on the image, not its center. why? a block next
 /// to the eye covers much of the image, and a camera buried in terrain would otherwise see
@@ -285,15 +288,15 @@ impl TubeCut {
         let mut far = vec![f64::NEG_INFINITY; (size[0] * size[1]) as usize];
         for p in points {
             let Some([x, y, z]) = view.project(*p) else { continue };
-            let r = radius * view.px_per_block(z);
+            let k = view.px_per_block(z);
+            let r = radius * k;
             let bx = (((x - r) / TUBE_BIN).floor() as i64).max(0)..=(((x + r) / TUBE_BIN) as i64).min(size[0] - 1);
             let by = (((y - r) / TUBE_BIN).floor() as i64).max(0)..=(((y + r) / TUBE_BIN) as i64).min(size[1] - 1);
             for j in by {
                 for i in bx.clone() {
-                    let (dx, dy) = ((i as f64 + 0.5) * TUBE_BIN - x, (j as f64 + 0.5) * TUBE_BIN - y);
-                    if dx * dx + dy * dy <= r * r {
+                    let off = ((i as f64 + 0.5) * TUBE_BIN - x).hypot((j as f64 + 0.5) * TUBE_BIN - y) / k;
+                    if off <= radius {
                         let e = &mut far[(j * size[0] + i) as usize];
-                        let off = (dx * dx + dy * dy).sqrt() / view.px_per_block(z);
                         *e = e.max(z - TUBE_SLOPE * off);
                     }
                 }
@@ -321,27 +324,19 @@ impl TubeCut {
     /// Whether a cell survives the cut.
     pub fn keeps(&self, p: BlockPos) -> bool {
         let center = [p.x as f64 + 0.5, p.y as f64 + 0.5, p.z as f64 + 0.5];
-        // half a cell's diagonal: how far the cell reaches from its center
-        const REACH: f64 = 0.87;
         let Some([x, y, z]) = self.view.project(center) else {
             // at or behind the eye: only a cell around the eye itself is in the way
-            let top = self.levels.last().expect("levels").far[0];
-            let v = [center[0] - self.view.eye[0], center[1] - self.view.eye[1], center[2] - self.view.eye[2]];
-            return top == f64::NEG_INFINITY || v[0] * v[0] + v[1] * v[1] + v[2] * v[2] > REACH * REACH;
+            let v = sub(center, self.view.eye);
+            return dot(v, v) > CELL_REACH * CELL_REACH;
         };
         // a cell closer than its own reach could hold the eye, so it counts as that close
-        let reach = REACH * self.view.px_per_block(z - REACH);
-        // the first level whose bins are as big as the footprint: at most 3 x 3 to look at
-        let l = self
-            .levels
-            .iter()
-            .find(|l| l.bin >= reach)
-            .unwrap_or_else(|| self.levels.last().expect("levels"));
-        let clamp = |v: f64, size: i64| ((v / l.bin).floor() as i64).clamp(0, size - 1);
-        let on_image = x + reach >= 0.0 && y + reach >= 0.0 && x - reach <= self.view.w as f64 && y - reach <= self.view.h as f64;
-        if !on_image {
+        let reach = CELL_REACH * self.view.px_per_block(z - CELL_REACH);
+        if x + reach < 0.0 || y + reach < 0.0 || x - reach > self.view.w as f64 || y - reach > self.view.h as f64 {
             return true;
         }
+        // the first level whose bins are as big as the footprint: at most 3 x 3 to look at
+        let l = self.levels.iter().find(|l| l.bin >= reach).or(self.levels.last()).expect("levels");
+        let clamp = |v: f64, size: i64| ((v / l.bin).floor() as i64).clamp(0, size - 1);
         for j in clamp(y - reach, l.size[1])..=clamp(y + reach, l.size[1]) {
             for i in clamp(x - reach, l.size[0])..=clamp(x + reach, l.size[0]) {
                 if z < l.at(i, j) - self.headroom {

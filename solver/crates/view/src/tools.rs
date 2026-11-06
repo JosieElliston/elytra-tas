@@ -252,66 +252,75 @@ impl Readability {
     }
 }
 
+/// The share of a path's length left after projection, in its most foreshortened stretch.
+fn worst_stretch(view: &View, path: &[V3]) -> f64 {
+    // length and projected length, as running totals
+    let mut total = vec![(0.0, 0.0); path.len()];
+    for i in 1..path.len() {
+        let step = sub(path[i], path[i - 1]);
+        let sight = match view.ortho {
+            Some(_) => view.fwd,
+            None => norm(sub(path[i], view.eye)),
+        };
+        let across = sub(step, scale(sight, dot(step, sight)));
+        let (a, b) = total[i - 1];
+        total[i] = (a + dot(step, step).sqrt(), b + dot(across, across).sqrt());
+    }
+    let n = STRETCH_TICKS.min(path.len().saturating_sub(1)).max(1);
+    total
+        .windows(n + 1)
+        .map(|w| (w[n].0 - w[0].0, w[n].1 - w[0].1))
+        // a player standing still has no shape to show
+        .filter(|(len, _)| *len > 1.0)
+        .fold(1.0, |worst, (len, seen)| f64::min(worst, seen / len))
+}
+
+/// How many ticks land on a tick from much earlier or later.
+fn overlapped(shown: &[ShownTick]) -> usize {
+    let bin = |q: &[f64; 3]| ((q[0] / OVERLAP_PX).floor() as i64, (q[1] / OVERLAP_PX).floor() as i64);
+    let mut bins: HashMap<(i64, i64), Vec<ShownTick>> = HashMap::new();
+    for s in shown {
+        bins.entry(bin(&s.1)).or_default().push(*s);
+    }
+    let overlaps = |(i, q): &ShownTick, (j, o): &ShownTick| {
+        i.abs_diff(*j) > STRETCH_TICKS && (o[0] - q[0]).hypot(o[1] - q[1]) <= OVERLAP_PX
+    };
+    shown
+        .iter()
+        .filter(|s| {
+            let (bx, by) = bin(&s.1);
+            (bx - 1..=bx + 1)
+                .flat_map(|x| (by - 1..=by + 1).map(move |y| (x, y)))
+                .filter_map(|b| bins.get(&b))
+                .any(|others| others.iter().any(|o| overlaps(s, o)))
+        })
+        .count()
+}
+
 /// Scores a view of paths, given as separate lists so no line is imagined between them.
 pub fn readability(view: &View, paths: &[Vec<V3>]) -> Readability {
-    let mut worst_stretch: f64 = 1.0;
-    let (mut overlapped, mut tested) = (0, 0);
+    let mut worst: f64 = 1.0;
+    let (mut hit, mut tested) = (0, 0);
     let (mut x0, mut x1, mut y0, mut y1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
     for path in paths {
-        // length and projected length per step, as running totals
-        let mut total = vec![(0.0, 0.0); path.len().max(1)];
-        for i in 1..path.len() {
-            let step = sub(path[i], path[i - 1]);
-            let sight = match view.ortho {
-                Some(_) => view.fwd,
-                None => norm(sub(path[i], view.eye)),
-            };
-            let across = sub(step, scale(sight, dot(step, sight)));
-            let (a, b) = total[i - 1];
-            total[i] = (a + dot(step, step).sqrt(), b + dot(across, across).sqrt());
-        }
-        let n = STRETCH_TICKS.min(path.len().saturating_sub(1)).max(1);
-        for w in total.windows(n + 1) {
-            let (len, seen) = (w[n].0 - w[0].0, w[n].1 - w[0].1);
-            // a player standing still has no shape to show
-            if len > 1.0 {
-                worst_stretch = worst_stretch.min(seen / len);
-            }
-        }
-        let every = (path.len() / OVERLAP_TICKS).max(1);
+        worst = worst.min(worst_stretch(view, path));
         let shown: Vec<ShownTick> = path
             .iter()
             .enumerate()
-            .step_by(every)
+            .step_by((path.len() / OVERLAP_TICKS).max(1))
             .filter_map(|(i, p)| Some((i, view.project(*p)?)))
             .collect();
-        let bin = |q: &[f64; 3]| ((q[0] / OVERLAP_PX).floor() as i64, (q[1] / OVERLAP_PX).floor() as i64);
-        let mut bins: HashMap<(i64, i64), Vec<ShownTick>> = HashMap::new();
-        for s in &shown {
-            bins.entry(bin(&s.1)).or_default().push(*s);
-            (x0, x1) = (x0.min(s.1[0]), x1.max(s.1[0]));
-            (y0, y1) = (y0.min(s.1[1]), y1.max(s.1[1]));
+        for (_, q) in &shown {
+            (x0, x1) = (x0.min(q[0]), x1.max(q[0]));
+            (y0, y1) = (y0.min(q[1]), y1.max(q[1]));
         }
-        for (i, q) in &shown {
-            let (bx, by) = bin(q);
-            let hit = (bx - 1..=bx + 1).any(|x| {
-                (by - 1..=by + 1).any(|y| {
-                    bins.get(&(x, y)).is_some_and(|others| {
-                        others.iter().any(|(j, o)| {
-                            i.abs_diff(*j) > STRETCH_TICKS
-                                && (o[0] - q[0]).powi(2) + (o[1] - q[1]).powi(2) <= OVERLAP_PX * OVERLAP_PX
-                        })
-                    })
-                })
-            });
-            overlapped += hit as usize;
-            tested += 1;
-        }
+        hit += overlapped(&shown);
+        tested += shown.len();
     }
     Readability {
-        worst_stretch,
-        clear_of_itself: 1.0 - overlapped as f64 / (tested as f64).max(1.0),
-        fill: if x1 >= x0 {
+        worst_stretch: worst,
+        clear_of_itself: 1.0 - hit as f64 / tested.max(1) as f64,
+        fill: if tested > 0 {
             (((x1 - x0) / view.w as f64 + (y1 - y0) / view.h as f64) * 0.5).clamp(0.0, 1.0)
         } else {
             0.0

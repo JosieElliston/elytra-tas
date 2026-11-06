@@ -571,29 +571,6 @@ impl Backdrop {
     }
 }
 
-/// What a panel cuts out of the world so the path shows.
-#[derive(Clone, Copy)]
-enum Cut<'a> {
-    Tube(&'a TubeCut),
-    Slice(&'a Backdrop),
-}
-
-fn sheet_style<'a>(o: &SheetOptions, near: &'a view::NearMask, cut: Cut<'a>) -> WorldStyle<'a> {
-    let mut style = WorldStyle::new();
-    if o.collision {
-        style = style.collision();
-    }
-    style = if o.barriers {
-        style.show_barriers()
-    } else {
-        style.solid_barriers().barriers_where(|p, _| near.contains(p))
-    };
-    match cut {
-        Cut::Tube(t) => style.keep(|p, _| t.keeps(p)),
-        Cut::Slice(b) => style.keep(|p, _| b.keeps(p)),
-    }
-}
-
 /// Top, side and perspective views of runs in one image, a text line per run.
 pub fn sheet(scene: &Scene, c: Option<&Course>, runs: &[SheetRun], o: &SheetOptions) -> Image {
     assert!(!runs.is_empty());
@@ -624,9 +601,17 @@ pub fn sheet(scene: &Scene, c: Option<&Course>, runs: &[SheetRun], o: &SheetOpti
     } else {
         None
     };
-    let panel = |cam: &Camera, name: &str, cut: Cut| -> Image {
+    let base_style = || {
+        let style = if o.collision { WorldStyle::new().collision() } else { WorldStyle::new() };
+        if o.barriers {
+            style.show_barriers()
+        } else {
+            style.solid_barriers().barriers_where(|p, _| near.contains(p))
+        }
+    };
+    let panel = |cam: &Camera, name: &str, style: WorldStyle| -> Image {
         let mut f = scene.frame(cam, o.width, o.height);
-        f.style(sheet_style(o, &near, cut));
+        f.style(style);
         if let Some(c) = c {
             course(&mut f, scene.bounds(), c);
         }
@@ -676,15 +661,19 @@ pub fn sheet(scene: &Scene, c: Option<&Course>, runs: &[SheetRun], o: &SheetOpti
     let persp = tools::readable_view(scene, &framed_paths, o.width, o.height, 50.0);
     let persp_view = view_of(&persp);
     let persp_cut = TubeCut::new(&persp_view, &whole, o.radius, o.headroom);
-    let seen = tools::share_in_sight(scene, &sheet_style(o, &near, Cut::Tube(&persp_cut)), &persp_view, &framed);
+    let persp_style = || base_style().keep(|p, _| persp_cut.keeps(p));
+    let seen = tools::share_in_sight(scene, &persp_style(), &persp_view, &framed);
     // the text gets its own strip, so it can't cover the start of a run
     let lines: Vec<String> = runs.iter().map(summary).collect();
-    let barriers = if o.barriers {
-        String::new()
+    let hidden = if o.barriers {
+        "blocks in front of the path are hidden, but still collide".to_string()
     } else {
-        format!("\nbarriers drawn only within {} blocks of the path; the rest still collide", o.barrier_radius)
+        format!(
+            "blocks in front of the path and barriers over {} blocks from it are hidden, but still collide",
+            o.barrier_radius
+        )
     };
-    let text = format!("{}\n{}{barriers}", lines.join("\n"), EVENTS_LEGEND);
+    let text = format!("{}\n{}\n{hidden}", lines.join("\n"), EVENTS_LEGEND);
     let header = {
         let height = text.lines().count() as u32 * 17 + 14;
         let mut f = scene.frame(&Camera::look_at([0.0; 3], [0.0, 0.0, 1.0]), o.width, height);
@@ -695,16 +684,16 @@ pub fn sheet(scene: &Scene, c: Option<&Course>, runs: &[SheetRun], o: &SheetOpti
     };
     let images = [
         header,
-        panel(&top, "top, blocks over the path cut away", Cut::Tube(&top_cut)),
+        panel(&top, "top", base_style().keep(|p, _| top_cut.keeps(p))),
         panel(
             &Camera::side(&framed, yaw),
-            &format!("side, looking along yaw {yaw:.0}, blocks in front of the path cut away"),
-            Cut::Slice(&backdrop),
+            &format!("side, looking along yaw {yaw:.0}"),
+            base_style().keep(|p, _| backdrop.keeps(p)),
         ),
         panel(
             &persp,
-            &format!("perspective, the most readable direction, blocks in front of the path cut away: {:.0}% of {counted} in sight", seen * 100.0),
-            Cut::Tube(&persp_cut),
+            &format!("perspective: {:.0}% of {counted} in sight", seen * 100.0),
+            persp_style(),
         ),
     ];
     Image::grid(&images, 1)
