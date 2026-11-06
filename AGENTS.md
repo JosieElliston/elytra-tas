@@ -9,8 +9,7 @@ the initial work was done with [minescript](/Users/josie/Library/Application Sup
 any script that modifies player state should assert that the active account is my alt, except in singleplayer.
 scripts that don't take player actions, like the replay grabber, are fine to run on my main.
 
-you can use `ssh cif-cpu` for compute (12 cores).
-there, `export PATH=$HOME/.cargo/bin:$PATH` before cargo. why? a non-login shell finds `/usr/bin/cargo`, rustc 1.85, which refuses this lockfile (as of 2026-11-06 16:30 EST).
+you can use `ssh cif-cluster` for compute.
 
 ## emc timer
 
