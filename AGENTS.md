@@ -9,6 +9,8 @@ the initial work was done with [minescript](/Users/josie/Library/Application Sup
 any script that modifies player state should assert that the active account is my alt, except in singleplayer.
 scripts that don't take player actions, like the replay grabber, are fine to run on my main.
 
+you can use `ssh cif-cpu` for compute.
+
 ## emc timer
 
 the emc timer is (server-side) realtime, rounded to 0.02s.
@@ -18,6 +20,7 @@ we also see times like 1.02 or 1.08,
 which means there was >10ms of error.
 these should generally be considered as actually being 20 / 22 ticks,
 but it's also possible that there was >20ms of error and it was actually 21 ticks.
+the timer begins on the first move that changes your block while your previous position was already outside the start region (the end is symmetric).
 
 ## see also
 

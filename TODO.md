@@ -3,7 +3,19 @@
 ## uncategorized
 
 - add instructions to use cif-cpu
-- rules of thumb
+- e2e tool to grab and optimize a run
+- quantize rot to the sin table, so rather than checking approx equal, you check if they land in the same bucket
+- consider wall touches
+- partial ticks
+
+## tasing strats / rules of thumb (move + collect the rest)
+
+- have a notion of a binding block set
+    - the blocks that relevantly constrain the tas
+    - this is sparser than what floodfill would give, as we don't allow for non-myopic finding holes in the map to escape out of
+    - so we can render just the binding blocks
+    - and only consider binding blocks during optimization
+- also the notion of a target ball we must pass though, for defining routes
 
 ## tools
 
@@ -19,11 +31,9 @@
 
 ## solver
 
-- fly a solver plan on EMC
 - plans that take damage on purpose. recordings already can (the server's velocity overwrite is an out-of-model event); plans can't, since the server computes damage on its own copy of the physics, which disagrees slightly, and it arrives a few ticks late at a time that varies
 - fireworks, in the single-rocket mode
 - route search: what proposes routes when no recording exists
-- timer start and finish offsets against ping: predicted and shown times differ by up to 0.14 s on super classic downtown, cause not settled
 - run `check_runs.py` to completion (it hadn't been as of 2026-11-04 19:40 EST)
 - the second curvature ablation's hook
 - designed but never needed yet: `Secant` collision (the segment between tick positions, for when the L's sub-tick detail costs more than it's worth), specialized kernels, direct shooting, the tunnel DP, multistart wrappers, a polyline sketch seeder
@@ -71,6 +81,7 @@
     - canyon
     - monster
     - classic evergreen
+    - classic ravine
     - speedchecker
         - is luna's 6.28 wr real or lagged?
     - super classic downtown
