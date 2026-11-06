@@ -15,9 +15,13 @@
 //!   several starts, and from the apex with and without walls, for the table and for raw speeds.
 //! - `slab`: the human route, off the slab at (-25.5, 283.5, 227.5): jump, sprint in the air, free-fall,
 //!   deploy, over a grid of those timings, flown under port and solved against the table.
-//! - `slabflights N`: the best `N` as `runs/hybrid/slab_K`, for `optimize --hybrid --server slab_`.
+//! - `slabflights N [FILE PREFIX]`: the best `N` of `runs/dome/slab.json` or `FILE` as `runs/hybrid/slab_K`
+//!   or `PREFIX`K, for `optimize --hybrid --server slab_`.
 //! - `slabcheck NAME...`: flights in `runs/relax`, by `verify` and the server's box.
 //! - `slabdive`: the same late pull-out from the TAS's climb, with no landing.
+//! - `slabtime`: the slab's tick timings, every tick: run-up, W held after the jump, S to stay back once
+//!   past the lip, sprint on, deploy, from spots up to the back wall; then spot, headings and the deploy
+//!   tick's rotation around the best. `slabflights N runs/dome/slabtime.json tick_` flies them.
 //!
 //! As of 2026-11-05 05:50 EST, against the 537 tick TAS: every spot under the roof leaves by about the
 //! same state, y 205.9, v (-0.2, -0.72, -1.55), and the best verify at 535. With no walls at all the
@@ -30,6 +34,14 @@
 //! landing (table 538.7, the TAS 538.0, the slab 535.2). No plan flies it yet: the flights start on the
 //! slab, not at the reset pose, and getting there means landing, so the server's glide-off comes at a tick
 //! that depends on ping.
+//!
+//! As of 2026-11-05 23:50 EST, by `slabtime` (table 535.21 to 534.67): 24 of 40 flights verify at 532, 22 of
+//! them clear of the server's box, against 1 of 8 for `slab`; none at 531, and a second `optimize` pass on 8
+//! gained nothing. What pays is a late sprint from further back: after the lip, 10-18 ticks of S, sprint on
+//! at air tick 20-25 from z 226.4-226.8 (the lip's edge; 225.1 without S), deploy at air tick 50, z 222. The
+//! start spot doesn't: the three tried, z 227.9 to 228.69, read the same, since S takes each back to there.
+//! Nothing drifts further south under the slab, though the shaft is open to z 230 there. Headings and the
+//! deploy tick's rotation found nothing either.
 //!
 //! `cargo run --release -p academy --bin dome -- PHASE`
 
@@ -1018,6 +1030,8 @@ struct Off {
     run: usize,
     coast: Option<usize>,
     deploy: usize,
+    #[serde(default, flatten)]
+    more: OffMore,
     /// Just after the deploy, what the table reads at the door, ticks and state there.
     x: X,
     value: f64,
@@ -1026,21 +1040,35 @@ struct Off {
     u: Vec<U>,
 }
 
-fn off_inputs(yaw: f64, run: usize, coast: Option<usize>, deploy: usize) -> Vec<InputRow> {
+/// The rest of a way off the slab: air ticks of W held after the jump, then of S; the sprint's and the
+/// deploy tick's yaw from `yaw`, and the deploy tick's pitch.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default)]
+#[serde(default)]
+struct OffMore {
+    hold: usize,
+    brake: usize,
+    air_turn: f64,
+    dep_turn: f64,
+    dep_pitch: f64,
+}
+
+fn off_inputs(yaw: f64, run: usize, coast: Option<usize>, deploy: usize, m: OffMore) -> Vec<InputRow> {
     let row = |k: &str| InputRow { yaw, pitch: 0.0, keys: k.to_string() };
     let mut v = vec![row("-"); SLAB_SETTLE];
     v.extend(vec![row("WR"); run]);
-    v.push(row(if coast == Some(0) || run > 0 { "WRJ" } else { "J" }));
+    v.push(row(if coast == Some(0) || run > 0 || m.hold > 0 { "WRJ" } else { "J" }));
     for a in 1..deploy {
-        v.push(row(if coast.is_some_and(|c| a >= c) { "WR" } else { "-" }));
+        let on = coast.is_some_and(|c| a >= c);
+        let k = if on { "WR" } else if a <= m.hold { "WR" } else if a <= m.hold + m.brake { "S" } else { "-" };
+        v.push(InputRow { yaw: if on { yaw + m.air_turn } else { yaw }, pitch: 0.0, keys: k.to_string() });
     }
-    v.push(row(if coast.is_some_and(|c| deploy >= c) { "WRJ" } else { "J" }));
+    v.push(InputRow { yaw: yaw + m.dep_turn, pitch: m.dep_pitch, keys: if coast.is_some_and(|c| deploy >= c) { "WRJ" } else { "J" }.to_string() });
     v
 }
 
 /// The state just after the deploy, flown under port from standing on `spot`: None if it hits anything
 /// or leaves the slab early.
-fn off_state(proto: &Trajectory, w: &World, spot: [f64; 3], yaw: f64, run: usize, coast: Option<usize>, deploy: usize) -> Option<X> {
+fn off_state(proto: &Trajectory, w: &World, spot: [f64; 3], yaw: f64, run: usize, coast: Option<usize>, deploy: usize, more: OffMore) -> Option<X> {
     let mut initial = proto.initial.clone();
     initial.position = spot;
     initial.delta_movement = [0.0, 0.0, 0.0];
@@ -1048,7 +1076,7 @@ fn off_state(proto: &Trajectory, w: &World, spot: [f64; 3], yaw: f64, run: usize
     initial.x_rot = 0.0;
     initial.on_ground = false;
     initial.main_supporting_block_pos = None;
-    let inputs = off_inputs(yaw, run, coast, deploy);
+    let inputs = off_inputs(yaw, run, coast, deploy, more);
     let (t, stopped) = fly(&initial, &inputs, &[], w, proto.header.clone());
     if stopped.is_some() {
         return None;
@@ -1146,9 +1174,10 @@ fn slab(dir: &Path, w: &World) -> Result<(), String> {
             let table = &table;
             let walls = &walls;
             deploys.iter().filter_map(move |&deploy| {
-                let x = off_state(proto, w, spot, yaw, run, coast, deploy)?;
+                let more = OffMore::default();
+                let x = off_state(proto, w, spot, yaw, run, coast, deploy, more)?;
                 let (value, u) = dive_seeds(walls, table, &x, 1).into_iter().next()?;
-                Some(Off { spot, yaw, run, coast, deploy, x, value, ticks: u.len(), exit: x, u })
+                Some(Off { spot, yaw, run, coast, deploy, more, x, value, ticks: u.len(), exit: x, u })
             })
         })
         .collect();
@@ -1195,15 +1224,133 @@ fn slab(dir: &Path, w: &World) -> Result<(), String> {
     std::fs::write(dir.join("runs/dome/slab.json"), serde_json::to_string(&solved).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
-/// `slabflights N`: the best `N` of `runs/dome/slab.json`, each different in its deploy tick or sprint, as
-/// `runs/hybrid/slab_K` for `optimize --hybrid`: flown under port off the slab, then the merge into the 535
-/// TAS and its states after.
-fn slabflights(dir: &Path, course: &Course, w: &World, n: usize) -> Result<(), String> {
+/// `slabtime`: the tick timings, then the rest around the best.
+fn slabtime(dir: &Path, w: &World) -> Result<(), String> {
+    let table = load_table(dir)?;
+    let walls = dome_walls(w);
+    let rec = Trajectory::read(&dir.join("runs/tas_gen1_34/academy.traj.jsonl"))?;
+    let t0 = Instant::now();
+    let solve = |o: &Off| -> Option<Off> {
+        let mut seeds: Vec<Vec<U>> = vec![o.u.clone()];
+        seeds.extend(dive_seeds(&walls, &table, &o.x, 3).into_iter().map(|s| s.1));
+        let s = from_start(&walls, &table, o.x, &seeds)?;
+        Some(Off { value: s.value, ticks: s.ticks, exit: s.exit, u: s.u, ..o.clone() })
+    };
+    let score = |jobs: &[([f64; 3], f64, usize, usize, usize, OffMore)]| -> Vec<Off> {
+        let mut v: Vec<Off> = jobs
+            .par_iter()
+            .filter_map(|&(spot, yaw, run, coast, deploy, more)| {
+                let x = off_state(&rec, w, spot, yaw, run, Some(coast), deploy, more)?;
+                let (value, u) = dive_seeds(&walls, &table, &x, 1).into_iter().next()?;
+                Some(Off { spot, yaw, run, coast: Some(coast), deploy, more, x, value, ticks: u.len(), exit: x, u })
+            })
+            .collect();
+        v.sort_by(|a, b| a.value.total_cmp(&b.value));
+        v
+    };
+    let line = |o: &Off| {
+        let e = o.exit;
+        println!(
+            "{:7.2} x{:6.1} z{:7.2} yaw{:4.0} run{:2} hold{:2} brake{:2} sprint{:3} deploy{:3} air{:3.0} dep{:3.0} pitch{:3.0} | deploy y{:6.2} z{:6.2} v{:5.2} {:5.2} | {:2} | exit y{:6.2} v{:5.2} {:5.2} {:5.2}",
+            o.value, o.spot[0], o.spot[2], o.yaw, o.run, o.more.hold, o.more.brake, o.coast.unwrap_or(0), o.deploy, o.more.air_turn, o.more.dep_turn, o.more.dep_pitch, o.x[1], o.x[2], o.x[4], o.x[5], o.ticks, e[1], e[3], e[4], e[5]
+        );
+    };
+    let best_by = |name: &str, of: &[Off], key: &dyn Fn(&Off) -> String| {
+        let mut m: std::collections::BTreeMap<String, f64> = Default::default();
+        for o in of {
+            let e = m.entry(key(o)).or_insert(f64::INFINITY);
+            *e = e.min(o.value);
+        }
+        print!("best per {name}:");
+        for (k, v) in m {
+            print!(" {k}:{v:.2}");
+        }
+        println!();
+    };
+
+    // stage 1, the timings, from a mid heading and spot in x
+    let mut jobs = Vec::new();
+    for z in [228.69, 228.3, 227.9] {
+        for run in 0..=5usize {
+            for hold in 0..=5usize {
+                for brake in [0usize, 4, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28] {
+                    for coast in 10..=40usize {
+                        if coast <= hold + brake {
+                            continue;
+                        }
+                        for deploy in 47..=54usize {
+                            jobs.push(([-25.5, 283.7, z], 177.0, run, coast, deploy, OffMore { hold, brake, ..Default::default() }));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let scored = score(&jobs);
+    println!("stage 1: {} of {} seeds reach the door, {:.0} s", scored.len(), jobs.len(), t0.elapsed().as_secs_f64());
+    // the polish is per spot, so the back wall's answer isn't crowded out by a coarse seed read
+    let mut picked: Vec<&Off> = Vec::new();
+    for z in [228.69, 228.3, 227.9] {
+        picked.extend(scored.iter().filter(|o| o.spot[2] == z).take(1500));
+    }
+    let mut solved: Vec<Off> = picked.par_iter().filter_map(|o| solve(o)).collect();
+    solved.sort_by(|a, b| a.value.total_cmp(&b.value));
+    println!("stage 1: {} solved, {:.0} s", solved.len(), t0.elapsed().as_secs_f64());
+    for o in solved.iter().take(25) {
+        line(o);
+    }
+    best_by("spot z", &solved, &|o| format!("{:.2}", o.spot[2]));
+    best_by("run", &solved, &|o| format!("{:02}", o.run));
+    best_by("hold", &solved, &|o| format!("{:02}", o.more.hold));
+    best_by("brake", &solved, &|o| format!("{:02}", o.more.brake));
+    best_by("sprint on", &solved, &|o| format!("{:02}", o.coast.unwrap_or(0)));
+    best_by("deploy", &solved, &|o| format!("{:02}", o.deploy));
+    best_by("deploy z", &solved, &|o| format!("{:.0}", o.x[2]));
+    std::io::stdout().flush().ok();
+
+    // stage 2, spot and headings around the best timings
+    let mut jobs = Vec::new();
+    for o in solved.iter().take(40) {
+        for x in [-25.8, -25.5, -25.2] {
+            for yaw in [174.0, 176.0, 178.0, 180.0] {
+                for air_turn in [-6.0, -3.0, 0.0, 3.0] {
+                    for dep_turn in [-6.0, -3.0, 0.0, 3.0] {
+                        for dep_pitch in [-5.0, 0.0, 5.0, 10.0, 20.0] {
+                            jobs.push(([x, 283.7, o.spot[2]], yaw, o.run, o.coast.unwrap(), o.deploy, OffMore { air_turn, dep_turn, dep_pitch, ..o.more }));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let scored2 = score(&jobs);
+    println!("stage 2: {} of {} seeds reach the door, {:.0} s", scored2.len(), jobs.len(), t0.elapsed().as_secs_f64());
+    let mut solved2: Vec<Off> = scored2[..2500.min(scored2.len())].par_iter().filter_map(|o| solve(o)).collect();
+    println!("stage 2: {} solved, {:.0} s", solved2.len(), t0.elapsed().as_secs_f64());
+    solved2.extend(solved);
+    solved2.sort_by(|a, b| a.value.total_cmp(&b.value));
+    for o in solved2.iter().take(25) {
+        line(o);
+    }
+    best_by("spot x", &solved2, &|o| format!("{:.1}", o.spot[0]));
+    best_by("yaw", &solved2, &|o| format!("{:.0}", o.yaw));
+    best_by("sprint turn", &solved2, &|o| format!("{:.0}", o.more.air_turn));
+    best_by("deploy turn", &solved2, &|o| format!("{:.0}", o.more.dep_turn));
+    best_by("deploy pitch", &solved2, &|o| format!("{:.0}", o.more.dep_pitch));
+    solved2.truncate(3000);
+    std::fs::write(dir.join("runs/dome/slabtime.json"), serde_json::to_string(&solved2).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
+
+/// `slabflights N [FILE PREFIX]`: the best `N` of `FILE`, each different in its timing, as
+/// `runs/hybrid/PREFIX_K` for `optimize --hybrid`: flown under port off the slab, then the merge into the
+/// 535 TAS and its states after.
+fn slabflights(dir: &Path, course: &Course, w: &World, n: usize, file: &str, prefix: &str) -> Result<(), String> {
     let r = reference_from(dir, course, "runs/tas_gen1_34/academy.traj.jsonl")?;
-    let found: Vec<Off> = serde_json::from_str(&std::fs::read_to_string(dir.join("runs/dome/slab.json")).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let found: Vec<Off> = serde_json::from_str(&std::fs::read_to_string(dir.join(file)).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     let mut chosen: Vec<&Off> = Vec::new();
     for o in &found {
-        if chosen.iter().all(|c| (c.deploy, c.coast, c.yaw) != (o.deploy, o.coast, o.yaw)) {
+        let timing = |c: &Off| (c.deploy, c.coast, c.run, c.more.hold, c.more.brake, c.spot[2].to_bits());
+        if chosen.iter().all(|c| timing(c) != timing(o)) {
             chosen.push(o);
             if chosen.len() == n {
                 break;
@@ -1223,7 +1370,7 @@ fn slabflights(dir: &Path, course: &Course, w: &World, n: usize) -> Result<(), S
         initial.x_rot = 0.0;
         initial.on_ground = false;
         initial.main_supporting_block_pos = None;
-        let mut inputs = off_inputs(o.yaw, o.run, o.coast, o.deploy);
+        let mut inputs = off_inputs(o.yaw, o.run, o.coast, o.deploy, o.more);
         let pb = Problem { kernel: Generic::default(), walls: &walls, x0: o.x, goal: Goal::Plane { normal: [0.0, 0.0, -1.0], at: -EXIT_Z, cap: o.u.len() + 5 }, opts: opts() };
         let xs = pb.rollout(&o.u);
         let mut yaw = o.yaw;
@@ -1233,15 +1380,15 @@ fn slabflights(dir: &Path, course: &Course, w: &World, n: usize) -> Result<(), S
             inputs.push(InputRow { yaw: input.yaw as f64, pitch: input.pitch as f64, keys: keys.clone() });
         }
         let mut h = r.rec.header.clone();
-        h.source = format!("slab {k}: x {:.2} z {:.2} yaw {:.0} run {} sprint {:?} deploy {}", o.spot[0], o.spot[2], o.yaw, o.run, o.coast, o.deploy);
+        h.source = format!("{prefix}{k}: x {:.2} z {:.2} yaw {:.0} run {} {:?} sprint {:?} deploy {}", o.spot[0], o.spot[2], o.yaw, o.run, o.more, o.coast, o.deploy);
         let (head, stopped) = fly(&initial, &inputs, &[], w, h.clone());
         if let Some((t, e)) = stopped {
-            return Ok(format!("slab_{k}: port stopped at {t}: {e:?}"));
+            return Ok(format!("{prefix}{k}: port stopped at {t}: {e:?}"));
         }
         let exit = (1..=head.rows.len()).find(|&t| state_at(&head, t).position[2] < EXIT_Z).ok_or("no exit")?;
         let s = flight(state_at(&head, exit));
         let Some(join) = merge(&walls, &r, &s, MERGE_T) else {
-            return Ok(format!("slab_{k}: no merge from {s:?}"));
+            return Ok(format!("{prefix}{k}: no merge from {s:?}"));
         };
         let mut rows = head.rows[..exit].to_vec();
         let proto = r.rec.rows[r.exit].clone();
@@ -1264,9 +1411,9 @@ fn slabflights(dir: &Path, course: &Course, w: &World, n: usize) -> Result<(), S
             rows.push(row);
         }
         let traj = Trajectory { header: h, initial, arrivals: Vec::new(), rows };
-        traj.write(&out.join(format!("slab_{k}.traj.jsonl")))?;
+        traj.write(&out.join(format!("{prefix}{k}.traj.jsonl")))?;
         Ok(format!(
-            "slab_{k}: table {:.2}, sprint {:?} deploy {} yaw {:.0}: exit y {:.2} v {:.3} {:.3} {:.3}, merges in {} (reference {}) for {} timed, flown exit tick {exit}",
+            "{prefix}{k}: table {:.2}, sprint {:?} deploy {} yaw {:.0}: exit y {:.2} v {:.3} {:.3} {:.3}, merges in {} (reference {}) for {} timed, flown exit tick {exit}",
             o.value, o.coast, o.deploy, o.yaw, s[1], s[3], s[4], s[5], join.u.len(), MERGE_T, join.u.len() + total - MERGE_T
         ))
     }).collect::<Result<_, _>>()?;
@@ -1370,7 +1517,15 @@ fn main() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(|a| a.as_str()) {
         Some("slab") => slab(dir, &world),
-        Some("slabflights") => slabflights(dir, &course, &world, args.get(1).map_or(Ok(6), |a| a.parse()).map_err(|e: std::num::ParseIntError| e.to_string())?),
+        Some("slabtime") => slabtime(dir, &world),
+        Some("slabflights") => slabflights(
+            dir,
+            &course,
+            &world,
+            args.get(1).map_or(Ok(6), |a| a.parse()).map_err(|e: std::num::ParseIntError| e.to_string())?,
+            args.get(2).map_or("runs/dome/slab.json", |a| a.as_str()),
+            args.get(3).map_or("slab_", |a| a.as_str()),
+        ),
         Some("slabdive") => slabdive(dir, &world),
         Some("slabcheck") => slabcheck(dir, &course, &world, &args[1..]),
         Some("views") => views(dir, &course, &world),
