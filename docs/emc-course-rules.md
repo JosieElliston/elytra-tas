@@ -49,7 +49,7 @@ gives false contradictions.
   that box clear, and `p_t + v_(t-1)`, a copy a tick behind, which is where all 8 aborts of 25
   flown on 2026-11-05 03:14 hit. `tas` prints any hit left and fails on it.
 - **Timer** is wall-clock time between the "Timer started!" and "Course complete!"
-  server ticks, rounded to 0.02 s: five identical 647-tick runs gave 32.34 or 32.36
+  moves, rounded to 0.02 s: five identical 647-tick runs gave 32.34 or 32.36
   depending on whether that interval was under or over 32.35 s.
 - **The number in the chat is the true time, in whole ticks.** Its digits below a tick are
   noise: the timer is wall-clock, up to 0.03 s off a whole number of ticks (academy: 31.22 s
@@ -73,8 +73,17 @@ gives false contradictions.
   -98.73 finishes a move later, and the 38.44 s run that passed -99.55 at y -56.67 without finishing
   was just in one block until z crossed -99. x and y faces aren't found: it fired at x -7.26 to
   -1.68 and y -55.3 to -53.4 on these flights. `lqmbda`'s chat lags, so judge its finishes by
-  the action bar. /pingequalizer sends moves in pairs 100 ms apart once it settles, so a reply can't
-  say which of a pair it answers: don't time rules under it.
+  the action bar.
+- **A time is the realtime between the two moves that fired, as the server handled them,
+  rounded to 0.02 s.** 14 clean academy runs, 2026-11-06: shown minus the gap between sending
+  those moves is within 13 ms (mean 1.6, sd 6.4, about what rounding gives), while shown minus ticks x
+  50 ms reaches 40 ms. The replies come a median 1.8 ms past the ping (max 8.3), so at this tick phase
+  they don't wait for a tick. Most of the difference from whole ticks is the client's send timing:
+  sends happen in frames, so they move with frame rate, while the network hardly varied.
+- **Minecraft's `inactivityFpsLimit: afk` changes that timing during playback, since playback isn't
+  input.** Measured on the 2026-11-05 22:49 log: idle under about 45 s, moves 48-53 ms apart; then
+  33/67 ms (30 fps); after about 15 minutes idle, 100 ms apart in pairs (10 fps), when a reply can't
+  say which of a pair it answers. Don't time rules at 10 fps.
 - **Timer and finish events reach you a constant delay after the pose they judged.** As long
   as the timer chat's delay: on academy, 2 ticks for 170 of 199 timer starts in the
   2026-11-03 20:52 log, 5 for 87 of 90 in the 1.21.11 replay. The action bar shows
