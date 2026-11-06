@@ -30,6 +30,10 @@ work, and the tick interval. `/etas phase help` explains each row. The figures c
   got 1.9 ms ([emc-course-rules.md](emc-course-rules.md)). `tools/tick_wait.py` measures it. Reading
   phase from a log also needs a steady ping: it went from 62 to about 150 ms at 00:57 EST that
   night with no spoof on, was still high after a laptop restart, and drained by 01:10, cause unknown.
+- **Your phase against the server's ticks drifts, so re-read it before a long batch.** The client
+  grid is fixed but the server's isn't: moves went from 5.0 to -1.8 ms before the flush in 24 minutes
+  on 2026-11-06 01:18-01:42 EST (-0.3 ms/min) at a steady ping. A shift aimed at a narrow band is
+  good for a few minutes.
 - **Every reply leaves at the end of its tick.** 26.2's `MinecraftServer.tickChildren`
   suspends flushing for every player and flushes once after all levels and players have
   ticked. So `set_health` minus your move's send time minus the round trip is server wait

@@ -85,10 +85,17 @@ gives false contradictions.
   before the tick-end flush got chats a median 6.1 ms late (27 flights, min 2.1), moves 21 ms before
   it got 1.9 ms (14 flights), and tab-completion probes jumped the same way over the last 9-10 ms of
   the tick. So chat lateness is the wait plus the usual ~1.5 ms. Handling on the main thread is the
-  plain reading; that the clock reading waits with the chat is inferred, as no finished runs have
-  been compared across phases. If it does, a run with one end just inside that band and the other
-  just outside is off by up to the band's width. `tools/tick_wait.py` places chats and probes in the
-  tick, and its `--ping` shows whether the ping moved, as the phase can't be read while it does.
+  plain reading. **The start clock waits too:** the action bar's ms value dates the reading, and it
+  moves 0.86 +- 0.12 ms per ms of wait over those 41 flights plus one (1 = waits fully, 0 = read on
+  arrival). The finish clock isn't tested at a real wait; if it matches, a run with one end just
+  inside that band and the other just outside is off by up to the band's width. `tools/tick_wait.py`
+  places chats, probes and the clock in the tick, and its `--ping` shows whether the ping moved, as
+  the phase can't be read while it does.
+- **With moves at the flush, the send gap picks a run's rounding.** 14 of 14 `academy_535` runs
+  with mod 0.5.4, 2026-11-06 01:35-01:42 EST, moves within about 5 ms of the flush: 535 ticks, send
+  gap 26746.8-26755.1 ms, shown 26.74 for gaps up to 26748.4 and 26.76 from 26748.7. Send gap minus
+  ticks x 50 ms has sd 2.6, against 13 under the AFK frame limit, so that tightening is mostly the
+  patch and not the phase.
 - **Timer chat lateness differs by session or account, and phase doesn't explain it.** In 19 logs
   on `lqmbda` (2026-10-31 to 11-04, hand flown) the median chat is 15-24 ms late at every phase,
   against 1.4-10.2 ms in 7 logs on `deftenvy` (11-04 to 11-05), one of them between `lqmbda` logs on
