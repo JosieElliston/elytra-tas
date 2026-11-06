@@ -25,14 +25,16 @@ use std::path::Path;
 
 use etas::course::Course;
 use etas::solve::bounces::{SCALE, flight, fly, state_at as state_at_full};
-use etas::solve::ddp::{Goal, Opts, Plan as DPlan, Problem, Rate, X, control, lead_of, rotation};
+use etas::solve::ddp::{Goal, Opts, Plan as DPlan, Problem, Rate, X, control, input_at, lead_of, rotation};
 use etas::solve::refly::track;
 use etas::solve::smooth::DELTA;
 use etas::solve::gate::{Gate, ValueTable};
 use etas::solve::walls::Walls;
 use etas::trajectory::{InputRow, Row, Trajectory};
 use rayon::prelude::*;
+use sim::faithful::Faithful;
 use sim::generic::Generic;
+use sim::state::FlightState;
 use world::{BlockPos, Cell, World};
 
 /// As in `dome`: the door's plane, and the table over it.
@@ -436,8 +438,11 @@ fn calm(dir: &Path, course: &Course, w: &World, base_name: &str, t0: usize, t1: 
         if let Some(e) = r.failures.first() {
             println!("  {name}: {e}");
         }
+        let z = |t: usize| state_at_full(&tr, t).position[2];
+        let g = (t0.max(1)..tr.rows.len()).find(|&t| z(t - 1) <= at && z(t) > at);
+        let spare = g.map_or(f64::NAN, |g| (z(g) - at) / (z(g) - z(g - 1)));
         println!(
-            "{name:18} {} timed {timed:?} secant {} stopped {stopped:?}; in the stretch: biggest dpitch {dp:.1}, dyaw {dy:.1}, pitch travel {travel:.0}",
+            "{name:18} {} timed {timed:?} past the plane at row {g:?}, {spare:.3} ticks spare, secant {} stopped {stopped:?}; in the stretch: biggest dpitch {dp:.1}, dyaw {dy:.1}, pitch travel {travel:.0}",
             if r.ok() { "PASS" } else { "FAIL" },
             r.secant_seconds().map_or("-".into(), |s| format!("{:.2}", s / 0.05)),
         );
@@ -455,7 +460,7 @@ fn calm(dir: &Path, course: &Course, w: &World, base_name: &str, t0: usize, t1: 
             let priced: DPlan = if t1 == 0 {
                 let pb = Problem { opts: Opts { rate: rate(None), ..opts.clone() }, ..gate.clone() };
                 let s = pb.solve(&whole.u);
-                println!("  weight {weight}: solve feasible {}, clear {:.4} (seed {:.4}), value {:.3} (seed {:.3}), pitch travel {:.0} (seed {:.0})", s.feasible, pb.worst(&s.plan.x, &s.plan.u), pb.worst(&whole.x, &whole.u), pb.value(&s.plan.x), pb.value(&whole.x), pb.travel(&s.plan.x, &s.plan.u)[1], pb.travel(&whole.x, &whole.u)[1]);
+                println!("  weight {weight}: solve feasible {}, clear {:.4} (seed {:.4}), crossing at {:.3} (seed {:.3}), pitch travel {:.0} (seed {:.0})", s.feasible, pb.worst(&s.plan.x, &s.plan.u), pb.worst(&whole.x, &whole.u), t0 as f64 + pb.value(&s.plan.x), t0 as f64 + pb.value(&whole.x), pb.travel(&s.plan.x, &s.plan.u)[1], pb.travel(&whole.x, &whole.u)[1]);
                 s.plan
             } else {
                 let pb = Problem {
@@ -477,18 +482,39 @@ fn calm(dir: &Path, course: &Course, w: &World, base_name: &str, t0: usize, t1: 
     let yaw_from = state_at_full(&base, t0).y_rot;
     for (weight, plan) in solved {
         let name = format!("{out}_{weight}");
-        // free to the finish, priced too, or its re-solves put back what the price took out; pinned, a price
-        // would rework all of the rest of the run
-        let rate = if t1 == 0 { Rate::new(weight, DELTA) } else { Rate::default() };
-        let tracker = Problem { opts: Opts { margin: 0.004, rate, ..opts.clone() }, ..gate.clone() };
-        let k0 = plan.u.len().min(last - t0);
-        println!("  {name} solved pitch: {:?}", plan.u[..k0].iter().map(|u| (u[1] / std::f64::consts::PI * 180.0).round() as i32).collect::<Vec<_>>());
-        let reps: Vec<_> = [24usize, 12, 6, 3].iter().map(|&k| track(w, &tracker, &plan, yaw_from, k, SCALE)).collect();
-        let Some(rep) = reps.iter().find(|r| r.clean()).or(reps.first()) else { continue };
-        let mut inputs: Vec<InputRow> = base.rows[..t0].iter().map(|r| r.input.clone()).collect();
         let row = |u: &sim::state::Input<f32>| InputRow { yaw: u.yaw as f64, pitch: u.pitch as f64, keys: "WR".to_string() };
-        inputs.extend(rep.inputs.iter().map(row));
-        let l = *rep.inputs.last().ok_or("empty track")?;
+        let clean = |pb: &Problem, plan: &DPlan, yaw: f64| {
+            let mut reps: Vec<_> = [24usize, 12, 6, 3].iter().map(|&k| track(w, pb, plan, yaw, k, SCALE)).collect();
+            let at = reps.iter().position(|r| r.clean()).unwrap_or(0);
+            reps.swap_remove(at)
+        };
+        // each at its own price: unpriced, the stretch gets its wobble back; priced, all of the rest gets reworked
+        let priced = Opts { margin: 0.004, rate: Rate::new(weight, DELTA), ..opts.clone() };
+        let mut inputs: Vec<InputRow> = base.rows[..t0].iter().map(|r| r.input.clone()).collect();
+        let k0 = last - t0;
+        let flown = if t1 == 0 {
+            clean(&Problem { opts: priced, ..gate.clone() }, &plan, yaw_from).inputs
+        } else {
+            // the solve's leads as they are: a re-solve puts a wobble in, and over this few ticks the kernels hardly part
+            let (mut x, mut yaw, mut a) = (plan.x[0], yaw_from, Vec::new());
+            for u in &plan.u[..k0] {
+                let (input, y) = input_at(&x, u, yaw);
+                yaw = y;
+                a.push(input);
+                let t = Faithful.step_input(w, &FlightState { pos: [x[0], x[1], x[2]], vel: [x[3], x[4], x[5]] }, &input).map_err(|e| format!("{e:?}"))?;
+                if t.contact.is_some() {
+                    return Err(format!("contact in the stretch, tick {}", t0 + a.len()));
+                }
+                x = [t.state.pos[0], t.state.pos[1], t.state.pos[2], t.state.vel[0], t.state.vel[1], t.state.vel[2]];
+            }
+            println!("  {name}: off the pin by {:.5} blocks", (0..3).map(|k| (x[k] - plan.x[k0][k]).powi(2)).sum::<f64>().sqrt());
+            let tail = DPlan { u: plan.u[k0..].to_vec(), x: std::iter::once(x).chain(plan.x[k0 + 1..].iter().copied()).collect() };
+            let rest = Problem { x0: x, opts: Opts { margin: 0.004, ..opts.clone() }, ..gate.clone() };
+            let b = clean(&rest, &tail, yaw);
+            a.into_iter().chain(b.inputs).collect()
+        };
+        inputs.extend(flown.iter().map(row));
+        let l = *flown.last().ok_or("empty track")?;
         inputs.extend((0..7).map(|_| row(&l)));
         judge(&inputs, &name)?;
     }

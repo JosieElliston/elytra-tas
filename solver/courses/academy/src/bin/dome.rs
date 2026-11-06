@@ -68,6 +68,12 @@
 //! seam between a simple head and its polish, and goes for free (largest step 6). The finish's dive to pitch 90 (t569-574,
 //! 74 degree snap back) is worth little: peak 65, largest step 30, still 528. Peak 55, step 11, crosses the finish a tick late.
 //!
+//! As of 2026-11-06 06:18 EST, what those cost, by where the path crosses z -100: 601.94 unpriced, 601.97 at peak 72, 602.12 at peak 57
+//! step 13, 602.28 at step 14, from t555 or from t505 alike. The 528 needs a crossing by row 602, so the jump to 90 is
+//! worth under 0.2 ticks, and it stays only for want of them. The door has 0.143 to give: row 73 is 0.23 blocks short of
+//! the plane. Taking it means z -0.22 at the spot, which puts the door pass into the lintel at (-28, 208, 207) and moves
+//! the whole tail a fraction of a tick, and one whole solve of the tail hits walls (clear -0.6). `optimize`'s polish might.
+//!
 //! `cargo run --release -p academy --bin dome -- PHASE`
 
 use std::io::Write;

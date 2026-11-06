@@ -40,6 +40,11 @@
 //! `--forbid X0 Y0 Z0 X1 Y1 Z1`, repeatable, adds an obstacle only the solve sees, to hold a flight to one route.
 //! `verify` judges the result in the real world.
 //!
+//! What the objective doesn't see of the timer, which counts poses, not crossings (as of 2026-11-06 06:18 EST):
+//! - The start is fixed at the first pose past the door, so how far past it is (`dome`'s `slabphase`) isn't solved for.
+//! - The finish needs a block-changing move after the first pose past the plane. academy's wall at z -98.3 denies one
+//!   when that pose is past z -99, so a crossing late in a tick reads 529 and verifies at 533 or never finishes.
+//!
 //! `cargo run --release -p academy --bin optimize [--relax | --hybrid] [--open-top] [--server] [--margin BLOCKS] [--forbid X0 Y0 Z0 X1 Y1 Z1]... [NAME_SUBSTRING ...]`
 
 use std::path::Path;
