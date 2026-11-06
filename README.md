@@ -28,6 +28,7 @@ Flashback replays live in `<profile>/flashback/replays/`, plans in
     checks every gliding tick against elytra physics
   - `log_tape.py LOG --tick C`: a tape from a logger log's attempt, its real inputs (`extract_run.py` fits them from a replay)
   - `probe_timer.py QUEUE/done`: where the timer fired on each probe flown by `/etas queue`
+  - `tick_wait.py LOG... [--ping] [--runs]`: your moves' phase in the server's tick, and whether timer chats and clocks wait for tick work
   - `extract_world.py REPLAY.zip --tick T [--bounds X0 Y0 Z0 X1 Y1 Z1] -o OUT.world.gz`:
     writes a world file for `solver/` and prints a coverage report; its docstring is the
     format spec
