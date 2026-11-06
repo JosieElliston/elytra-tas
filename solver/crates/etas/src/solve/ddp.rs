@@ -24,7 +24,7 @@
 use std::f64::consts::PI;
 use std::sync::Arc;
 
-use sim::generic::ghost::{l_move, leg_sdf};
+use sim::generic::ghost::{l_move, leg_sdf, relaxed_move, segment_sdf};
 use sim::generic::num_dual::{Dual2SVec64, DualNum, DualSVec64};
 use sim::generic::{Generic, PITCH_MAX, PITCH_MIN};
 use sim::state::Input;
@@ -162,12 +162,18 @@ pub struct Opts {
     /// flown plan. why? with these a whole solve flies as planned under the game, so it needs no windows of re-solves to
     /// follow it, and their seams. Constant for the derivatives, since the gap barely moves with the state.
     pub defects: Option<Arc<Vec<X>>>,
+    /// Hold each tick's legs off the L, per tick from `x0`, as `ghost::relaxed_move`'s `s`; past the end, the last.
+    /// why? a line clear by chords stays clear when its ticks slide along it, where an L's corners land somewhere new at
+    /// every sub-tick phase, so a solve here can look for lines the L's can't reach, to carry back by moving `s` to 0. Not
+    /// physics: only a plan at `s = 0` flies. None is the L.
+    pub relax: Option<Arc<Vec<[f64; 2]>>>,
 }
 
 impl Default for Opts {
     fn default() -> Self {
         Opts {
             defects: None,
+            relax: None,
             margin: 0.02,
             c0: 100.0,
             grow: 10.0,
@@ -275,8 +281,8 @@ pub fn step<D: DualNum<Primitive = f64> + Copy>(
 }
 
 /// The legs of the server's move from `pos` by `v`: [`step`]'s shape, the same L.
-fn server_legs<D: DualNum<Primitive = f64> + Copy>(pos: [D; 3], v: [D; 3]) -> [[[D; 3]; 2]; NP] {
-    let [a, b, e] = l_move(pos, v);
+fn server_legs<D: DualNum<Primitive = f64> + Copy>(pos: [D; 3], v: [D; 3], s: [f64; 2]) -> [[[D; 3]; 2]; NP] {
+    let [a, b, e] = if s == [0.0; 2] { l_move(pos, v) } else { relaxed_move(pos, v, s) };
     [[pos, a], [a, b], [b, e]]
 }
 
@@ -286,12 +292,14 @@ fn tick_legs<D: DualNum<Primitive = f64> + Copy>(
     k: &Generic,
     x: &[D; 6],
     u: [D; 2],
+    s: [f64; 2],
 ) -> ([D; 6], [[[D; 3]; 2]; NL]) {
-    let (n, c) = step(k, x, u);
-    let server = server_legs([n[0], n[1], n[2]], [n[3], n[4], n[5]]);
-    let behind = server_legs([n[0], n[1], n[2]], [x[3], x[4], x[5]]);
+    let (n, _) = step(k, x, u);
+    let moved = server_legs([x[0], x[1], x[2]], [n[3], n[4], n[5]], s);
+    let server = server_legs([n[0], n[1], n[2]], [n[3], n[4], n[5]], s);
+    let behind = server_legs([n[0], n[1], n[2]], [x[3], x[4], x[5]], s);
     let legs = std::array::from_fn(|l| match l / NP {
-        0 => [c[l], c[l + 1]],
+        0 => moved[l],
         1 => server[l - NP],
         _ => behind[l - 2 * NP],
     });
@@ -306,7 +314,7 @@ pub fn server_hits(walls: &Walls, x: &[X]) -> Vec<(usize, f64)> {
         .filter_map(|(t, s)| {
             let pos = [s[0], s[1], s[2]];
             let clear = |v: [f64; 3]| {
-                server_legs(pos, v)
+                server_legs(pos, v, [0.0; 2])
                     .iter()
                     .map(|[a, b]| walls.clearance(*a, *b).0)
                     .fold(f64::INFINITY, f64::min)
@@ -491,6 +499,20 @@ impl<'a> Problem<'a> {
         x
     }
 
+    /// Tick `k`'s `ghost::relaxed_move` weights.
+    fn relax_at(&self, k: usize) -> [f64; 2] {
+        self.opts.relax.as_ref().and_then(|r| r.get(k).or(r.last()).copied()).unwrap_or([0.0; 2])
+    }
+
+    /// The clearance of a leg and the nearest box.
+    fn leg_clearance(&self, from: [f64; 3], to: [f64; 3]) -> (f64, Option<usize>) {
+        if self.opts.relax.is_some() {
+            self.walls.segment_clearance(from, to)
+        } else {
+            self.walls.clearance(from, to)
+        }
+    }
+
     /// Whether a leg of tick `k` of `n` is held.
     fn leg_held(&self, l: usize, k: usize, n: usize) -> bool {
         l < NP || (self.opts.server && k + 1 < n)
@@ -498,10 +520,10 @@ impl<'a> Problem<'a> {
 
     /// The clearance of each leg of tick `k` of `n` from `x` under `u`, and the nearest box.
     fn clearances(&self, k: usize, n: usize, x: &X, u: U) -> [(f64, Option<usize>); NL] {
-        let (_, legs) = tick_legs(&self.kernel, x, u);
+        let (_, legs) = tick_legs(&self.kernel, x, u, self.relax_at(k));
         std::array::from_fn(|l| {
             if self.leg_held(l, k, n) {
-                self.walls.clearance(legs[l][0], legs[l][1])
+                self.leg_clearance(legs[l][0], legs[l][1])
             } else {
                 (f64::INFINITY, None)
             }
@@ -743,16 +765,20 @@ impl<'a> Problem<'a> {
             DualSVec64::<8>::from_re(v).derivative(i)
         });
         let xd: [DualSVec64<8>; 6] = std::array::from_fn(|i| z[i]);
-        let (next, legs) = tick_legs(&self.kernel, &xd, [z[6], z[7]]);
+        let (next, legs) = tick_legs(&self.kernel, &xd, [z[6], z[7]], self.relax_at(k));
         let fz = next.map(|d| grad(&d));
         let walls = (0..NL)
             .filter(|&l| self.leg_held(l, k, m.walls.len()))
             .map(|l| {
                 let [from, to] = legs[l];
-                let (c, nearest) = self.walls.clearance(from.map(|d| d.re), to.map(|d| d.re));
+                let (c, nearest) = self.leg_clearance(from.map(|d| d.re), to.map(|d| d.re));
                 let (_, a) = phr(c, m.walls[k][l], m.rho, self.opts.margin);
                 match nearest {
-                    Some(b) if a > 0.0 => (a, grad(&leg_sdf(from, to, &self.walls.boxes[b]))),
+                    Some(b) if a > 0.0 => {
+                        let b = &self.walls.boxes[b];
+                        let d = if self.opts.relax.is_some() { segment_sdf(from, to, b) } else { leg_sdf(from, to, b) };
+                        (a, grad(&d))
+                    }
                     _ => (0.0, [0.0; 8]),
                 }
             })

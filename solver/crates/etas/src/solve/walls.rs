@@ -18,7 +18,7 @@
 //! fails as a whole on the first unknown cell; for the cells inside the region the
 //! result is a superset of its boxes.
 
-use sim::generic::ghost::{HALF_WIDTH, HEIGHT, leg_sdf};
+use sim::generic::ghost::{HALF_WIDTH, HEIGHT, leg_sdf, segment_sdf};
 use world::{Aabb, BlockPos, Cell, Effect, World};
 
 /// Obstacle boxes in a region of the world, bucketed by block cell.
@@ -151,6 +151,34 @@ impl Walls {
                         let d = leg_sdf(from, to, &self.boxes[n as usize]);
                         // ties go to the lower index, so the answer doesn't depend on
                         // which cell saw the box first
+                        if d < best.0 || (d == best.0 && best.1.is_some_and(|m| (n as usize) < m)) {
+                            best = (d, Some(n as usize));
+                        }
+                    }
+                }
+            }
+        }
+        best
+    }
+
+    /// [`Walls::clearance`] by `segment_sdf`, for a move off the axes.
+    pub fn segment_clearance(&self, from: [f64; 3], to: [f64; 3]) -> (f64, Option<usize>) {
+        let (a, b) = search_box(from, to, self.range);
+        let ca: [i32; 3] = std::array::from_fn(|i| (a[i].floor() as i32).max(self.glo[i]));
+        let cb: [i32; 3] = std::array::from_fn(|i| {
+            (b[i].floor() as i32).min(self.glo[i] + self.dims[i] as i32 - 1)
+        });
+        let mut best = (self.range, None);
+        for y in ca[1]..=cb[1] {
+            for z in ca[2]..=cb[2] {
+                for x in ca[0]..=cb[0] {
+                    for &n in &self.cells[index(self.glo, self.dims, [x, y, z])] {
+                        let b = &self.boxes[n as usize];
+                        // the sweep's bounding box is a lower bound, and skips most boxes
+                        if leg_sdf(from, to, b) > best.0 {
+                            continue;
+                        }
+                        let d = segment_sdf(from, to, b);
                         if d < best.0 || (d == best.0 && best.1.is_some_and(|m| (n as usize) < m)) {
                             best = (d, Some(n as usize));
                         }
