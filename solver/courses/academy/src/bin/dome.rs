@@ -19,9 +19,9 @@
 //!   or `PREFIX`K, for `optimize --hybrid --server slab_`.
 //! - `slabcheck NAME...`: flights in `runs/relax`, by `verify` and the server's box.
 //! - `slabdive`: the same late pull-out from the TAS's climb, with no landing.
-//! - `slabtime`: the slab's tick timings, every tick: run-up, W held after the jump, S to stay back once
-//!   past the lip, sprint on, deploy, from spots up to the back wall; then spot, headings and the deploy
-//!   tick's rotation around the best. `slabflights N runs/dome/slabtime.json tick_` flies them.
+//! - `slabtime`: the slab's tick timings, every tick: run-up, W held after the jump, a sprint south once
+//!   past the lip, a sprint north, deploy, with and without touching the corner at y 280; then spot,
+//!   headings and keys around the best. `slabflights N runs/dome/slabtime.json tick_` flies them.
 //!
 //! As of 2026-11-05 05:50 EST, against the 537 tick TAS: every spot under the roof leaves by about the
 //! same state, y 205.9, v (-0.2, -0.72, -1.55), and the best verify at 535. With no walls at all the
@@ -42,6 +42,12 @@
 //! start spot doesn't: the three tried, z 227.9 to 228.69, read the same, since S takes each back to there.
 //! Nothing drifts further south under the slab, though the shaft is open to z 230 there. Headings and the
 //! deploy tick's rotation found nothing either.
+//!
+//! As of 2026-11-06 00:30 EST, adding a sprint north on a 45 degree strafe (2% more top speed) and a sprint
+//! south: table 534.55, and of 40 flights one at 530, two at 531, thirty at 532, seven at 533. The start is
+//! still about 3 ticks of that: `optimize` found the 530's other 2 at 160-280 ticks past the door, and a
+//! near twin of its start got 532. The strafe north is what reads better; back keys and touching the corner
+//! at y 280 read the same, though the 530 and 531s all miss it, moving south.
 //!
 //! `cargo run --release -p academy --bin dome -- PHASE`
 
@@ -1050,6 +1056,12 @@ struct OffMore {
     air_turn: f64,
     dep_turn: f64,
     dep_pitch: f64,
+    /// How the `brake` ticks push south: 0, S; 1, W + sprint, turned around; 2, the same on a 45 degree strafe.
+    back: u8,
+    /// The sprint north on a 45 degree strafe.
+    fwd45: bool,
+    /// Touches a wall in the air, sideways, and only then: why apart? to see if the corner's stop costs.
+    contact: bool,
 }
 
 fn off_inputs(yaw: f64, run: usize, coast: Option<usize>, deploy: usize, m: OffMore) -> Vec<InputRow> {
@@ -1058,9 +1070,20 @@ fn off_inputs(yaw: f64, run: usize, coast: Option<usize>, deploy: usize, m: OffM
     v.extend(vec![row("WR"); run]);
     v.push(row(if coast == Some(0) || run > 0 || m.hold > 0 { "WRJ" } else { "J" }));
     for a in 1..deploy {
-        let on = coast.is_some_and(|c| a >= c);
-        let k = if on { "WR" } else if a <= m.hold { "WR" } else if a <= m.hold + m.brake { "S" } else { "-" };
-        v.push(InputRow { yaw: if on { yaw + m.air_turn } else { yaw }, pitch: 0.0, keys: k.to_string() });
+        let (y, k) = if coast.is_some_and(|c| a >= c) {
+            if m.fwd45 { (yaw + m.air_turn + 45.0, "WAR") } else { (yaw + m.air_turn, "WR") }
+        } else if a <= m.hold {
+            (yaw, "WR")
+        } else if a <= m.hold + m.brake {
+            match m.back {
+                0 => (yaw, "S"),
+                1 => (yaw + 180.0, "WR"),
+                _ => (yaw + 225.0, "WAR"),
+            }
+        } else {
+            (yaw, "-")
+        };
+        v.push(InputRow { yaw: y, pitch: 0.0, keys: k.to_string() });
     }
     v.push(InputRow { yaw: yaw + m.dep_turn, pitch: m.dep_pitch, keys: if coast.is_some_and(|c| deploy >= c) { "WRJ" } else { "J" }.to_string() });
     v
@@ -1086,7 +1109,7 @@ fn off_state(proto: &Trajectory, w: &World, spot: [f64; 3], yaw: f64, run: usize
         return None;
     }
     let air = &t.rows[jump..];
-    if air.iter().any(|r| r.state.on_ground || r.state.horizontal_collision || r.state.vertical_collision) {
+    if air.iter().any(|r| r.state.on_ground || r.state.vertical_collision) || air.iter().any(|r| r.state.horizontal_collision) != more.contact {
         return None;
     }
     let last = &air.last()?.state;
@@ -1251,8 +1274,8 @@ fn slabtime(dir: &Path, w: &World) -> Result<(), String> {
     let line = |o: &Off| {
         let e = o.exit;
         println!(
-            "{:7.2} x{:6.1} z{:7.2} yaw{:4.0} run{:2} hold{:2} brake{:2} sprint{:3} deploy{:3} air{:3.0} dep{:3.0} pitch{:3.0} | deploy y{:6.2} z{:6.2} v{:5.2} {:5.2} | {:2} | exit y{:6.2} v{:5.2} {:5.2} {:5.2}",
-            o.value, o.spot[0], o.spot[2], o.yaw, o.run, o.more.hold, o.more.brake, o.coast.unwrap_or(0), o.deploy, o.more.air_turn, o.more.dep_turn, o.more.dep_pitch, o.x[1], o.x[2], o.x[4], o.x[5], o.ticks, e[1], e[3], e[4], e[5]
+            "{:7.2} x{:6.1} z{:7.2} yaw{:4.0} run{:2} hold{:2} back{:2}x{:2} sprint{:3} 45:{} hit:{} deploy{:3} air{:3.0} | deploy y{:6.2} z{:6.2} v{:5.2} {:5.2} | {:2} | exit y{:6.2} v{:5.2} {:5.2} {:5.2}",
+            o.value, o.spot[0], o.spot[2], o.yaw, o.run, o.more.hold, o.more.back, o.more.brake, o.coast.unwrap_or(0), o.more.fwd45 as u8, o.more.contact as u8, o.deploy, o.more.air_turn, o.x[1], o.x[2], o.x[4], o.x[5], o.ticks, e[1], e[3], e[4], e[5]
         );
     };
     let best_by = |name: &str, of: &[Off], key: &dyn Fn(&Off) -> String| {
@@ -1270,16 +1293,18 @@ fn slabtime(dir: &Path, w: &World) -> Result<(), String> {
 
     // stage 1, the timings, from a mid heading and spot in x
     let mut jobs = Vec::new();
-    for z in [228.69, 228.3, 227.9] {
+    for z in [228.69, 227.9] {
         for run in 0..=5usize {
-            for hold in 0..=5usize {
-                for brake in [0usize, 4, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28] {
-                    for coast in 10..=40usize {
+            for hold in 0..=6usize {
+                for brake in (2..=34usize).step_by(2) {
+                    for coast in 10..=44usize {
                         if coast <= hold + brake {
                             continue;
                         }
                         for deploy in 47..=54usize {
-                            jobs.push(([-25.5, 283.7, z], 177.0, run, coast, deploy, OffMore { hold, brake, ..Default::default() }));
+                            for contact in [false, true] {
+                                jobs.push(([-25.5, 283.7, z], 177.0, run, coast, deploy, OffMore { hold, brake, back: 2, fwd45: true, contact, ..Default::default() }));
+                            }
                         }
                     }
                 }
@@ -1290,8 +1315,10 @@ fn slabtime(dir: &Path, w: &World) -> Result<(), String> {
     println!("stage 1: {} of {} seeds reach the door, {:.0} s", scored.len(), jobs.len(), t0.elapsed().as_secs_f64());
     // the polish is per spot, so the back wall's answer isn't crowded out by a coarse seed read
     let mut picked: Vec<&Off> = Vec::new();
-    for z in [228.69, 228.3, 227.9] {
-        picked.extend(scored.iter().filter(|o| o.spot[2] == z).take(1500));
+    for z in [228.69, 227.9] {
+        for contact in [false, true] {
+            picked.extend(scored.iter().filter(|o| o.spot[2] == z && o.more.contact == contact).take(1500));
+        }
     }
     let mut solved: Vec<Off> = picked.par_iter().filter_map(|o| solve(o)).collect();
     solved.sort_by(|a, b| a.value.total_cmp(&b.value));
@@ -1306,6 +1333,7 @@ fn slabtime(dir: &Path, w: &World) -> Result<(), String> {
     best_by("sprint on", &solved, &|o| format!("{:02}", o.coast.unwrap_or(0)));
     best_by("deploy", &solved, &|o| format!("{:02}", o.deploy));
     best_by("deploy z", &solved, &|o| format!("{:.0}", o.x[2]));
+    best_by("contact", &solved, &|o| o.more.contact.to_string());
     std::io::stdout().flush().ok();
 
     // stage 2, spot and headings around the best timings
@@ -1313,10 +1341,10 @@ fn slabtime(dir: &Path, w: &World) -> Result<(), String> {
     for o in solved.iter().take(40) {
         for x in [-25.8, -25.5, -25.2] {
             for yaw in [174.0, 176.0, 178.0, 180.0] {
-                for air_turn in [-6.0, -3.0, 0.0, 3.0] {
-                    for dep_turn in [-6.0, -3.0, 0.0, 3.0] {
-                        for dep_pitch in [-5.0, 0.0, 5.0, 10.0, 20.0] {
-                            jobs.push(([x, 283.7, o.spot[2]], yaw, o.run, o.coast.unwrap(), o.deploy, OffMore { air_turn, dep_turn, dep_pitch, ..o.more }));
+                for air_turn in [-3.0, 0.0, 3.0] {
+                    for back in [0u8, 1, 2] {
+                        for fwd45 in [false, true] {
+                            jobs.push(([x, 283.7, o.spot[2]], yaw, o.run, o.coast.unwrap(), o.deploy, OffMore { air_turn, back, fwd45, ..o.more }));
                         }
                     }
                 }
@@ -1335,8 +1363,8 @@ fn slabtime(dir: &Path, w: &World) -> Result<(), String> {
     best_by("spot x", &solved2, &|o| format!("{:.1}", o.spot[0]));
     best_by("yaw", &solved2, &|o| format!("{:.0}", o.yaw));
     best_by("sprint turn", &solved2, &|o| format!("{:.0}", o.more.air_turn));
-    best_by("deploy turn", &solved2, &|o| format!("{:.0}", o.more.dep_turn));
-    best_by("deploy pitch", &solved2, &|o| format!("{:.0}", o.more.dep_pitch));
+    best_by("back keys", &solved2, &|o| o.more.back.to_string());
+    best_by("north on a 45", &solved2, &|o| o.more.fwd45.to_string());
     solved2.truncate(3000);
     std::fs::write(dir.join("runs/dome/slabtime.json"), serde_json::to_string(&solved2).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
@@ -1349,7 +1377,7 @@ fn slabflights(dir: &Path, course: &Course, w: &World, n: usize, file: &str, pre
     let found: Vec<Off> = serde_json::from_str(&std::fs::read_to_string(dir.join(file)).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     let mut chosen: Vec<&Off> = Vec::new();
     for o in &found {
-        let timing = |c: &Off| (c.deploy, c.coast, c.run, c.more.hold, c.more.brake, c.spot[2].to_bits());
+        let timing = |c: &Off| (c.deploy, c.coast, c.run, c.more.hold, c.more.brake, c.more.back, c.more.contact, c.spot[2].to_bits());
         if chosen.iter().all(|c| timing(c) != timing(o)) {
             chosen.push(o);
             if chosen.len() == n {
