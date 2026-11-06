@@ -61,9 +61,11 @@ gives false contradictions.
   the box until the next whole-number crossing on any axis: a fall at x, z fixed fires at y < 198,
   which reads as y >= 198 if you assume the first pose outside. The message comes straight from the
   move handler, one ping after that move (age within 3 ms of the ping on most, not at a tick
-  end), and repeats of one plan fire on the same move. A prediction test on unflown passes and a
-  different ping haven't been run. The finish hasn't been tested for this; its lag band below
-  still assumes tick-end chats.
+  end), and repeats of one plan fire on the same move. Flown out of sample at 2026-11-05 23:30 EST:
+  14 of 14 new passes fired on the move this picks, up to 6 ticks after the first pose outside
+  (5 checked against poses predicted before flying, 9 against the poses they sent). `/etas queue`,
+  `tools/probe_timer.py`. Untested at a different ping. The finish hasn't been tested for this;
+  its lag band below still assumes tick-end chats.
 - **Timer and finish events reach you a constant delay after the pose they judged.** As long
   as the timer chat's delay: on academy, 2 ticks for 170 of 199 timer starts in the
   2026-11-03 20:52 log, 5 for 87 of 90 in the 1.21.11 replay. The action bar shows
