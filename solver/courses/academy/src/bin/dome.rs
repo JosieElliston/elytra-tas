@@ -79,6 +79,10 @@
 //! 50 and a tick late, comes back to 527.94 from the timer with the dive back at pitch 90, as does the 528 itself. So
 //! the dive is a real feature of that optimum, not chatter from a stuck solve.
 //!
+//! As of 2026-11-06 07:04 EST, `ideas finish` flies a whole-run solve with no windows: `calm`'s plan had seams of 0.15 to 0.4 degrees at
+//! `track`'s 24-tick windows, and `follow`, a re-solve per tick, has none. Open loop won't do, even with the kernels' gap put
+//! back into the solve: it leaves the plan at the pinch at t176. Its small bumps left are all within 5 ticks of a wall.
+//!
 //! `cargo run --release -p academy --bin dome -- PHASE`
 
 use std::io::Write;

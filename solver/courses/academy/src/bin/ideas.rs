@@ -10,6 +10,9 @@
 //!   table, for how many reversals the door needs; writes `runs/hybrid/idea_door_K`.
 //! - `graft A B OUT`: A's way off the slab up to its deploy, then B's inputs from B's deploy on, flown whole under
 //!   port. Written to `runs/relax/OUT` if it holds as flown, and as a seed `runs/hybrid/OUT` from the door on anyway.
+//! - `finish BASE T0 OUT WEIGHT`: BASE from tick T0 to the finish as one solve, rotation priced at WEIGHT, flown under
+//!   the faithful kernel by `follow`, with what that kernel's steps differ by put back into the solve. No windows, so no
+//!   seams. Writes `runs/relax/OUT`.
 //! - `blend A B T0 T1 OUT`: A, then between ticks T0 and T1 a smooth fade to B, then B, as `runs/hybrid/OUT`.
 //! - `bump BASE T0 T1 DX DY DZ OUT`: BASE's positions moved by a smooth bump that peaks halfway, as `runs/hybrid/OUT`.
 //! - `calm BASE T0 T1 OUT [WEIGHT...]`: re-fly BASE's ticks T0..T1 with rotation priced at each weight, pinned to
@@ -23,11 +26,12 @@
 //! `cargo run --release -p academy --bin ideas -- PHASE`
 
 use std::path::Path;
+use std::sync::Arc;
 
 use etas::course::Course;
 use etas::solve::bounces::{SCALE, flight, fly, state_at as state_at_full};
 use etas::solve::ddp::{Goal, Opts, Plan as DPlan, Problem, Rate, X, control, input_at, lead_of, rotation};
-use etas::solve::refly::track;
+use etas::solve::refly::{follow, track};
 use etas::solve::smooth::DELTA;
 use etas::solve::gate::{Gate, ValueTable};
 use etas::solve::walls::Walls;
@@ -523,6 +527,119 @@ fn calm(dir: &Path, course: &Course, w: &World, base_name: &str, t0: usize, t1: 
     Ok(())
 }
 
+fn finish(dir: &Path, course: &Course, w: &World, base_name: &str, t0: usize, out: &str, weight: f64) -> Result<(), String> {
+    let base = relax(dir, base_name)?;
+    let walls = glide_walls(w, &base);
+    let f = &course.region("finish")?.working;
+    let at = f.min[2].ok_or("finish has no z_min")?;
+    let z = |t: usize| state_at_full(&base, t).position[2];
+    let end = (t0..base.rows.len()).find(|&t| z(t) <= at && z(t + 1) > at).ok_or("no finish")? + 1;
+    let x0 = flight(state_at_full(&base, t0));
+    let yaw_from = state_at_full(&base, t0).y_rot;
+    let prev = rotation(&flight(state_at_full(&base, t0 - 1)), &{
+        let i = &base.rows[t0 - 1].input;
+        control(lead_of(&flight(state_at_full(&base, t0 - 1)), i.yaw), i.pitch)
+    });
+    let seed: Vec<_> = (t0..end).map(|t| {
+        let i = &base.rows[t].input;
+        control(lead_of(&flight(state_at_full(&base, t)), i.yaw), i.pitch)
+    }).collect();
+    let problem = |defects: Option<Arc<Vec<X>>>| Problem {
+        kernel: Generic::default(),
+        walls: &walls,
+        x0,
+        goal: Goal::Gate {
+            normal: [0.0, 0.0, 1.0],
+            at,
+            cap: end - t0 + 80,
+            lo: [f.min[0].unwrap_or(f64::NEG_INFINITY), f.min[1].unwrap_or(f64::NEG_INFINITY), f64::NEG_INFINITY],
+            hi: f.max.map(|m| m.unwrap_or(f64::INFINITY)),
+        },
+        opts: Opts { tol: 1e-6, margin: MARGIN, server: true, rate: Rate { from: Some(prev), ..Rate::new(weight, DELTA) }, defects, ..Opts::default() },
+    };
+    let fs = |x: &X| FlightState { pos: [x[0], x[1], x[2]], vel: [x[3], x[4], x[5]] };
+    let mut u = seed;
+    let mut defects = None;
+    let mut mult = None;
+    for pass in 0..3 {
+        let pb = problem(defects.clone());
+        let s = match mult.take() {
+            Some(m) if pass > 1 => pb.solve_from(m, &u),
+            _ => pb.solve(&u),
+        };
+        // each tick's gap from the plan's own state, so drift so far doesn't count in it
+        let mut near = yaw_from;
+        let mut d = Vec::new();
+        for (k, uk) in s.plan.u.iter().enumerate() {
+            let (input, y) = input_at(&s.plan.x[k], uk, near);
+            near = y;
+            let g = etas::solve::ddp::step(&pb.kernel, &s.plan.x[k], *uk).0;
+            d.push(match Faithful.step_input(w, &fs(&s.plan.x[k]), &input) {
+                Ok(t) if t.contact.is_none() => {
+                    let nx = [t.state.pos[0], t.state.pos[1], t.state.pos[2], t.state.vel[0], t.state.vel[1], t.state.vel[2]];
+                    std::array::from_fn(|i| nx[i] - g[i])
+                }
+                _ => [0.0; 6],
+            });
+        }
+        // then the whole plan flown, heading kept by the leads, to judge it
+        let (mut x, mut yaw) = (x0, yaw_from);
+        let (mut gap, mut contacts) = (0.0f64, 0);
+        let mut stopped_at = None;
+        for (k, uk) in s.plan.u.iter().enumerate() {
+            let (input, y) = input_at(&x, uk, yaw);
+            yaw = y;
+            match Faithful.step_input(w, &fs(&x), &input) {
+                Ok(t) => {
+                    contacts += t.contact.is_some() as usize;
+                    x = [t.state.pos[0], t.state.pos[1], t.state.pos[2], t.state.vel[0], t.state.vel[1], t.state.vel[2]];
+                    gap = gap.max((0..3).map(|i| (x[i] - s.plan.x[k + 1][i]).powi(2)).sum::<f64>().sqrt());
+                }
+                Err(_) => {
+                    stopped_at = Some(t0 + k);
+                    break;
+                }
+            }
+        }
+        println!("  flew to {stopped_at:?}");
+        let clear = pb.worst(&s.plan.x, &s.plan.u);
+        println!(
+            "pass {pass}: feasible {}, clear {clear:.4}, crossing {:.3}, flown off the plan by at most {gap:.5}, contacts {contacts}, ticks {}",
+            s.feasible, t0 as f64 + pb.value(&s.plan.x), s.plan.u.len()
+        );
+        u = s.plan.u;
+        mult = Some(s.mult);
+        defects = Some(Arc::new(d));
+    }
+    let pb = problem(defects.clone());
+    let plan = DPlan { x: pb.rollout(&u), u };
+    // why 96? at 24 and 48 a correction still shows as a bump, 96 ticks away from any wall (academy, 2026-11-06)
+    let horizon = 96;
+    let rep = follow(w, &Problem { opts: Opts { margin: 0.01, ..pb.opts.clone() }, ..pb.clone() }, &plan, yaw_from, horizon, SCALE);
+    println!("follow: {} re-solves, {:.1} s, contacts {:?}, event {:?}", rep.resolves, rep.secs, &rep.contacts[..rep.contacts.len().min(6)], rep.event);
+    let flown = rep.inputs;
+    let row = |u: &sim::state::Input<f32>| InputRow { yaw: u.yaw as f64, pitch: u.pitch as f64, keys: "WR".to_string() };
+    let mut inputs: Vec<InputRow> = base.rows[..t0].iter().map(|r| r.input.clone()).collect();
+    inputs.extend(flown.iter().map(row));
+    let l = *flown.last().ok_or("empty")?;
+    inputs.extend((0..7).map(|_| row(&l)));
+    let (tr, stopped) = fly(&base.initial, &inputs, &[], w, base.header.clone());
+    let r = etas::verify::verify(course, w, etas::verify::Plan::Trajectory(&tr));
+    let zz = |t: usize| state_at_full(&tr, t).position[2];
+    let g = (t0.max(1)..tr.rows.len()).find(|&t| zz(t - 1) <= at && zz(t) > at);
+    println!(
+        "{out}: {} timed {:?} past the plane at row {g:?}, {:.3} ticks spare, stopped {stopped:?}, failure {:?}",
+        if r.ok() { "PASS" } else { "FAIL" },
+        r.timer_tick().zip(r.finish_tick()).map(|(s, e)| e - s),
+        g.map_or(f64::NAN, |g| (zz(g) - at) / (zz(g) - zz(g - 1))),
+        r.failures.first(),
+    );
+    if stopped.is_none() {
+        tr.write(&dir.join(format!("runs/relax/{out}.traj.jsonl")))?;
+    }
+    Ok(())
+}
+
 fn smoothstep(u: f64) -> f64 {
     let u = u.clamp(0.0, 1.0);
     u * u * (3.0 - 2.0 * u)
@@ -659,11 +776,12 @@ fn main() -> Result<(), String> {
             let weights: Vec<f64> = args[5..].iter().map(|s| s.parse().unwrap()).collect();
             calm(dir, &course, &w, &args[1], args[2].parse().unwrap(), args[3].parse().unwrap(), &args[4], &weights)
         }
+        Some("finish") => finish(dir, &course, &w, &args[1], args[2].parse().unwrap(), &args[3], args[4].parse().unwrap()),
         Some("blend") => blend(dir, &args[1], &args[2], args[3].parse().unwrap(), args[4].parse().unwrap(), &args[5]),
         Some("bump") => {
             let v: Vec<f64> = args[4..7].iter().map(|s| s.parse().unwrap()).collect();
             bump(dir, &args[1], args[2].parse().unwrap(), args[3].parse().unwrap(), [v[0], v[1], v[2]], &args[7])
         }
-        _ => Err("blocks | clear | setup | setupgrid | door | graft | blend | bump | calm".into()),
+        _ => Err("blocks | clear | setup | setupgrid | door | graft | blend | bump | calm | finish".into()),
     }
 }

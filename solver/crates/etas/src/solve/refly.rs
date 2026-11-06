@@ -297,3 +297,63 @@ pub fn track(
     out.secs = t0.elapsed().as_secs_f64();
     out
 }
+
+/// [`track`] with no windows: a re-solve every tick over the next `horizon`, of which only that tick is flown, so a
+/// correction spreads over the ticks after it and leaves no seam where a window ended. Set `pb.opts.rate` to price its
+/// rotation from the one just flown.
+pub fn follow(world: &World, pb: &Problem, plan: &Plan, yaw_from: f64, horizon: usize, reach_scale: X) -> Repaired {
+    let f = Faithful;
+    let n = plan.u.len();
+    let t0 = Instant::now();
+    let mut u = plan.u.clone();
+    let mut out = Repaired { inputs: Vec::new(), flown: vec![pb.x0], contacts: Vec::new(), event: None, resolves: 0, secs: 0.0 };
+    let mut yaw_prev = yaw_from;
+    for k in 0..n + 6 {
+        let x = *out.flown.last().unwrap();
+        if k < n {
+            let mut opts = pb.opts.clone();
+            if let Some(i) = out.inputs.last() {
+                opts.rate.from = Some([i.yaw as f64 * D2R, i.pitch as f64 * D2R]);
+            }
+            opts.defects = pb.opts.defects.as_ref().map(|d| std::sync::Arc::new(d[k.min(d.len())..].to_vec()));
+            let end = k + horizon;
+            out.resolves += 1;
+            if end + 8 < n {
+                let sub = Problem { x0: x, goal: Goal::Reach { target: plan.x[end], scale: reach_scale }, opts, ..pb.clone() };
+                let s = sub.solve_stage(&mut Multipliers::new(1e3, horizon), &u[k..end], 1e-10).0;
+                if sub.worst(&s.x, &s.u) >= sub.opts.margin - 1e-3 {
+                    u[k..end].copy_from_slice(&s.u);
+                }
+            } else {
+                let sub = Problem { x0: x, opts, ..pb.clone() };
+                let s = sub.solve_stage(&mut Multipliers::new(1e3, n - k), &u[k..], 1e-10).0;
+                if sub.worst(&s.x, &s.u) >= sub.opts.margin - 1e-3 {
+                    u.truncate(k);
+                    u.extend_from_slice(&s.u);
+                }
+            }
+        }
+        let uk = *u.get(k).unwrap_or_else(|| u.last().unwrap());
+        let (input, yaw) = input_at(&x, &uk, yaw_prev);
+        yaw_prev = yaw;
+        out.inputs.push(input);
+        match f.step_input(world, &fs(&x), &input) {
+            Ok(t) => {
+                if t.contact.is_some() {
+                    out.contacts.push(k + 1);
+                }
+                let nx = xs(&t.state);
+                out.flown.push(nx);
+                if pb.crossed(&x, &nx) {
+                    break;
+                }
+            }
+            Err(e) => {
+                out.event = Some((k + 1, e));
+                break;
+            }
+        }
+    }
+    out.secs = t0.elapsed().as_secs_f64();
+    out
+}

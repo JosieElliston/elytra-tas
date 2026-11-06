@@ -158,11 +158,16 @@ pub struct Opts {
     /// (2026-11-05 03:14) were at ticks only that box hit. The horizon's last tick isn't held:
     /// its end is a pin or past the finish.
     pub server: bool,
+    /// What to add to the kernel's next state, per tick from `x0`: the faithful kernel's step less the generic's along a
+    /// flown plan. why? with these a whole solve flies as planned under the game, so it needs no windows of re-solves to
+    /// follow it, and their seams. Constant for the derivatives, since the gap barely moves with the state.
+    pub defects: Option<Arc<Vec<X>>>,
 }
 
 impl Default for Opts {
     fn default() -> Self {
         Opts {
+            defects: None,
             margin: 0.02,
             c0: 100.0,
             grow: 10.0,
@@ -465,11 +470,22 @@ fn clamp_pitch(u: &mut U) {
 }
 
 impl<'a> Problem<'a> {
+    /// The kernel's next state from `x` under `u`, tick `k` from `x0`, with its defect.
+    fn advance(&self, k: usize, x: &X, u: U) -> X {
+        let mut n = step(&self.kernel, x, u).0;
+        if let Some(d) = self.opts.defects.as_ref().and_then(|d| d.get(k)) {
+            for i in 0..6 {
+                n[i] += d[i];
+            }
+        }
+        n
+    }
+
     pub fn rollout(&self, u: &[U]) -> Vec<X> {
         let mut x = Vec::with_capacity(u.len() + 1);
         x.push(self.x0);
-        for &uk in u {
-            let n = step(&self.kernel, x.last().unwrap(), uk).0;
+        for (k, &uk) in u.iter().enumerate() {
+            let n = self.advance(k, x.last().unwrap(), uk);
             x.push(n);
         }
         x
@@ -951,7 +967,7 @@ impl<'a> Problem<'a> {
             });
             clamp_pitch(&mut uk);
             nu.push(uk);
-            let n = step(&self.kernel, &nx[k], uk).0;
+            let n = self.advance(k, &nx[k], uk);
             nx.push(n);
         }
         (nx, nu)
@@ -970,7 +986,7 @@ impl<'a> Problem<'a> {
                 while u.len() < cap {
                     let l = *u.last().unwrap();
                     u.push(l);
-                    let n = step(&self.kernel, x.last().unwrap(), l).0;
+                    let n = self.advance(x.len() - 1, x.last().unwrap(), l);
                     let done = self.crossed(x.last().unwrap(), &n);
                     x.push(n);
                     if done {
