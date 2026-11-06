@@ -2,6 +2,7 @@ package jealoustone.etasoracle;
 
 import jealoustone.elytratas.netlog.NetLog;
 import jealoustone.elytratas.play.Plan;
+import jealoustone.elytratas.play.PlanQueue;
 import jealoustone.elytratas.play.Playback;
 import jealoustone.etasoracle.mixin.EntityAccessor;
 import jealoustone.etasoracle.mixin.LocalPlayerAccessor;
@@ -53,7 +54,7 @@ import java.util.zip.GZIPInputStream;
 
 /**
  * The elytra-tas mod's {@code /etas play} in a singleplayer world (README.md "Playback
- * tests"). Which: {@code PLAYBACK_TESTS=a,b,c} (default all, {@code none} skips).
+ * tests"). Which: {@code PLAYBACK_TESTS=a,b,c,e} (default all, {@code none} skips).
  *
  * <ul>
  * <li>(a) a plan made from an oracle case ({@code PLAYBACK_CASE}, default air-1, read from
@@ -113,7 +114,7 @@ public final class PlaybackGameTest implements FabricClientGameTest {
 
     @Override
     public void runTest(ClientGameTestContext context) {
-        String which = System.getenv().getOrDefault("PLAYBACK_TESTS", "a,b,c,d");
+        String which = System.getenv().getOrDefault("PLAYBACK_TESTS", "a,b,c,d,e");
         if (which.equals("none")) return;
         Set<String> tests = Set.of(which.split(","));
         Path out = Path.of(System.getProperty("playback.out", "build/playback"));
@@ -156,7 +157,7 @@ public final class PlaybackGameTest implements FabricClientGameTest {
                     before.getAccessToken(), before.getXuid(), before.getClientId())));
             refusals(context, out, true);
 
-            if (tests.contains("a") || tests.contains("c")) {
+            if (tests.contains("a") || tests.contains("c") || tests.contains("e")) {
                 String name = System.getenv().getOrDefault("PLAYBACK_CASE", "air-1");
                 OracleCase oc = OracleCase.read(cases.resolve(name));
                 if (oc == null) {
@@ -165,6 +166,7 @@ public final class PlaybackGameTest implements FabricClientGameTest {
                     prepareOracleWorld(context, sp, oc);
                     if (tests.contains("a")) caseA(context, sp, oc, out);
                     if (tests.contains("c")) caseC(context, sp, oc, out);
+                    if (tests.contains("e")) caseE(context, oc);
                 }
             }
             if (tests.contains("b")) caseB(context, sp, out);
@@ -177,6 +179,7 @@ public final class PlaybackGameTest implements FabricClientGameTest {
             e.printStackTrace();
         } finally {
             context.runOnClient(c -> {
+                PlanQueue.disable("test end");
                 Playback.stop("test end");
                 ((MinecraftAccessor) c).oracle$setUser(before);
             });
@@ -241,6 +244,7 @@ public final class PlaybackGameTest implements FabricClientGameTest {
             Playback.Status s = Playback.status();
             if (s.history().size() != lastHistory) {
                 lastHistory = s.history().size();
+                if (lastHistory == 0) return; // a new /etas play or queue plan cleared it
                 Playback.Attempt a = s.history().getLast();
                 if (a.abortLine() >= 0) {
                     // the abort happened in this tick's handler, right before this, and this
@@ -486,6 +490,54 @@ public final class PlaybackGameTest implements FabricClientGameTest {
             return m;
         });
         context.waitFor(c -> server.entrySet().stream().allMatch(e -> c.level.getBlockState(e.getKey()).equals(e.getValue())), 1200);
+    }
+
+    /** (e) the queue: a plan with no finish gets an answer and the queue goes on; a refused plan stops it. */
+    private void caseE(ClientGameTestContext context, OracleCase oc) {
+        Path dir = context.computeOnClient(PlanQueue::dir);
+        try {
+            if (Files.exists(dir)) {
+                try (var walk = Files.walk(dir)) {
+                    for (Path p : walk.sorted(java.util.Comparator.reverseOrder()).toList()) Files.delete(p);
+                }
+            }
+            Files.createDirectories(dir);
+            context.runOnClient(c -> c.player.connection.sendCommand("etas queue on"));
+            context.waitTicks(2);
+            check(context.computeOnClient(c -> PlanQueue.on()), "(e) /etas queue on");
+            List<String> plan = planLines("queue test", oc.start(), oc.startYaw(), oc.startPitch(), oc.yaw(), oc.pitch(),
+                    oc.keys(), oc.pos(), List.of(), -1, 0.0);
+            removeOnLine1 = scenario.platform;
+            drop(dir, "p1", plan);
+            Path answer = dir.resolve("done/p1.json");
+            for (int i = 0; i < 4000 && !Files.exists(answer); i++) context.waitTick();
+            removeOnLine1 = null;
+            check(Files.exists(answer), "(e) p1 answered");
+            String a = Files.readString(answer);
+            check(a.contains("\"ok\": false") && a.contains("without") && a.contains("\"abort_kind\": \"\""), "(e) a plan with no finish: " + a);
+            check(Files.exists(dir.resolve("done/p1.tas")) && !Files.exists(dir.resolve("p1.tas")), "(e) p1 moved to done");
+            check(context.computeOnClient(c -> PlanQueue.on()), "(e) the queue stays on after a plan with no finish");
+            List<String> bad = new ArrayList<>(plan);
+            bad.removeIf(l -> l.startsWith("start="));
+            drop(dir, "p2-bad", bad);
+            drop(dir, "p3", plan);
+            answer = dir.resolve("done/p2-bad.json");
+            for (int i = 0; i < 200 && !Files.exists(answer); i++) context.waitTick();
+            check(Files.exists(answer) && Files.readString(answer).contains("refused"), "(e) a bad plan is refused");
+            context.waitTicks(30);
+            check(!context.computeOnClient(c -> PlanQueue.on()), "(e) a refusal turns the queue off");
+            check(Files.exists(dir.resolve("p3.tas")) && !Files.exists(dir.resolve("done/p3.json")), "(e) later plans stay unflown");
+            check(Files.readString(dir.resolve("state")).startsWith("off refused"), "(e) state says why");
+            summary.add("(e) queue: " + a.replace('\n', ' '));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static void drop(Path dir, String name, List<String> plan) throws IOException {
+        Path tmp = dir.resolve(name + ".tmp");
+        write(tmp, plan);
+        Files.move(tmp, dir.resolve(name + ".tas"), StandardCopyOption.ATOMIC_MOVE);
     }
 
     private void caseA(ClientGameTestContext context, TestSingleplayerContext sp, OracleCase oc, Path out) {

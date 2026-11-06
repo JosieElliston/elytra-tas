@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import jealoustone.elytratas.netlog.NetLog;
 import jealoustone.elytratas.phase.PhaseCommand;
 import jealoustone.elytratas.phase.PhaseTracker;
+import jealoustone.elytratas.play.PlanQueue;
 import jealoustone.elytratas.play.PlayCommand;
 import jealoustone.elytratas.play.Playback;
 import net.fabricmc.api.ClientModInitializer;
@@ -40,6 +41,7 @@ public final class ElytraTasClient implements ClientModInitializer {
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             PhaseTracker.disconnect();
             Playback.stop("disconnect");
+            PlanQueue.disable("disconnect");
         });
         ClientLifecycleEvents.CLIENT_STOPPING.register(client -> NetLog.stop("exit"));
         ClientCommandRegistrationCallback.EVENT.register((dispatcher, context) -> {
@@ -50,6 +52,7 @@ public final class ElytraTasClient implements ClientModInitializer {
         ClientTickEvents.START_CLIENT_TICK.register(client -> {
             // first, so the T record and everything else in the tick see the plan's rotation
             Playback.tickStart(client);
+            PlanQueue.tick(client);
             PhaseTracker.tickStart(client);
             NetLog.clientTick(client, true);
         });

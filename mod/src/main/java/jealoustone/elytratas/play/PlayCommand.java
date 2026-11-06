@@ -16,7 +16,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.stream.Stream;
 
-/** {@code /etas play <plan> [runs=N] [settle=T] [maxfail=K] [hold_glide=1]}, {@code /etas stop}, {@code /etas status}. */
+/** {@code /etas play <plan> [runs=N] [settle=T] [maxfail=K] [hold_glide=1]}, {@code /etas stop}, {@code /etas status}, {@code /etas queue [on|off]}. */
 public final class PlayCommand {
     private PlayCommand() {
     }
@@ -41,7 +41,26 @@ public final class PlayCommand {
                     Playback.stop("/etas stop");
                     return 1;
                 }))
-                .then(ClientCommands.literal("status").executes(c -> status(c.getSource()))));
+                .then(ClientCommands.literal("status").executes(c -> status(c.getSource())))
+                .then(ClientCommands.literal("queue")
+                        .executes(c -> {
+                            c.getSource().sendFeedback(Component.literal("etas queue is " + (PlanQueue.on() ? "on" : "off")
+                                    + "; /etas queue on|off; plans go in " + PlanQueue.dir(c.getSource().getClient())));
+                            return 1;
+                        })
+                        .then(ClientCommands.literal("on").executes(c -> {
+                            String refused = PlanQueue.enable(c.getSource().getClient());
+                            if (refused != null) {
+                                c.getSource().sendError(Component.literal("etas queue: " + refused));
+                                return 0;
+                            }
+                            return 1;
+                        }))
+                        .then(ClientCommands.literal("off").executes(c -> {
+                            PlanQueue.disable("/etas queue off");
+                            Playback.stop("/etas queue off");
+                            return 1;
+                        }))));
     }
 
     private static List<String> plans(Path dir) {

@@ -64,6 +64,9 @@ public final class Playback {
 
     public enum Phase { IDLE, RESET, SETTLE, PLAY }
 
+    /** The stop reasons of {@link #endAttempt}: the attempts ran out, rather than something stopping them. */
+    static final java.util.regex.Pattern ATTEMPT_LIMIT = java.util.regex.Pattern.compile("finished \\d+ runs|\\d+ failures in a row");
+
     /**
      * runs 0 = until stopped; settle = still ticks at the start before line 1; maxFail = failed attempts in a row before
      * stopping. holdGlide is a test hack, never for a real run: see {@link #holdsGlide}.
@@ -82,12 +85,13 @@ public final class Playback {
      * {@code reactionDirectives}), and every line a glide-off or a velocity was first seen
      * before. {@code path} is the segments flown, each as {@code name@line} with the line
      * it was entered on. {@code abortKind} is "" for a success or a plan that ended
-     * without the finish, else diverge, rotation, unlisted or missing.
+     * without the finish, else diverge, rotation, unlisted or missing. {@code timerLine} is
+     * the line "Timer started!" was handled after, or -1.
      */
     public record Attempt(int n, boolean ok, String reason, int lines, int divergences, double maxDev,
                           int firstDivergence, int abortLine, double abortDev, List<Integer> reactions,
                           List<Integer> reactionDirectives, List<Integer> glideOffs, int finishLine,
-                          List<Integer> velocities, List<String> path, String abortKind) {
+                          List<Integer> velocities, List<String> path, String abortKind, int timerLine) {
     }
 
     public record Status(Phase phase, String plan, int lines, int line, int attempt, int done, int runs, int fails,
@@ -119,7 +123,7 @@ public final class Playback {
     private static Set<Plan.React> fired;
     private static int divergences, firstDivergence;
     private static double maxDev;
-    private static int finishLine;
+    private static int finishLine, timerLine;
     private static String finishText = "";
     private static List<Integer> reactions, reactionDirectives, glideOffs, velocities;
     private static List<String> path;
@@ -158,6 +162,15 @@ public final class Playback {
 
     /** Starts playing; null on success, else why it refused. */
     public static String start(Minecraft mc, String name, Options o) {
+        return start(mc, name, null, o);
+    }
+
+    /** {@link #start} for a plan outside the plans folder; {@link PlanQueue} flies them. */
+    static String startFile(Minecraft mc, Path file, Options o) {
+        return start(mc, file.getFileName().toString(), file, o);
+    }
+
+    private static String start(Minecraft mc, String name, Path at, Options o) {
         if (phase != Phase.IDLE) return "already playing " + plan.name + " (/etas stop)";
         LocalPlayer p = mc.player;
         if (p == null || mc.gameMode == null || mc.getConnection() == null) return "not in a world";
@@ -179,7 +192,7 @@ public final class Playback {
         }
         if (!name.matches("[A-Za-z0-9_.+-]+") || name.startsWith(".")) return "bad plan name " + name;
         String stem = name.endsWith(".tas") ? name.substring(0, name.length() - 4) : name;
-        Path file = dir(mc).resolve(stem + ".tas");
+        Path file = at != null ? at : dir(mc).resolve(stem + ".tas");
         if (!Files.isRegularFile(file)) return "no plan at " + file;
         Plan pl;
         try {
@@ -517,6 +530,7 @@ public final class Playback {
         firstDivergence = -1;
         maxDev = 0.0;
         finishLine = -1;
+        timerLine = -1;
         finishText = "";
         fired = Collections.newSetFromMap(new IdentityHashMap<>());
         reactions = new ArrayList<>();
@@ -536,7 +550,7 @@ public final class Playback {
         jumpDown = false;
         HISTORY.add(new Attempt(attempt, ok, reason, applied, divergences, maxDev, firstDivergence, abortLine, abortDev,
                 List.copyOf(reactions), List.copyOf(reactionDirectives), List.copyOf(glideOffs), finishLine,
-                List.copyOf(velocities), List.copyOf(path), abortKind));
+                List.copyOf(velocities), List.copyOf(path), abortKind, timerLine));
         NetLog.playback("end", "attempt=" + attempt, "result=" + (ok ? "ok" : "fail"), "reason=" + reason,
                 "line=" + applied, "divergences=" + divergences, "max_dev=" + maxDev, "reactions=" + reactions.size(),
                 "finish_line=" + finishLine, "path=" + String.join(",", path));
@@ -610,6 +624,7 @@ public final class Playback {
             finishText = text;
             NetLog.playback("finish", "line=" + applied, "text=" + text);
         } else if (text.equals("Timer started!")) {
+            if (timerLine < 0) timerLine = applied;
             NetLog.playback("timer", "line=" + applied);
         }
     }

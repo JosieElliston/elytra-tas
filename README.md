@@ -26,6 +26,8 @@ Flashback replays live in `<profile>/flashback/replays/`, plans in
 - Extractors:
   - `extract_run.py`: finds runs, reconstructs per-tick inputs, writes a `.tas` tape and
     checks every gliding tick against elytra physics
+  - `log_tape.py LOG --tick C`: a tape from a logger log's attempt, its real inputs (`extract_run.py` fits them from a replay)
+  - `probe_timer.py QUEUE/done`: where the timer fired on each probe flown by `/etas queue`
   - `extract_world.py REPLAY.zip --tick T [--bounds X0 Y0 Z0 X1 Y1 Z1] -o OUT.world.gz`:
     writes a world file for `solver/` and prints a coverage report; its docstring is the
     format spec
@@ -64,7 +66,7 @@ up don't show what the client saw.
 
 ```
 cd mod && ./gradlew build
-cp build/libs/elytra-tas-0.5.2.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
+cp build/libs/elytra-tas-0.5.3.jar "$HOME/Library/Application Support/ModrinthApp/profiles/main/mods/"
 ```
 
 Rename the previous version's jar in `mods/` to `.disabled`, as with emc-replay, and
@@ -74,7 +76,7 @@ restart Minecraft.
 
 `/etas play PLAN [runs=N]` flies `<profile>/elytra-tas/plans/PLAN.tas` in a loop on
 `deftenvy` (plus `lqmbda` in singleplayer); `/etas stop` hands the keyboard back and
-`/etas status` shows progress. Options and behavior: [docs/playback.md](docs/playback.md).
+`/etas status` shows progress. `/etas queue on` flies plans a program drops in a folder. Options and behavior: [docs/playback.md](docs/playback.md).
 
 ## Docs
 

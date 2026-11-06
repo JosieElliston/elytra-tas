@@ -8,7 +8,7 @@ abort (leaving the plan after "Course complete!" counts as done, not as an abort
 (default 3). `/etas stop` stops and hands the keyboard back; `/etas status` shows the
 line, segment, divergences, reactions and the last attempts with the segments they flew.
 While it plays, keys and mouse don't move you. The logger records it as `P` records
-(netlog.py). Mod 0.5.2; 0.4.0 flies version 1 only. Tests: solver/oracle/README.md,
+(netlog.py). Mod 0.5.3; 0.4.0 flies version 1 only. Tests: solver/oracle/README.md,
 "Playback tests".
 
 - **A version-2 plan branches on what the server sends.** Before each line, the
@@ -46,3 +46,20 @@ While it plays, keys and mouse don't move you. The logger records it as `P` reco
   before camera setup, so the lerp needs no frame-late prediction (unlike `tas_play`'s
   render events). The exact rotation goes back at `START_CLIENT_TICK`, before anything
   in the tick (the logger's `T` record included) reads it.
+
+## The queue (`/etas queue on`)
+
+For a program choosing plans as it goes, such as probes of a course's regions. `/etas queue on`
+in game, then the program drops plans in `<profile>/elytra-tas/queue/`; each flies one
+attempt, oldest name first. It stays on until `/etas queue off`, `/etas stop` or a disconnect.
+
+- **Write a plan elsewhere and rename it in**, as anything ending `.tas` is taken at once.
+- **Each plan's answer is `queue/done/NAME.json`**, written after the plan moves to
+  `queue/done/NAME.tas`: `ok`, `reason`, `abort_kind`, `lines`, `divergences`, `max_dev`,
+  `timer_line`, `finish_line`, `stop_reason` and `log`, the logger's file, which has the
+  poses and packets. A plan that ends without "Course complete!" gets `ok: false` and the
+  queue goes on. why? most probes never finish.
+- **`queue/state` says `on` or `off <reason>`.** Anything but an attempt ending turns the queue off, leaving later plans
+  unflown: a refused plan (its answer has `refused`), `/etas stop`, a hub kick, a death, a reset
+  item that doesn't reset. why? those mean nobody should be flying blind.
+- It has `/etas play`'s checks, account included, since it starts plans the same way.
