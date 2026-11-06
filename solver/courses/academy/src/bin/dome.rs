@@ -55,6 +55,8 @@
 //! first pose past the door, so a head may be worth nearly a tick by where its poses fall (`slabphase`); that
 //! pose is 0.82 of a tick past the plane on the 528s from z 227.9 and 1.00 on the ones from z 228.66.
 //!
+//! As of 2026-11-06 04:30 EST, the `slabland` bin flies these from the reset pose, by an ebounce onto the slab.
+//!
 //! `cargo run --release -p academy --bin dome -- PHASE`
 
 use std::io::Write;
