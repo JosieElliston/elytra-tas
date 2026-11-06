@@ -13,6 +13,9 @@
 //! - `finish BASE T0 OUT WEIGHT`: BASE from tick T0 to the finish as one solve, rotation priced at WEIGHT, flown under
 //!   the faithful kernel by `follow`, with what that kernel's steps differ by put back into the solve. No windows, so no
 //!   seams. Writes `runs/relax/OUT`.
+//! - `prices BASE MARGIN`: BASE solved to the finish, each stretch of contact with what its wall costs: its multipliers
+//!   added up, in ticks per block of clearance, the most expensive first. Their sum is the margin's price. `m` counts the move's
+//!   legs and `s` the server's copies'.
 //! - `blend A B T0 T1 OUT`: A, then between ticks T0 and T1 a smooth fade to B, then B, as `runs/hybrid/OUT`.
 //! - `bump BASE T0 T1 DX DY DZ OUT`: BASE's positions moved by a smooth bump that peaks halfway, as `runs/hybrid/OUT`.
 //! - `calm BASE T0 T1 OUT [WEIGHT...]`: re-fly BASE's ticks T0..T1 with rotation priced at each weight, pinned to
@@ -757,6 +760,64 @@ fn clear(dir: &Path, w: &World, name: &str, below: f64) -> Result<(), String> {
     Ok(())
 }
 
+fn prices(dir: &Path, course: &Course, w: &World, name: &str, margin: f64) -> Result<(), String> {
+    let t = relax(dir, name)?;
+    let n = t.rows.len();
+    let pos = |i: usize| state_at_full(&t, i).position;
+    let start = &course.region("start_area")?.working;
+    let at = course.region("finish")?.working.min[2].ok_or("finish has no z_min")?;
+    let timer = start.exit_move((0..n).map(pos)).ok_or("no timer")?;
+    let f = (timer..n).find(|&i| pos(i - 1)[2] <= at && pos(i)[2] > at).ok_or("no finish")?;
+    let a = timer - 1;
+    let pts: Vec<[f64; 3]> = t.rows.iter().map(|r| r.state.position).collect();
+    let walls = Walls::around(w, &pts, 6.0, 1.0);
+    let seed: Vec<_> = (a..f)
+        .map(|i| {
+            let r = &t.rows[i].input;
+            control(lead_of(&flight(state_at_full(&t, i)), r.yaw), r.pitch)
+        })
+        .collect();
+    let pb = Problem {
+        kernel: Generic::default(),
+        walls: &walls,
+        x0: flight(state_at_full(&t, a)),
+        goal: Goal::Gate { normal: [0.0, 0.0, 1.0], at, cap: f - a + 80, lo: [f64::NEG_INFINITY; 3], hi: [f64::INFINITY; 3] },
+        opts: Opts { tol: 1e-6, margin, server: true, c0: 1e3, iters: 300, ..Opts::default() },
+    };
+    let s = pb.solve(&seed);
+    println!("value {:.4} clear {:.4}", pb.value(&s.plan.x), pb.worst(&s.plan.x, &s.plan.u));
+    // (first, last, moves', server's, worst tick's price)
+    let mut runs: Vec<(usize, usize, f64, f64, usize, f64)> = Vec::new();
+    for (k, m) in s.mult.walls.iter().enumerate() {
+        let (mv, sv): (f64, f64) = (m[..3].iter().sum(), m[3..].iter().sum());
+        if mv + sv < 1e-3 {
+            continue;
+        }
+        match runs.last_mut() {
+            Some(r) if r.1 + 3 >= k => {
+                r.1 = k;
+                r.2 += mv;
+                r.3 += sv;
+                if mv + sv > r.5 {
+                    (r.4, r.5) = (k, mv + sv);
+                }
+            }
+            _ => runs.push((k, k, mv, sv, k, mv + sv)),
+        }
+    }
+    let total: f64 = runs.iter().map(|r| r.2 + r.3).sum();
+    println!("total {total:.2} ticks per block over {} stretches", runs.len());
+    runs.sort_by(|p, q| (q.2 + q.3).total_cmp(&(p.2 + p.3)));
+    for r in runs {
+        let x = s.plan.x[r.4];
+        println!(
+            "t{}-{}: {:.2} (m {:.2} s {:.2}), at {:.2} {:.2} {:.2}, speed {:.2}",
+            r.0 + a, r.1 + a, r.2 + r.3, r.2, r.3, x[0], x[1], x[2], (x[3] * x[3] + x[4] * x[4] + x[5] * x[5]).sqrt()
+        );
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), String> {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let (course, w) = Course::load(dir)?;
@@ -777,11 +838,12 @@ fn main() -> Result<(), String> {
             calm(dir, &course, &w, &args[1], args[2].parse().unwrap(), args[3].parse().unwrap(), &args[4], &weights)
         }
         Some("finish") => finish(dir, &course, &w, &args[1], args[2].parse().unwrap(), &args[3], args[4].parse().unwrap()),
+        Some("prices") => prices(dir, &course, &w, &args[1], args[2].parse().unwrap()),
         Some("blend") => blend(dir, &args[1], &args[2], args[3].parse().unwrap(), args[4].parse().unwrap(), &args[5]),
         Some("bump") => {
             let v: Vec<f64> = args[4..7].iter().map(|s| s.parse().unwrap()).collect();
             bump(dir, &args[1], args[2].parse().unwrap(), args[3].parse().unwrap(), [v[0], v[1], v[2]], &args[7])
         }
-        _ => Err("blocks | clear | setup | setupgrid | door | graft | blend | bump | calm | finish".into()),
+        _ => Err("blocks | clear | setup | setupgrid | door | graft | prices | blend | bump | calm | finish".into()),
     }
 }

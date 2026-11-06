@@ -7,16 +7,19 @@
 //! wall or in the approach to one, since a glide's momentum into a tight spot is made well before it: most moves center up
 //! to `APPROACH` ticks ahead of a contact, and the solve to the finish opens up to `LEAD` ticks before the move, so the
 //! approach is free to change. A kind of move changes speed along the flight, with height, rather than position alone,
-//! and another aims past the plan's state, as `optimize`'s `carry` does.
+//! another aims past the plan's state, as `optimize`'s `carry` does, and another shifts a stretch's pitch by a few ticks, for
+//! when to dive and pull out. why that one? what a dive is worth is its timing, and moved states rarely change it.
 //!
 //! Partial ticks are a gauge, not a result: the server counts poses, so only `verify`'s whole ticks count, but a flight's
 //! secant moves long before its whole ticks do. A chain's best at a margin is flown under `track` and written as
 //! `runs/relax/NAME_mMARGIN`, whatever it times.
 //!
-//! Each new best also goes in `runs/anneal/NAME.jsonl`. The head up to the door is held, so the door's fraction doesn't move.
+//! Each new best also goes in `runs/anneal/NAME.jsonl`, and every candidate in `runs/anneal/NAME.moves.tsv`, to read whether
+//! moves find other optima or fall back to the same one: kind (p position, v momentum, s pitch shift), center, opened from, value, clearance, margin. The head up to the door is held, so the door's fraction doesn't move.
 //!
 //! `cargo run --release -p academy --bin anneal -- BASE NAME --margins M... [--chains N] [--secs S] [--seed S] [--focus T0 T1]...`
 
+use std::io::Write;
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -145,6 +148,22 @@ fn propose(walls: &Walls, gate: &Problem, plan: &DPlan, margin: f64, from: usize
     Some(DPlan { u, x })
 }
 
+/// The plan with a stretch's pitch moved `shift` ticks later, then a solve to the finish.
+fn shifted(gate: &Problem, plan: &DPlan, margin: f64, from: usize, a: usize, b: usize, shift: i32) -> DPlan {
+    let n = plan.u.len() as i32;
+    let mut u = plan.u.clone();
+    for k in a..b {
+        u[k][1] = plan.u[(k as i32 - shift).clamp(0, n - 1) as usize][1];
+    }
+    let pb = Problem { x0: plan.x[from], opts: stiff(margin), ..gate.clone() };
+    let s = pb.solve(&u[from..]);
+    let mut x = plan.x[..from].to_vec();
+    x.extend_from_slice(&s.plan.x);
+    let mut w = plan.u[..from].to_vec();
+    w.extend(s.plan.u);
+    DPlan { u: w, x }
+}
+
 /// The plan flown under the faithful kernel, verified and written; its timed ticks, the flown secant and a report line.
 #[allow(clippy::too_many_arguments)]
 fn fly_it(dir: &Path, course: &Course, world: &World, walls: &Walls, base: &Base, gate: &Problem, plan: &DPlan, margin: f64, name: &str) -> Result<(f64, String), String> {
@@ -167,7 +186,7 @@ fn fly_it(dir: &Path, course: &Course, world: &World, walls: &Walls, base: &Base
     let r = verify(course, world, Plan::Trajectory(&traj));
     let timed = r.timer_tick().zip(r.finish_tick()).map(|(s, e)| e - s);
     let xs: Vec<X> = traj.rows.iter().map(|w| flight(&w.state)).collect();
-    let hits = server_hits(walls, &xs[a..r.finish_tick().unwrap_or(xs.len()).min(xs.len())]).len();
+    let hits: Vec<usize> = server_hits(walls, &xs[a..r.finish_tick().unwrap_or(xs.len()).min(xs.len())]).iter().map(|h| h.0 + a + 1).collect();
     let secant = r.secant_seconds().map_or(f64::NAN, |s| s / 0.05);
     let clearance = r.clearance.as_ref().map_or(f64::NAN, |c| c.min);
     if r.ok() {
@@ -176,7 +195,7 @@ fn fly_it(dir: &Path, course: &Course, world: &World, walls: &Walls, base: &Base
     Ok((
         secant,
         format!(
-            "{{\"name\":\"{name}\",\"margin\":{margin},\"generic\":{:.4},\"timed\":{},\"secant\":{secant:.4},\"clearance\":{clearance:.4},\"server_hits\":{hits},\"ok\":{},\"window\":{}}}",
+            "{{\"name\":\"{name}\",\"margin\":{margin},\"generic\":{:.4},\"timed\":{},\"secant\":{secant:.4},\"clearance\":{clearance:.4},\"server_hits\":{hits:?},\"ok\":{},\"window\":{}}}",
             gate.value(&plan.x),
             timed.map_or("null".into(), |t: usize| t.to_string()),
             r.ok(),
@@ -260,6 +279,7 @@ fn run() -> Result<(), String> {
     }
     std::fs::create_dir_all(dir.join("runs/anneal")).map_err(|e| e.to_string())?;
     let log = Mutex::new(std::fs::OpenOptions::new().create(true).append(true).open(dir.join(format!("runs/anneal/{name}.jsonl"))).map_err(|e| e.to_string())?);
+    let moves_log = Mutex::new(std::fs::OpenOptions::new().create(true).append(true).open(dir.join(format!("runs/anneal/{name}.moves.tsv"))).map_err(|e| e.to_string())?);
     let t_all = Instant::now();
     (0..chains).into_par_iter().for_each(|c| {
         let slot = &bests[c % bests.len()];
@@ -295,7 +315,9 @@ fn run() -> Result<(), String> {
             let center = center.clamp(l1, n - 2);
             let size = 0.05 + 0.6 * rng.next().powi(2);
             let mut target = plan.x[center];
-            if rng.next() < 0.4 {
+            let pick = rng.next();
+            let kind = if pick < 0.3 { 's' } else if pick < 0.6 { 'v' } else { 'p' };
+            if kind == 'v' {
                 // momentum: faster or slower along the flight, paid or banked in height
                 let v = [target[3], target[4], target[5]];
                 let speed = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(0.1);
@@ -315,15 +337,23 @@ fn run() -> Result<(), String> {
             let gain = if rng.next() < 0.5 { 0.3 * rng.next() } else { 0.0 };
             let end: X = std::array::from_fn(|k| plan.x[b][k] * (1.0 - gain) + plan.x[(b + 1).min(n)][k] * gain);
             let from = (center - l1).saturating_sub(rng.range(0, LEAD));
-            let Some(new) = propose(&walls, &gate, &plan, margin, from, center, l1, b - center, target, end) else {
+            let got = if kind == 's' {
+                let shift = [-6, -4, -3, -2, -1, 1, 2, 3, 4, 6][rng.range(0, 10)];
+                Some(shifted(&gate, &plan, margin, from, center - l1, b, shift))
+            } else {
+                propose(&walls, &gate, &plan, margin, from, center, l1, b - center, target, end)
+            };
+            let Some(new) = got else {
                 failed += 1;
+                let _ = writeln!(moves_log.lock().unwrap(), "{kind}\t{}\t{}\tmiss\t\t{margin}", center + a, from + a);
                 continue;
             };
+            let v = gate.value(&new.x);
+            let _ = writeln!(moves_log.lock().unwrap(), "{kind}\t{}\t{}\t{v:.5}\t{:.4}\t{margin}", center + a, from + a, gate.worst(&new.x, &new.u));
             if !clear(&gate, &new, margin) {
                 failed += 1;
                 continue;
             }
-            let v = gate.value(&new.x);
             if v < value || rng.next() < (-(v - value) / temp).exp() {
                 (plan, value) = (new, v);
                 took += 1;
@@ -343,7 +373,6 @@ fn run() -> Result<(), String> {
                     drop(b);
                     match fly_it(dir, &course, &world, &walls, &base, &gate, &p, margin, &format!("{name}_m{margin}")) {
                         Ok((_, line)) => {
-                            use std::io::Write;
                             println!("  {line}");
                             let _ = writeln!(log.lock().unwrap(), "{{\"t\":{:.0},\"value\":{value:.5},\"flown\":{line}}}", t_all.elapsed().as_secs_f64());
                         }
