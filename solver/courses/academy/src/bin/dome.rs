@@ -83,6 +83,10 @@
 //! `track`'s 24-tick windows, and `follow`, a re-solve per tick, has none. Open loop won't do, even with the kernels' gap put
 //! back into the solve: it leaves the plan at the pinch at t176. Its small bumps left are all within 5 ticks of a wall.
 //!
+//! As of 2026-11-06 07:10 EST, 136 route seeds polished with `optimize`'s first plan fixed: one 527 under `--server --margin 0.012` with no
+//! server hits, from `r2x_0`, a seed that had read 527 only with server hits. So the 527 needs no wall touches. 41 seeds
+//! give no result, their whole solve failing and then their last piece. Next best 527.09, which times 528.
+//!
 //! `cargo run --release -p academy --bin dome -- PHASE`
 
 use std::io::Write;
