@@ -659,6 +659,9 @@ pub fn sheet(scene: &Scene, c: Option<&Course>, runs: &[SheetRun], o: &SheetOpti
         }
         f.finish()
     };
+    // what the share below counts: the framed stretch, not everything drawn
+    let last = runs.iter().map(|r| r.traj.rows.len() - 1).max().unwrap_or(0);
+    let counted = o.ticks.map_or("the path".to_string(), |(a, b)| format!("ticks {a}-{}", b.min(last)));
     let (persp, seen) = tools::clearest_view(scene, &framed, &make_style(false), o.width, o.height, 50.0);
     // the text gets its own strip, so it can't cover the start of a run
     let lines: Vec<String> = runs.iter().map(summary).collect();
@@ -686,7 +689,7 @@ pub fn sheet(scene: &Scene, c: Option<&Course>, runs: &[SheetRun], o: &SheetOpti
         ),
         panel(
             persp,
-            &format!("perspective, the clearest direction: {:.0}% of the path in sight", seen * 100.0),
+            &format!("perspective, the clearest direction: {:.0}% of {counted} in sight", seen * 100.0),
             false,
         ),
     ];
