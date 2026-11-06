@@ -89,8 +89,11 @@ gives false contradictions.
   moves 0.86 +- 0.12 ms per ms of wait over those 41 flights plus one (1 = waits fully, 0 = read on
   arrival). Finished runs agree: over 22 `academy_535` runs, shown minus send gap falls -1.06 +- 0.29
   ms per ms of start clock delay, including a 26.72 whose start clock read 24 ms late. The finish
-  clock is open: the same fit gives -0.77 +- 0.76 ms per ms of finish wait, where waiting would be
-  +1, but those waits only reach 8 ms and the finish chat barely follows them. `tools/tick_wait.py`
+  chat waits as well (8.0 ms late with moves 5-9 ms before the flush, 2.5 ms outside the band), but
+  the finish clock is open: over 33 runs the fit per ms of finish wait gives -0.15 +- 0.44 with the
+  band at 9.5 ms and 0.39 +- 0.39 at 11 ms, where waiting is +1 and arrival is 0. Rounding to 0.02 s
+  is most of that error, and only 2 of those finishes clearly missed the band. To stay out of the
+  question, keep moves well before the band, and mind the drift (see tick-phase.md). `tools/tick_wait.py`
   places chats, probes and the clock in the tick, and its `--ping` shows whether the ping moved, as
   the phase can't be read while it does.
 - **With moves at the flush, the send gap picks a run's rounding.** 14 of 14 `academy_535` runs
@@ -99,8 +102,11 @@ gives false contradictions.
   ticks x 50 ms has sd 2.6, against 13 under the AFK frame limit, so that tightening is mostly the
   patch and not the phase. Deeper in tick work the send gap stops picking it (5 of 8 runs at
   01:50-01:57, ping spikes in that batch), as a late start clock moves the time.
-- **Ping spikes abort playback.** In that batch 6 of 14 `academy_535` flights left the plan by 0.07-1.4
-  blocks, each with a ping spike of 162 ms or more in its last 8 s; of the 8 finishes, 7 stayed under 95 ms.
+- **`academy_535` aborts have at least two causes, so don't blame ping alone.** Ping spikes fit one
+  batch: 6 of 14 flights left the plan by 0.07-1.4 blocks at scattered lines, each with a spike of 162 ms
+  or more in its last 8 s (2026-11-06 01:50 EST). But at 02:00, 3 of 16 left it at line 611 by the
+  same 1.51 blocks with ping at most 102 ms, and 1 at line 390 with a 218 ms spike. Lines 610 and 618
+  aborted by 1.2-1.5 blocks before mod 0.5.4 too. Cause of the line 611 group not examined.
 - **Timer chat lateness differs by session or account, and phase doesn't explain it.** In 19 logs
   on `lqmbda` (2026-10-31 to 11-04, hand flown) the median chat is 15-24 ms late at every phase,
   against 1.4-10.2 ms in 7 logs on `deftenvy` (11-04 to 11-05), one of them between `lqmbda` logs on

@@ -14,7 +14,10 @@ decoded at time b showing v puts the reading at b - v, plus the fixed gap from r
 clock to the flush. D is that minus the move's arrival, the 10th percentile over a flight's bars,
 because late packets only push it up. It rises with the wait if the clock reads after the wait.
 
-`--runs` lists finished runs: shown time, send gap, chat gap, and each end's S and L.
+`--runs` lists finished runs: shown time, send gap, chat gap, each end's S and L, and the start's D,
+then fits shown minus send gap on the start clock's delay and the finish's wait, over all the logs
+given. A clock that reads after its wait gives -1 for the start and +1 for the finish, one read on
+arrival gives 0. The wait is S inside the band (`--band`, ms before the flush) and 0 outside it.
 
 Needs the mod's pings, so only logs from whitelisted sessions. `--ping` prints round trip, tick
 spacing and move spacing per 15 s, for spotting a ping that moved during a batch; flights with a
@@ -96,11 +99,22 @@ class Session:
                 out.append(x)
         return out
 
+    def clock_date(self, chat_t: int, move_t: int, r: int) -> float | None:
+        """D for a timer chat decoded at chat_t and the move that fired it; None under 5 bars."""
+        if not hasattr(self, "_bars"):
+            self._bars = [(i.t_decode, float(m.group(1))) for i in self.log.inbound if i.name == "set_action_bar_text"
+                          and i.details and (m := re.match(r"Time: ([\d.]+)", i.details[-1]))]
+            self._bar_t = [b[0] for b in self._bars]
+        d = []
+        for b, v in self._bars[bisect.bisect_left(self._bar_t, chat_t - 5e6):]:
+            # a value that doesn't fit this chat's clock belongs to the next attempt
+            if b - chat_t > 4e9 or v * 1e9 > b - chat_t + 2e9:
+                break
+            d.append((b - v * 1e9 - move_t - r) / 1e6)
+        return float(np.percentile(d, 10)) if len(d) >= 5 else None
+
     def clock_reads(self) -> list[tuple[float, float, float]]:
         """(S, L, D) per timer chat with at least 5 bars before the timer's next reset."""
-        bars = [(i.t_decode, float(m.group(1))) for i in self.log.inbound if i.name == "set_action_bar_text"
-                and i.details and (m := re.match(r"Time: ([\d.]+)", i.details[-1]))]
-        at = [b[0] for b in bars]
         out = []
         for c in self.log.inbound:
             if c.name != "system_chat" or not c.details or c.details[-1] != TIMER_CHAT:
@@ -111,14 +125,8 @@ class Session:
             j = bisect.bisect_right(self.moves, c.t_decode - r + 3e6) - 1
             if j < 0 or not (x := self.place(self.moves[j], c.t_decode)):
                 continue
-            d = []
-            for b, v in bars[bisect.bisect_left(at, c.t_decode - 5e6):]:
-                # a value that doesn't fit this chat's clock belongs to the next attempt
-                if b - c.t_decode > 4e9 or v * 1e9 > b - c.t_decode + 2e9:
-                    break
-                d.append((b - v * 1e9 - self.moves[j] - r) / 1e6)
-            if len(d) >= 5:
-                out.append((x[0], x[1], float(np.percentile(d, 10))))
+            if (d := self.clock_date(c.t_decode, self.moves[j], r)) is not None:
+                out.append((x[0], x[1], d))
         return out
 
     def probes(self) -> list[tuple[float, float, float]]:
@@ -155,10 +163,11 @@ def table(rows: list[tuple[float, float, float]], width: int) -> None:
                   f"  >10 ms {np.mean(late[m] > 10):.2f}")
 
 
-def run_lines(sn: Session) -> None:
+def run_lines(sn: Session) -> list[dict]:
     inb = sn.log.inbound
     timers = [i for i in inb if i.name == "system_chat" and i.details and i.details[-1] == TIMER_CHAT]
     at = [t.t_decode for t in timers]
+    runs = []
     for c in inb:
         m = c.name == "system_chat" and c.details and re.match(r"Course complete! Your time: ([\d.]+)", c.details[-1])
         k = bisect.bisect_left(at, c.t_decode) - 1
@@ -168,14 +177,35 @@ def run_lines(sn: Session) -> None:
         for chat in (timers[k], c):
             r = sn.rtt(chat.t_decode)
             j = bisect.bisect_right(sn.moves, chat.t_decode - r + 3e6) - 1 if r else -1
-            ends.append((j, sn.place(sn.moves[j], chat.t_decode)) if j >= 0 else (j, None))
-        (js, xs), (jf, xf) = ends
+            ends.append((j, sn.place(sn.moves[j], chat.t_decode), r) if j >= 0 else (j, None, r))
+        (js, xs, rs), (jf, xf, _) = ends
         if not xs or not xf:
             continue
-        send = (sn.moves[jf] - sn.moves[js]) / 1e6
-        print(f"  shown {float(m.group(1)) * 1000:.0f}  moves {jf - js}  send gap {send:.1f}"
-              f"  chat gap {(c.t_decode - timers[k].t_decode) / 1e6:.1f}"
-              f"  start S {xs[0]:.1f} L {xs[1]:.1f}  finish S {xf[0]:.1f} L {xf[1]:.1f}")
+        d = sn.clock_date(timers[k].t_decode, sn.moves[js], rs)
+        run = dict(shown=float(m.group(1)) * 1000, moves=jf - js, send=(sn.moves[jf] - sn.moves[js]) / 1e6,
+                   chat=(c.t_decode - timers[k].t_decode) / 1e6, Ss=xs[0], Ls=xs[1], Sf=xf[0], Lf=xf[1], D=d)
+        runs.append(run)
+        print(f"  shown {run['shown']:.0f}  moves {run['moves']}  send gap {run['send']:.1f}  chat gap {run['chat']:.1f}"
+              f"  start S {xs[0]:.1f} L {xs[1]:.1f} D {d if d is None else round(d, 1)}  finish S {xf[0]:.1f} L {xf[1]:.1f}")
+    return runs
+
+
+def clock_fit(runs: list[dict], band: float) -> None:
+    """Shown minus send gap on the start clock's delay and the finish's wait, with standard errors."""
+    # a chat judged against the wrong move is a whole tick off; the fit wants the moves that fired
+    q = [r for r in runs if r["D"] is not None and abs(r["shown"] - r["send"]) < 45]
+    if len(q) < 5:
+        print("  too few runs to fit")
+        return
+    wait = np.array([r["Sf"] if r["Sf"] < band else 0.0 for r in q])
+    delay = np.array([r["D"] for r in q])
+    y = np.array([r["shown"] - r["send"] for r in q])
+    x = np.c_[np.ones(len(q)), delay, wait]
+    b = np.linalg.lstsq(x, y, rcond=None)[0]
+    e = y - x @ b
+    cov = e.var(ddof=3) * np.linalg.inv(x.T @ x)
+    print(f"  n={len(q)} band {band} ms  finish waits {np.sum(wait > 0)} of {len(q)}  "
+          f"start {b[1]:.2f} +- {cov[1, 1] ** .5:.2f}  finish {b[2]:.2f} +- {cov[2, 2] ** .5:.2f}  residual sd {e.std():.1f}")
 
 
 def ping_lines(sn: Session) -> None:
@@ -198,9 +228,10 @@ def main() -> int:
     ap.add_argument("--bin", type=int, default=3, help="width of an S bin in ms")
     ap.add_argument("--ping", action="store_true", help="round trip and spacing per 15 s")
     ap.add_argument("--runs", action="store_true", help="finished runs, one per line")
+    ap.add_argument("--band", type=float, default=9.5, help="width of the tick work before the flush, ms")
     ap.add_argument("--since", type=float, default=0, help="only moves this many seconds into the log")
     a = ap.parse_args()
-    chats, probes, clocks = [], [], []
+    chats, probes, clocks, runs = [], [], [], []
     for path in a.logs:
         sn = Session(path)
         print(f"{path.name}  {sn.log.meta.get('player')}  mod {sn.log.meta.get('mod')}")
@@ -210,7 +241,7 @@ def main() -> int:
         if a.ping:
             ping_lines(sn)
         if a.runs:
-            run_lines(sn)
+            runs += run_lines(sn)
         ms = sn.move_phase(a.since)
         if len(ms):
             print(f"  moves in steady flying: {len(ms)}, S hist per 5 ms: {np.histogram(ms, bins=10, range=(0, 50))[0]}")
@@ -221,6 +252,9 @@ def main() -> int:
         chats += sn.chats()
         clocks += sn.clock_reads()
         probes += sn.probes()
+    if a.runs:
+        print("clock fit")
+        clock_fit(runs, a.band)
     print("timer chats")
     table(chats, a.bin)
     print("probes")
