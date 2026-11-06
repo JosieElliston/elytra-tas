@@ -37,7 +37,10 @@
 //! `--margin BLOCKS` sets the clearance from walls, `MARGIN` otherwise. It's the active constraint along a
 //! flight: academy's 529s reach 528 at 0.012 (2026-11-06), since they were 0.01 blocks short of the finish.
 //!
-//! `cargo run --release -p academy --bin optimize [--relax | --hybrid] [--open-top] [--server] [--margin BLOCKS] [NAME_SUBSTRING ...]`
+//! `--forbid X0 Y0 Z0 X1 Y1 Z1`, repeatable, adds an obstacle only the solve sees, to hold a flight to one route.
+//! `verify` judges the result in the real world.
+//!
+//! `cargo run --release -p academy --bin optimize [--relax | --hybrid] [--open-top] [--server] [--margin BLOCKS] [--forbid X0 Y0 Z0 X1 Y1 Z1]... [NAME_SUBSTRING ...]`
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -58,7 +61,7 @@ use etas::trajectory::{Header, InputRow, Trajectory};
 use etas::verify::{Plan, verify};
 use rayon::prelude::*;
 use sim::generic::Generic;
-use world::World;
+use world::{Aabb, World};
 
 const OBJECTIVE: &str = "finish_gate_segments";
 /// Ticks flown past the finish on the last rotation, so a plan outlasts the chat's lag.
@@ -589,6 +592,12 @@ fn run() -> Result<(), String> {
         WALL_MARGIN.set(m).unwrap();
         only.drain(k..=k + 1);
     }
+    let mut forbid = Vec::new();
+    while let Some(k) = only.iter().position(|a| a == "--forbid") {
+        let v: Vec<f64> = only[k + 1..k + 7].iter().map(|a| a.parse().expect("--forbid X0 Y0 Z0 X1 Y1 Z1")).collect();
+        forbid.push(Aabb { min: [v[0], v[1], v[2]], max: [v[3], v[4], v[5]] });
+        only.drain(k..k + 7);
+    }
     let relaxing = hybrids || only.iter().any(|a| a == "--relax");
     if only.iter().any(|a| a == "--open-top") {
         let start = course.regions.get_mut("start_area").ok_or("no start area")?;
@@ -641,7 +650,7 @@ fn run() -> Result<(), String> {
         .iter()
         .flat_map(|r| r.rec.rows.iter().map(|x| x.state.position))
         .collect();
-    let walls = Walls::around(&world, &pts, 6.0, 1.0);
+    let walls = Walls::around(&world, &pts, 6.0, 1.0).with_boxes(&forbid);
     runs.par_iter()
         .for_each(|r| match one(relaxing, dir, &course, &world, &walls, r) {
             Ok(s) => println!("{s}"),

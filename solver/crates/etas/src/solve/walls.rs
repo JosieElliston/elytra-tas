@@ -89,6 +89,17 @@ impl Walls {
                 }
             }
         }
+        Self::from_boxes(boxes, lo, hi, range)
+    }
+
+    /// These obstacles and `extra`, for a solve held to one side of something. Boxes outside the cells read don't count.
+    pub fn with_boxes(&self, extra: &[Aabb]) -> Walls {
+        let mut boxes = self.boxes.clone();
+        boxes.extend_from_slice(extra);
+        Self::from_boxes(boxes, self.lo, self.hi, self.range)
+    }
+
+    fn from_boxes(boxes: Vec<Aabb>, lo: [i32; 3], hi: [i32; 3], range: f64) -> Walls {
         let glo = [lo[0] - PAD, lo[1] - PAD, lo[2] - PAD];
         let dims: [usize; 3] = std::array::from_fn(|i| (hi[i] + PAD - glo[i] + 1) as usize);
         let mut cells = vec![Vec::new(); dims[0] * dims[1] * dims[2]];

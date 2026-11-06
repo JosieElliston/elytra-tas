@@ -57,6 +57,13 @@
 //!
 //! As of 2026-11-06 04:30 EST, the `slabland` bin flies these from the reset pose, by an ebounce onto the slab.
 //!
+//! As of 2026-11-06 05:45 EST, trying changes to the 528 under `--server --margin 0.012` (`ideas`): none beats 528.
+//! A polish from a seed loses about 2 ticks (the 528 itself comes back at 530), so read a change against that control.
+//! The south strafe mirrors for free, 373 degrees of turning to 277. The door's six pitch reversals aren't needed:
+//! three knots hold 528. S south, or no strafe north, polish to 530 against the mirror's 529 (one pass each).
+//! The -38 window holds 528 past the lamp either way. Over the block at (13, 134, 6) reached only 531, one pass, 2 of 6
+//! seeds failing. Without `--server` these all read a tick better, 527, on server hits at x 13.5, y 134.4, z 7.9 (t225).
+//!
 //! `cargo run --release -p academy --bin dome -- PHASE`
 
 use std::io::Write;
