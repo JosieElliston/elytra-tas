@@ -6,15 +6,15 @@ usage: python3 tools/fit_course.py COURSE -o OUT.json [--world WORLD.gz] [--tape
 COURSE names an entry of COURSES below (its sources: replays, logs, tape, world). The
 fit's evidence and brackets go to stdout. `solver/crates/etas` reads the file.
 `--boosters-into` fits only the boosters (from the entry's `boosters`, `booster_logs`
-and `booster_replays`) and writes them into an existing course file, setting its
-version to 2; for courses fitted by other means (the hand-written alpine test course).
+and `booster_replays`) and writes them into an existing course file; for courses fitted
+by other means (the hand-written alpine test course).
 
-Course file format, version 2 (version 1 is the same with `boosters` always []). This
-docstring is the spec; `etas::course` reads both.
+Course file format, version 3. This docstring is the spec; `etas::course` reads it and
+rejects older versions, whose regions assume the first pose over a face fires.
 One JSON object:
 
     format          "etas-course"
-    version         2; a reader rejects versions it doesn't know
+    version         3; a reader rejects versions it doesn't know
     name            course name
     dimension       dimension key the sources were matched on
     world           {"path": world file, relative to the course file,
@@ -36,11 +36,11 @@ One JSON object:
 Observed state. The server judges the position, onGround and glide flag of a client's
 move packets, so a rule is a predicate over (x, y, z, on_ground, fall_flying) of a
 tick's end pose, which is what that tick's move packet carries. `observation` records:
-    tick_chat_lag   [lo, hi]: a server message batched at a server tick end (timer,
-                    finish) reaches the client this many ticks after the end of the tick
-                    whose pose it judged, in the .tas tape's tick numbering (a chat on
-                    tape tick C judged the pose of tick C - L). From logger round trips;
-                    see `lag` in the fit output for the per-session numbers.
+    tick_chat_lag   [lo, hi]: a timer or finish message reaches the client this many ticks
+                    after the end of the tick whose move fired it, in the .tas tape's tick
+                    numbering (a chat on tape tick C answers the move of tick C - L). From
+                    logger round trips; see `lag` in the fit output for the per-session
+                    numbers.
     note            free text
 
 Start:
@@ -70,8 +70,9 @@ carries its bracket:
     evidence        counts and source points
 
 Rule:
-    event           "first": fires on the first observed state where `when` holds;
-                    "any": on every one
+    event           "moved": fires on the first move that changes the block (floor of the
+                    position, any axis) while `when` holds at the pose before the move;
+                    "any": on every observed state where `when` holds
     when            predicate: {"in": region} | {"not": p} | {"and": [p...]} |
                     {"or": [p...]} | {"field": "on_ground" | "fall_flying"}
     after, until    rule names bounding the ticks it is checked on ("start" is tick 1)
@@ -107,18 +108,19 @@ measurements; docs/emc-course-rules.md, the summary).
 Killing blocks are the world's (`world::Effect::Climbable` ends the glide, so it kills
 here, as unknown space does); kill rules here are the course's own.
 
-How events become evidence (`judged`): a finish's event is not its chat but the action
-bar's `Time:` line going blank, in the tick the timer stopped. why? on most accounts EMC
-sends "Course complete!" 3-5 ticks later (`timer_events`). A timer or finish event at tape
-tick C judged the pose of C - L for some L in the lag band; poses before the band were judged by earlier
-server ticks, so they were on the other side of the rule; the band's latest pose is
-taken to be on the far side (the rule's region is entered, or left, and stays so for a
-tick). The pose just before the band is left out, since a move that shares a server
-tick gap with the next is never judged. With a logger log, the band is the moves sent
+How events become evidence: a finish's event is not its chat but the action bar's `Time:`
+line going blank, in the tick the timer stopped. why? on most accounts EMC sends "Course
+complete!" 3-5 ticks later (`timer_events`). A timer or finish event at tape tick C was fired
+by the move of C - L for some L in the lag band. Only a move that changes the block says
+anything, and what it says is about the pose before it (`moved`): block-changing moves before
+the band didn't fire, so their previous poses are on the near side of the rule, and the
+band's latest block-changing move is taken to be the one that fired, so its previous pose is on
+the far side. The move just before the band is left out, since its chat could still be
+late. With a logger log, the band is the moves sent
 D_lo..D_hi before the chat was decoded (D_lo: the fastest tick-end reply, less 10 ms;
 D_hi: the slowest tick-end reply plus a tick, both from `use_item`; the tick covers server
-lag, which delays tick-end replies).
-A longer lag spike pushes a chat past its band, and the poses just before the band then
+lag, which delays tick-end replies), plus one move newer, as a chat can beat those replies.
+A longer lag spike pushes a chat past its band, and the moves just before the band then
 sit on the wrong side; where that puts an outside point inside the hull of the inside
 points, the fit drops those pre-band points (`drop_contradicted`) and lists them in the
 region's `evidence.dropped`.
@@ -170,6 +172,9 @@ COURSES = {
                   "unfocused client: ticks and moves go out in pairs, so the one-pose-per-"
                   "server-tick model doesn't hold (README, EMC course rules); its ~600 runs "
                   "replay the tape, so their poses add nothing to the geometry"},
+        # both -35 and -34 are in the bracket
+        face_overrides={"finish": {"x_max": (
+            -35.0, "Of the whole numbers in the bracket, the one that gives the course tape's shown time.")}},
     ),
     "super_classic_downtown": dict(
         dimension="minecraft:cesuperclassicdowntown",
@@ -185,6 +190,9 @@ COURSES = {
               "2026-10-31_18-52-03.tsv.gz": None,
               "2026-10-31_20-06-39.tsv.gz": "2026-10-31T20_34_14.zip"},
         excluded={},
+        # both -65 and -64 are in the bracket
+        face_overrides={"start_area": {"z_max": (
+            -64.0, "Of the whole numbers in the bracket, the one that gives the course tape's shown time.")}},
     ),
     "academy": dict(
         dimension="minecraft:eacademy",
@@ -197,13 +205,14 @@ COURSES = {
         replays=["data/foreign/luna/2026-11-04_academy.zip"],
         logs={"2026-11-03_20-52-45.tsv.gz": "2026-11-03T22_40_44_academy.zip",
               "2026-11-03_22-57-29.tsv.gz": "2026-11-03T23_42_06_academy.zip",
-              "2026-10-20_18-05-35.tsv.gz": "2026-10-20T18_24_43.zip"},
+              "2026-10-20_18-05-35.tsv.gz": "2026-10-20T18_24_43.zip",
+              # the `/etas queue` probes of the start and finish faces
+              "2026-11-05_22-49-18.tsv.gz": None},
         excluded={},
-        # the strict bracket here hangs on one fast run (40.08 s) and 7 dropped poses
-        face_overrides={"finish": {"z_min": (
-            -99.7, "Allowing each event +-1 tick: first pose past the face matches the chat's tick count "
-                   "in 9 of 12 timed finishes, against 4 for -100. Provisional: no single box holds 38.44 s, "
-                   "which passed -99.55 at y -56.67 without finishing.")}},
+        # fast exits leave both 205 and 206 in the bracket
+        face_overrides={"start_area": {"z_min": (
+            205.0, "Probes flown 2026-11-05 22:49-23:30 EST: every timer start fired on the move the rule "
+                   "picks with this face (docs/emc-course-rules.md).")}},
     ),
     # also `--boosters-into` the hand-written test course (crates/etas/tests/data/alpine)
     "alpine": dict(
@@ -276,6 +285,16 @@ class Chat:
     used_item: bool | None = None  # a use_item went out shortly before (logs only)
 
 
+def moved(obs: list[Obs], i: int) -> bool:
+    """Whether move `i` changes the block, the only moves the timer looks at."""
+    return i > 0 and any(math.floor(a) != math.floor(b) for a, b in zip(obs[i - 1].pos, obs[i].pos))
+
+
+def prior(obs: list[Obs], src: str, i0: int, i1: int) -> list:
+    """The poses before the block-changing moves in obs[i0:i1], as evidence points."""
+    return [(obs[i - 1].pos, f"{src}@{obs[i - 1].tick}") for i in range(i0, i1) if moved(obs, i)]
+
+
 @dataclass
 class Session:
     name: str
@@ -298,8 +317,10 @@ class Session:
         if self.kind == "log":
             lo = bisect.bisect_left(keys, chat.key - self.d_hi)
             hi = bisect.bisect_right(keys, chat.key - self.d_lo)
-            # the latest move older than d_hi is judged if nothing in the band was
-            idx = list(range(max(lo - 1, 0), hi))
+            # the latest move older than d_hi fired it if nothing in the band did, and so can
+            # the first one newer than d_lo: d_lo is a main-thread reply's, and these chats
+            # come from the move handler, about one ping after the move
+            idx = list(range(max(lo - 1, 0), min(hi + 1, len(keys))))
         else:
             idx = [i for i, o in enumerate(self.obs)
                    if chat.tick - REPLAY_LAG[1] <= o.tick <= chat.tick - REPLAY_LAG[0]]
@@ -477,16 +498,18 @@ def collect(s: Session, ev: Evidence):
                     # leaving without gliding starts the timer and kills, with no timer
                     # chat, so such an attempt doesn't say where the start area ends
                     stop = ia
-            ev.start_in += [(obs[i].pos, f"{src}@{obs[i].tick}") for i in range(ia, stop)]
+            ev.start_in += prior(obs, src, ia + 1, stop)
             touches(s, ia, stop, None, None, ev, timer_running=False)
             continue
         ev.events["timer"] += 1
         band, before = s.band(timer)
-        band = [i for i in band if i >= ia]
-        if not band:
+        band = [i for i in band if i > ia]
+        fired = [i for i in band if moved(obs, i)]
+        if not fired:
             continue
-        ev.start_in += [(obs[i].pos, f"{src}@{obs[i].tick}") for i in range(ia, before or ia)]
-        ev.start_out.append((obs[band[-1]].pos, f"{src}@{obs[band[-1]].tick} (timer chat @{timer.tick})"))
+        ev.start_in += prior(obs, src, ia + 1, before or ia)
+        p = obs[fired[-1] - 1]
+        ev.start_out.append((p.pos, f"{src}@{p.tick} (timer chat @{timer.tick})"))
         touches(s, ia, band[0], None, None, ev, timer_running=False)
         t0 = band[-1]
         if end is None:
@@ -495,10 +518,10 @@ def collect(s: Session, ev: Evidence):
         if end.text.startswith("Course complete!"):
             ev.events["finish"] += 1
             ev.runs.append((s, ia, timer, end, eband))
-            ev.finish_out += [(obs[i].pos, f"{src}@{obs[i].tick}") for i in range(t0, ebefore or t0)]
+            ev.finish_out += prior(obs, src, t0 + 1, ebefore or t0)
             touches(s, t0, eband[0], end, None, ev, timer_running=True)
         else:
-            ev.finish_out += [(obs[i].pos, f"{src}@{obs[i].tick}") for i in range(t0, ebefore or t0)]
+            ev.finish_out += prior(obs, src, t0 + 1, ebefore or t0)
             touches(s, t0, ib, end, end, ev, timer_running=True)
 
 
@@ -516,28 +539,35 @@ def in_box(p, box) -> bool:
 
 
 def timed_finishes(ev: Evidence, start_area: dict):
-    """Finish evidence from completed runs, anchored on the timer: the timer started on
-    the first pose outside the start area, and the finish was judged that many server
-    ticks (`timed`) later, one pose per tick in a steady session. Runs where the inner
-    and outer start boxes disagree on the timer pose, or the anchored pose falls outside
-    the finish chat's lag band, fall back to the band (its latest pose inside)."""
+    """Finish evidence from completed runs, anchored on the timer: the rule picks the move
+    that started it, and the finish fired that many ticks (`timed`) later, one move per tick
+    in a steady session. Runs where the inner and outer start boxes disagree on that move,
+    or the anchored move falls outside the finish chat's lag band or doesn't change the
+    block, fall back to the band (the pose before its latest block-changing move inside)."""
     for s, ia, timer, end, eband in ev.runs:
         obs, src = s.obs, s.name
         band, _ = s.band(timer)
         exits = []
         for which in ("inner", "outer"):
-            i = next((i for i in range(ia, band[-1] + 1) if not in_box(obs[i].pos, start_area[which])), None)
+            i = next((i for i in range(ia + 1, band[-1] + 1)
+                      if moved(obs, i) and not in_box(obs[i - 1].pos, start_area[which])), None)
             exits.append(i)
         ns = timed(end.text)
         anchored = exits[0] is not None and exits[0] == exits[1] and all(exits[0] + n in eband for n in ns)
         if anchored:
-            first, last = exits[0] + min(ns), exits[0] + max(ns)
-            ev.finish_in.append((obs[last].pos, f"{src}@{obs[last].tick} (timer pose @{obs[exits[0]].tick} + {max(ns)})"))
-            ev.finish_out.append((obs[first - 1].pos, f"{src}@{obs[first - 1].tick} (timer-anchored)"))
+            firing = [exits[0] + n for n in ns if moved(obs, exits[0] + n)]
+            anchored = bool(firing)
+        if anchored:
+            p = obs[firing[-1] - 1]
+            ev.finish_in.append((p.pos, f"{src}@{p.tick} (timer move @{obs[exits[0]].tick} + {firing[-1] - exits[0]})"))
+            ev.finish_out += prior(obs, src, firing[0] - 1, firing[0])
             ev.events.setdefault("finish_anchored", 0)
             ev.events["finish_anchored"] += 1
         else:
-            ev.finish_in.append((obs[eband[-1]].pos, f"{src}@{obs[eband[-1]].tick} (finish chat @{end.tick})"))
+            fired = [i for i in eband if moved(obs, i)]
+            if fired:
+                p = obs[fired[-1] - 1]
+                ev.finish_in.append((p.pos, f"{src}@{p.tick} (finish chat @{end.tick})"))
 
 
 def touches(s: Session, i0: int, i1: int, end: Chat | None, reset: Chat | None, ev: Evidence, timer_running: bool):
@@ -808,7 +838,6 @@ def main(argv=None):
         path = Path(args.boosters_into)
         course = json.loads(path.read_text())
         course["boosters"], srcs = fit_boosters(cfg)
-        course["version"] = 2
         commit, dirty = git_state()
         course["fitted_from"]["boosters"] = {**srcs, "commit": commit, "dirty": dirty, "fitted_at": datetime.datetime.now()
                                              .astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")}
@@ -840,15 +869,17 @@ def main(argv=None):
         collect(sess, ev)
 
     start_area = region("start_area", ev.start_in, ev.start_out,
-                        "Timer starts on the first observed pose outside. Inside: poses judged before each "
-                        "timer start, and every pose of attempts that never started it; outside: each timer "
-                        "start's latest band pose.", suspect="inside")
+                        "Timer starts on a move that changes the block from a pose outside. Inside: the poses "
+                        "before block-changing moves before each timer start, and in attempts that never started "
+                        "it; outside: the pose before each timer start's latest block-changing band move.",
+                        suspect="inside")
     timed_finishes(ev, start_area)
     finish = region("finish", ev.finish_in, ev.finish_out,
-                    "Finish on the first observed pose inside, timer running. Inside: each finish's latest "
-                    "band pose, or its timer-anchored pose; runs that all approach one way leave inner small "
-                    "and the faces they don't reach assumed; outside: poses judged with the timer running "
-                    "before a finish or attempt end.", suspect="outside")
+                    "Finish on a move that changes the block from a pose inside, timer running. Inside: the "
+                    "pose before each finish's latest block-changing band move, or its timer-anchored move; "
+                    "runs that all approach one way leave inner small and the faces they don't reach assumed; "
+                    "outside: the poses before block-changing moves with the timer running before a finish "
+                    "or attempt end.", suspect="outside")
     for name, reg in (("start_area", start_area), ("finish", finish)):
         for face, (value, why) in cfg.get("face_overrides", {}).get(name, {}).items():
             axis, side = "xyz".index(face[0]), "min" if face.endswith("min") else "max"
@@ -877,7 +908,7 @@ def main(argv=None):
     commit, dirty = git_state()
     glide_tick = int(header["glide_tick"])
     course = {
-        "format": "etas-course", "version": 2, "name": args.course, "dimension": cfg["dimension"],
+        "format": "etas-course", "version": 3, "name": args.course, "dimension": cfg["dimension"],
         "world": {"path": str(world_path.relative_to(out.parent)) if world_path.is_relative_to(out.parent)
                   else str(world_path), "content_sha256": wh["content_sha256"], "extract": cfg["world_extract"]},
         "fitted_from": {**srcs, "excluded": [{"name": k, "why": v} for k, v in cfg["excluded"].items()],
@@ -885,10 +916,8 @@ def main(argv=None):
                         "fitted_at": datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")},
         "observation": {
             "tick_chat_lag": [2, 3],
-            "note": ("Logged sessions (2026-10-20, ~70-85 ms round trip): a tick-end chat on tape tick C judged "
-                     "the pose of C-3, or C-2 when the server tick started late; replays without a log are "
-                     f"fitted with {list(REPLAY_LAG)}. Kill messages are sent from a packet handler, not at a "
-                     "tick end."),
+            "note": ("Logged sessions (2026-10-20, ~70-85 ms round trip): a timer chat on tape tick C answers "
+                     f"the move of C-3 or C-2; replays without a log are fitted with {list(REPLAY_LAG)}."),
             "sessions": ev.lag,
         },
         "start": {
@@ -900,10 +929,10 @@ def main(argv=None):
         },
         "regions": {"start_area": start_area, "finish": finish},
         "rules": {
-            "timer_start": dict(event="first", when={"not": {"in": "start_area"}}, after="start",
+            "timer_start": dict(event="moved", when={"not": {"in": "start_area"}}, after="start",
                                 status=start_area["status"], note="see regions.start_area",
                                 evidence={"timer_starts": ev.events["timer"], "attempts": ev.events["attempts"]}),
-            "finish": dict(event="first", when={"in": "finish"}, after="timer_start", status=finish["status"],
+            "finish": dict(event="moved", when={"in": "finish"}, after="timer_start", status=finish["status"],
                            note="see regions.finish", evidence={"finishes": ev.events["finish"]}),
             "kill": [dict(name="ground", **ground)],
         },

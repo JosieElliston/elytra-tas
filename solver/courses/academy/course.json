@@ -1,6 +1,6 @@
 {
  "format": "etas-course",
- "version": 2,
+ "version": 3,
  "name": "academy",
  "dimension": "minecraft:eacademy",
  "world": {
@@ -30,20 +30,25 @@
     "name": "2026-10-20_18-05-35.tsv.gz",
     "sha256": "957427b8723d3954e387783d88ff63987c2deb7e1b98bf9280e05bd467244661",
     "same_session_as": "2026-10-20T18_24_43.zip"
+   },
+   {
+    "name": "2026-11-05_22-49-18.tsv.gz",
+    "sha256": "402893fcea926c295eb44bb5cfaf64940e6de21c38e8e4735c6ed59dd7693e53",
+    "same_session_as": null
    }
   ],
   "excluded": [],
   "tool": "fit_course.py",
-  "commit": "c4af9ba511dd0d28182e3ffa9302ff650ad55599",
+  "commit": "64d1e922189d3f8a1c003ebaa95d43cf79e495ce",
   "dirty": true,
-  "fitted_at": "2026-11-04 22:57:29 EST"
+  "fitted_at": "2026-11-06 02:42:45 EST"
  },
  "observation": {
   "tick_chat_lag": [
    2,
    3
   ],
-  "note": "Logged sessions (2026-10-20, ~70-85 ms round trip): a tick-end chat on tape tick C judged the pose of C-3, or C-2 when the server tick started late; replays without a log are fitted with [2, 5]. Kill messages are sent from a packet handler, not at a tick end.",
+  "note": "Logged sessions (2026-10-20, ~70-85 ms round trip): a timer chat on tape tick C answers the move of C-3 or C-2; replays without a log are fitted with [2, 5].",
   "sessions": [
    {
     "session": "data/foreign/luna/2026-11-04_academy.zip",
@@ -64,6 +69,11 @@
     "session": "2026-10-20_18-05-35.tsv.gz",
     "kind": "log",
     "note": "use_item replies: handler 2 (min 106 ms), tick end 3 (max 171 ms); band 106..231 ms"
+   },
+   {
+    "session": "2026-11-05_22-49-18.tsv.gz",
+    "kind": "log",
+    "note": "use_item replies: handler 146 (min 65 ms), tick end 143 (max 245 ms); band 65..305 ms"
    }
   ]
  },
@@ -190,32 +200,32 @@
      205.0
     ],
     "max": [
-     -16.65707065214385,
-     290.39999997615814,
+     -16.67515678756552,
+     290.37192942129633,
      230.69999998807907
     ]
    },
    "inner": {
     "min": [
      -36.29872706237533,
-     199.69038002947082,
-     205.48109641214094
+     199.17904838371032,
+     206.0239521291239
     ],
     "max": [
-     -17.65707065214385,
-     289.39999997615814,
+     -17.67515678756552,
+     289.37192942129633,
      229.69999998807907
     ]
    },
    "outer": {
     "min": [
      -100.29872706238838,
-     198.55038002947185,
-     204.83109641214153
+     198.94904838371053,
+     204.823952129125
     ],
     "max": [
-     46.34292934785546,
-     353.39999997609993,
+     46.3248432124338,
+     353.3719294212381,
      293.69999998802086
     ]
    },
@@ -224,24 +234,15 @@
     "x_max": "assumed",
     "y_min": "fitted",
     "y_max": "assumed",
-    "z_min": "fitted",
+    "z_min": "override",
     "z_max": "assumed"
    },
    "status": "provisional",
-   "note": "Timer starts on the first observed pose outside. Inside: poses judged before each timer start, and every pose of attempts that never started it; outside: each timer start's latest band pose. 4 inside points were dropped as contradicted (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped.",
+   "note": "Timer starts on a move that changes the block from a pose outside. Inside: the poses before block-changing moves before each timer start, and in attempts that never started it; outside: the pose before each timer start's latest block-changing band move. 3 inside points were dropped as contradicted (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped. z_min is set by hand to 205.0: Probes flown 2026-11-05 22:49-23:30 EST: every timer start fired on the move the rule picks with this face (docs/emc-course-rules.md).",
    "evidence": {
-    "inside": 49602,
-    "outside": 289,
+    "inside": 29739,
+    "outside": 363,
     "dropped": [
-     {
-      "pos": [
-       -27.678,
-       200.429,
-       200.125
-      ],
-      "source": "2026-11-03_20-52-45.tsv.gz@4906",
-      "against": "data/foreign/luna/2026-11-04_academy.zip@995 (timer chat @997)"
-     },
      {
       "pos": [
        -27.547,
@@ -249,7 +250,7 @@
        201.698
       ],
       "source": "2026-11-03_20-52-45.tsv.gz@4905",
-      "against": "2026-11-03_20-52-45.tsv.gz@1624 (timer chat @1625)"
+      "against": "data/foreign/luna/2026-11-04_academy.zip@994 (timer chat @997)"
      },
      {
       "pos": [
@@ -275,38 +276,38 @@
   "finish": {
    "working": {
     "min": [
-     -6.520845487735511,
+     -9.670028762252954,
      -58.0,
-     -99.7
+     -100.0
     ],
     "max": [
      0.8669767408990526,
-     -52.95992543449003,
-     -97.13912314410543
+     -50.66044172584639,
+     -95.58447845630812
     ]
    },
    "inner": {
     "min": [
-     -5.520845487735511,
+     -8.670028762252954,
      -57.0,
      -99.95846319775087
     ],
     "max": [
      -0.1330232591009474,
-     -53.95992543449003,
-     -98.13912314410543
+     -51.66044172584639,
+     -96.58447845630812
     ]
    },
    "outer": {
     "min": [
-     -69.52084548773425,
+     -72.67002876225337,
      -121.00000000002777,
-     -99.97846319775088
+     -100.24846319775102
     ],
     "max": [
      63.86697674089492,
-     10.040074565507636,
-     -34.13912314409391
+     12.339558274151685,
+     -32.5844784562977
     ]
    },
    "faces": {
@@ -314,85 +315,21 @@
     "x_max": "assumed",
     "y_min": "assumed",
     "y_max": "assumed",
-    "z_min": "override",
+    "z_min": "fitted",
     "z_max": "assumed"
    },
    "status": "provisional",
-   "note": "Finish on the first observed pose inside, timer running. Inside: each finish's latest band pose, or its timer-anchored pose; runs that all approach one way leave inner small and the faces they don't reach assumed; outside: poses judged with the timer running before a finish or attempt end. 7 outside points were dropped as contradicted (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped. z_min is set by hand to -99.7: Allowing each event +-1 tick: first pose past the face matches the chat's tick count in 9 of 12 timed finishes, against 4 for -100. Provisional: no single box holds 38.44 s, which passed -99.55 at y -56.67 without finishing.",
+   "note": "Finish on a move that changes the block from a pose inside, timer running. Inside: the pose before each finish's latest block-changing band move, or its timer-anchored move; runs that all approach one way leave inner small and the faces they don't reach assumed; outside: the poses before block-changing moves with the timer running before a finish or attempt end.",
    "evidence": {
-    "inside": 17,
-    "outside": 48823,
-    "dropped": [
-     {
-      "pos": [
-       -4.937,
-       -56.674,
-       -99.553
-      ],
-      "source": "2026-11-03_20-52-45.tsv.gz@52442",
-      "against": "the hull of the inside points"
-     },
-     {
-      "pos": [
-       -4.922,
-       -56.751,
-       -99.3
-      ],
-      "source": "2026-11-03_20-52-45.tsv.gz@52443",
-      "against": "the hull of the inside points"
-     },
-     {
-      "pos": [
-       -4.909,
-       -56.837,
-       -99.3
-      ],
-      "source": "2026-11-03_20-52-45.tsv.gz@52444",
-      "against": "the hull of the inside points"
-     },
-     {
-      "pos": [
-       -0.521,
-       -56.873,
-       -99.869
-      ],
-      "source": "2026-11-03_20-52-45.tsv.gz@58303 (timer-anchored)",
-      "against": "the hull of the inside points"
-     },
-     {
-      "pos": [
-       -4.933,
-       -55.307,
-       -99.887
-      ],
-      "source": "2026-11-03_20-52-45.tsv.gz@98750 (timer-anchored)",
-      "against": "the hull of the inside points"
-     },
-     {
-      "pos": [
-       -5.234,
-       -56.379,
-       -99.614
-      ],
-      "source": "2026-11-03_20-52-45.tsv.gz@125996 (timer-anchored)",
-      "against": "the hull of the inside points"
-     },
-     {
-      "pos": [
-       -5.284,
-       -55.607,
-       -99.925
-      ],
-      "source": "2026-11-03_20-52-45.tsv.gz@126860 (timer-anchored)",
-      "against": "the hull of the inside points"
-     }
-    ]
+    "inside": 45,
+    "outside": 63329,
+    "dropped": []
    }
   }
  },
  "rules": {
   "timer_start": {
-   "event": "first",
+   "event": "moved",
    "when": {
     "not": {
      "in": "start_area"
@@ -402,12 +339,12 @@
    "status": "provisional",
    "note": "see regions.start_area",
    "evidence": {
-    "timer_starts": 289,
-    "attempts": 478
+    "timer_starts": 363,
+    "attempts": 657
    }
   },
   "finish": {
-   "event": "first",
+   "event": "moved",
    "when": {
     "in": "finish"
    },
@@ -415,7 +352,7 @@
    "status": "provisional",
    "note": "see regions.finish",
    "evidence": {
-    "finishes": 17
+    "finishes": 45
    }
   },
   "kill": [
@@ -437,7 +374,7 @@
     "after": "timer_start",
     "until": "finish",
     "status": "provisional",
-    "note": "Conservative: any observed ground touch outside the start area kills. Logged touches with the timer running: 92 killed (reset with no item use, arriving with the glide-off), 10 survived; which touches kill isn't pinned down (single-tick bounces survived in some places and killed in others; a kill may need the server to have ended the glide). Touches before the timer start (start area) never killed or started the timer.",
+    "note": "Conservative: any observed ground touch outside the start area kills. Logged touches with the timer running: 119 killed (reset with no item use, arriving with the glide-off), 10 survived; which touches kill isn't pinned down (single-tick bounces survived in some places and killed in others; a kill may need the server to have ended the glide). Touches before the timer start (start area) never killed or started the timer.",
     "evidence": {
      "killed": [
       {
@@ -1267,6 +1204,249 @@
        ],
        "source": "2026-10-20_18-05-35.tsv.gz@13187",
        "ticks": 4
+      },
+      {
+       "pos": [
+        -33.7,
+        195.0,
+        206.95
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@30405",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -19.3,
+        194.5,
+        198.72
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@31108",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -33.7,
+        195.0,
+        196.05
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@31583",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        -21.3,
+        196.0,
+        211.472
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@32378",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -29.95,
+        197.0,
+        209.3
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@32550",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -23.3,
+        197.0,
+        209.05
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@32718",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -21.233,
+        197.0,
+        211.341
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@32868",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -33.7,
+        195.0,
+        206.95
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@33061",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        -29.95,
+        197.0,
+        209.3
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@33212",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        -23.3,
+        197.0,
+        209.05
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@33361",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        -19.3,
+        194.5,
+        202.309
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@33535",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -21.3,
+        196.0,
+        211.135
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@33695",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -26.587,
+        196.0,
+        223.139
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@42958",
+       "ticks": 6
+      },
+      {
+       "pos": [
+        -25.82,
+        196.062,
+        217.721
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@43071",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -25.855,
+        196.062,
+        217.339
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@43186",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -26.587,
+        196.0,
+        223.142
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@43290",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -33.7,
+        195.0,
+        206.95
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@43482",
+       "ticks": 1
+      },
+      {
+       "pos": [
+        -33.7,
+        195.0,
+        206.95
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@43677",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        -25.787,
+        196.062,
+        217.005
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@43792",
+       "ticks": 3
+      },
+      {
+       "pos": [
+        -25.82,
+        196.062,
+        217.721
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@43906",
+       "ticks": 4
+      },
+      {
+       "pos": [
+        -26.587,
+        196.0,
+        223.139
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@44009",
+       "ticks": 5
+      },
+      {
+       "pos": [
+        -26.587,
+        196.0,
+        223.139
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@44109",
+       "ticks": 5
+      },
+      {
+       "pos": [
+        -26.587,
+        196.0,
+        223.139
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@44209",
+       "ticks": 5
+      },
+      {
+       "pos": [
+        -26.587,
+        196.0,
+        223.139
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@44309",
+       "ticks": 5
+      },
+      {
+       "pos": [
+        -33.7,
+        195.0,
+        196.05
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@44515",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        -33.7,
+        195.0,
+        196.05
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@44736",
+       "ticks": 2
+      },
+      {
+       "pos": [
+        -16.252,
+        20.0,
+        -125.607
+       ],
+       "source": "2026-11-05_22-49-18.tsv.gz@57603",
+       "ticks": 8
       }
      ],
      "survived": [
@@ -1361,8 +1541,8 @@
        "ticks": 1
       }
      ],
-     "unknown": 39,
-     "start_area_touches": 1539
+     "unknown": 47,
+     "start_area_touches": 1694
     }
    }
   ]

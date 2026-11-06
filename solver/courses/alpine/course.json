@@ -1,6 +1,6 @@
 {
  "format": "etas-course",
- "version": 2,
+ "version": 3,
  "name": "alpine",
  "dimension": "minecraft:ealpine",
  "world": {
@@ -34,9 +34,9 @@
   ],
   "excluded": [],
   "tool": "fit_course.py",
-  "commit": "46583a7d7e5703de4ebb82ba9767a351db4fde45",
+  "commit": "64d1e922189d3f8a1c003ebaa95d43cf79e495ce",
   "dirty": true,
-  "fitted_at": "2026-11-03 15:35:04 EST",
+  "fitted_at": "2026-11-06 02:25:47 EST",
   "boosters": {
    "logs": [
     {
@@ -66,7 +66,7 @@
    2,
    3
   ],
-  "note": "Logged sessions (2026-10-20, ~70-85 ms round trip): a tick-end chat on tape tick C judged the pose of C-3, or C-2 when the server tick started late; replays without a log are fitted with [2, 5]. Kill messages are sent from a packet handler, not at a tick end.",
+  "note": "Logged sessions (2026-10-20, ~70-85 ms round trip): a timer chat on tape tick C answers the move of C-3 or C-2; replays without a log are fitted with [2, 5].",
   "sessions": [
    {
     "session": "2026-10-20T00_09_57_alpine.zip",
@@ -86,7 +86,7 @@
    {
     "session": "2026-10-20_01-58-55.tsv.gz",
     "kind": "log",
-    "note": "use_item replies: handler 32 (min 56 ms), tick end 32 (max 128 ms); band 56..188 ms"
+    "note": "use_item replies: handler 32 (min 104 ms), tick end 32 (max 128 ms); band 104..188 ms"
    }
   ]
  },
@@ -173,38 +173,38 @@
   "start_area": {
    "working": {
     "min": [
-     -52.69999998807907,
+     -52.591264503695996,
      167.90888326013055,
-     -154.69999998807907
+     -154.67113366451824
     ],
     "max": [
-     -27.72434306277903,
-     183.68632737730272,
-     -123.63214591721407
+     -27.737072949039934,
+     183.61930693112384,
+     -124.0
     ]
    },
    "inner": {
     "min": [
-     -51.69999998807907,
+     -51.591264503695996,
      168.90888326013055,
-     -153.69999998807907
+     -153.67113366451824
     ],
     "max": [
-     -28.72434306277903,
-     182.68632737730272,
-     -123.73214591721413
+     -28.737072949039934,
+     182.61930693112384,
+     -124.17263473553444
     ]
    },
    "outer": {
     "min": [
-     -115.69999998810307,
+     -115.59126450371993,
      104.90888326015593,
-     -217.69999998802086
+     -217.67113366446003
     ],
     "max": [
-     35.27565693722421,
-     246.6863273772445,
-     -123.53214591721402
+     35.26292705096331,
+     246.61930693106564,
+     -123.93263473553432
     ]
    },
    "faces": {
@@ -216,29 +216,11 @@
     "z_max": "fitted"
    },
    "status": "provisional",
-   "note": "Timer starts on the first observed pose outside. Inside: poses judged before each timer start, and every pose of attempts that never started it; outside: each timer start's latest band pose. 5 inside points were dropped as contradicted by an outside point (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped.",
+   "note": "Timer starts on a move that changes the block from a pose outside. Inside: the poses before block-changing moves before each timer start, and in attempts that never started it; outside: the pose before each timer start's latest block-changing band move. 4 inside points were dropped as contradicted (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped.",
    "evidence": {
-    "inside": 3519,
+    "inside": 1401,
     "outside": 58,
     "dropped": [
-     {
-      "pos": [
-       -33.734,
-       167.711,
-       -122.076
-      ],
-      "source": "2026-10-20_01-26-31.tsv.gz@449",
-      "against": "2026-10-20T00_09_57_alpine.zip@90 (timer chat @92)"
-     },
-     {
-      "pos": [
-       -33.522,
-       167.349,
-       -121.329
-      ],
-      "source": "2026-10-20_01-26-31.tsv.gz@450",
-      "against": "2026-10-20T00_09_57_alpine.zip@90 (timer chat @92)"
-     },
      {
       "pos": [
        -33.937,
@@ -246,16 +228,16 @@
        -122.801
       ],
       "source": "2026-10-20_01-26-31.tsv.gz@448",
-      "against": "2026-10-20T00_09_57_alpine.zip@478 (timer chat @480)"
+      "against": "2026-10-20T00_09_57_alpine.zip@89 (timer chat @92)"
      },
      {
       "pos": [
-       -34.912,
-       172.81,
-       -123.112
+       -33.734,
+       167.711,
+       -122.076
       ],
-      "source": "2026-10-20_01-26-31.tsv.gz@532",
-      "against": "2026-10-20T00_09_57_alpine.zip@2663 (timer chat @2665)"
+      "source": "2026-10-20_01-26-31.tsv.gz@449",
+      "against": "2026-10-20T00_09_57_alpine.zip@89 (timer chat @92)"
      },
      {
       "pos": [
@@ -264,7 +246,16 @@
        -123.5
       ],
       "source": "2026-10-20_01-26-31.tsv.gz@447",
-      "against": "2026-10-20_01-58-55.tsv.gz@757 (timer chat @758)"
+      "against": "2026-10-20T00_09_57_alpine.zip@959 (timer chat @962)"
+     },
+     {
+      "pos": [
+       -35.068,
+       173.139,
+       -123.732
+      ],
+      "source": "2026-10-20_01-26-31.tsv.gz@531",
+      "against": "2026-10-20T00_09_57_alpine.zip@2662 (timer chat @2665)"
      }
     ]
    }
@@ -273,36 +264,36 @@
    "working": {
     "min": [
      -72.76017656975068,
-     180.171289797446,
-     209.0756366654097
+     182.169920042262,
+     208.0
     ],
     "max": [
-     -67.94306620174434,
-     184.79406927360498,
+     -67.93254213155522,
+     185.0,
      217.78906934563577
     ]
    },
    "inner": {
     "min": [
      -71.76017656975068,
-     181.171289797446,
-     209.52563666540928
+     183.169920042262,
+     208.5206854127708
     ],
     "max": [
-     -68.94306620174434,
-     184.2040692736055,
+     -68.93254213155522,
+     184.5875377601137,
      216.78906934563577
     ]
    },
    "outer": {
     "min": [
      -135.7601765697724,
-     117.17128979748883,
-     208.6256366654101
+     119.16992004230764,
+     207.47068541277176
     ],
     "max": [
-     -4.943066201745918,
-     185.38406927360444,
+     -4.9325421315568025,
+     185.37753776011297,
      280.78906934557756
     ]
    },
@@ -315,17 +306,17 @@
     "z_max": "assumed"
    },
    "status": "provisional",
-   "note": "Finish on the first observed pose inside, timer running. Inside: each finish's latest band pose (all from one trajectory: the tape and tas_play replays of it), so inner is near a point and the faces the data doesn't reach are assumed; outside: poses judged with the timer running before a finish or attempt end.",
+   "note": "Finish on a move that changes the block from a pose inside, timer running. Inside: the pose before each finish's latest block-changing band move, or its timer-anchored move; runs that all approach one way leave inner small and the faces they don't reach assumed; outside: the poses before block-changing moves with the timer running before a finish or attempt end.",
    "evidence": {
     "inside": 7,
-    "outside": 7032,
+    "outside": 5456,
     "dropped": []
    }
   }
  },
  "rules": {
   "timer_start": {
-   "event": "first",
+   "event": "moved",
    "when": {
     "not": {
      "in": "start_area"
@@ -340,7 +331,7 @@
    }
   },
   "finish": {
-   "event": "first",
+   "event": "moved",
    "when": {
     "in": "finish"
    },
@@ -620,7 +611,7 @@
       }
      ],
      "unknown": 8,
-     "start_area_touches": 208
+     "start_area_touches": 207
     }
    }
   ]
@@ -635,14 +626,14 @@
    "region": {
     "working": {
      "min": [
-      -36.011983299585644,
+      -36.0,
       166.10544016892513,
-      -110.94135763427292
+      -111.0
      ],
      "max": [
-      -27.001822798300637,
+      -27.0,
       176.81876574688397,
-      -107.99570636522819
+      -108.0
      ]
     },
     "inner": {
@@ -731,13 +722,13 @@
    "region": {
     "working": {
      "min": [
-      -2.1019943274131747,
+      -2.0,
       161.0,
       -71.93994868890087
      ],
      "max": [
-      1.05568080960294,
-      168.05499999999995,
+      1.0,
+      168.0,
       -62.30000001192093
      ]
     },
@@ -805,11 +796,11 @@
     },
     "maybe_ticks": {
      "boosted": 12,
-     "not": 10
+     "not": 9
     },
     "sure_misses": [],
     "exits_inside_hull": [],
-    "airborne_visits_without_boost": 3,
+    "airborne_visits_without_boost": 2,
     "grounded_visits": {
      "with_boosts": 10,
      "without": 8
@@ -829,7 +820,7 @@
      "max": [
       -66.39713550079617,
       173.60799115697804,
-      47.13982774755796
+      47.0
      ]
     },
     "inner": {
@@ -892,7 +883,7 @@
     },
     "maybe_ticks": {
      "boosted": 9,
-     "not": 11
+     "not": 10
     },
     "sure_misses": [],
     "exits_inside_hull": [],

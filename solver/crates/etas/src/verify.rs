@@ -63,8 +63,9 @@ pub const GLIDE_OFF_MAX: usize = 8;
 /// Delays a bounce's window must cover: those seen on EMC without a packet hold.
 pub const GLIDE_OFF_NATURAL: [usize; 2] = [3, 4];
 
-/// A rule's first firing: the tick whose end pose the server judged, and the secant
-/// time: where the segment from the previous pose crosses the region's face, in ticks.
+/// A rule's first firing: the tick of the move that fired it, and the secant time: where
+/// the path crossed the region's face, in ticks, which can be earlier than that move. The
+/// timer sees only the moves; the secant time says how far a run is from a tick more or less.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct Crossing {
     pub tick: usize,
@@ -217,7 +218,7 @@ impl Report {
         Self::get(&self.finish, "working").map(|c| c.tick)
     }
 
-    /// EMC's timer as predicted: whole server ticks between the two judged poses.
+    /// EMC's timer as predicted: whole ticks between the two moves that fire it.
     pub fn timer_seconds(&self) -> Option<f64> {
         Some((self.finish_tick()? - self.timer_tick()?) as f64 * 0.05)
     }
@@ -430,15 +431,16 @@ fn verify_with(course: &Course, world: &World, plan: Plan, supplied: Option<&[Ar
 
     // rules
     let first = |rule: &Rule, from: usize, v: Variant, enter: bool| -> Option<Crossing> {
-        let t = (from..=n).find(|&t| course.eval(&rule.when, &obs[t], v))?;
-        let region = region_of(&rule.when);
-        let s = region
+        let t = (from..=n).find(|&t| course.fires(rule, &obs[t - 1], &obs[t], v))?;
+        // the pose that fired it was over the face already; the crossing is on the way to it
+        let c = (from..t).find(|&c| course.eval(&rule.when, &obs[c], v)).unwrap_or(t);
+        let s = region_of(&rule.when)
             .and_then(|r| course.regions.get(r))
-            .and_then(|r| r.bounds(v).crossing(obs[t - 1].pos, obs[t].pos, enter))
+            .and_then(|r| r.bounds(v).crossing(obs[c - 1].pos, obs[c].pos, enter))
             .unwrap_or(1.0);
         Some(Crossing {
             tick: t,
-            secant: (t - 1) as f64 + s,
+            secant: (c - 1) as f64 + s,
         })
     };
     let mut timer = Vec::new();
@@ -465,7 +467,7 @@ fn verify_with(course: &Course, world: &World, plan: Plan, supplied: Option<&[Ar
             rule.until.as_deref().map_or(n + 1, |u| bound(u, n + 1)),
         );
         for t in a..b.min(n + 1) {
-            if course.eval(&rule.when, &obs[t], Variant::Working) {
+            if course.fires(rule, &obs[t - 1], &obs[t], Variant::Working) {
                 kills.push(KillHit {
                     rule: rule.name.clone().unwrap_or_else(|| "kill".into()),
                     tick: t,
@@ -711,15 +713,15 @@ fn verify_with(course: &Course, world: &World, plan: Plan, supplied: Option<&[Ar
     let mut provisional: Vec<String> = Vec::new();
     for (name, r) in &course.regions {
         if r.status != "fitted" {
-            let assumed: Vec<&str> = r
+            let unfitted: Vec<&str> = r
                 .faces
                 .iter()
                 .filter(|(_, v)| v.as_str() != "fitted")
                 .map(|(k, _)| k.as_str())
                 .collect();
             provisional.push(format!(
-                "region {name}: assumed faces {}",
-                assumed.join(" ")
+                "region {name}: faces not fitted {}",
+                unfitted.join(" ")
             ));
         }
     }
@@ -937,7 +939,7 @@ impl fmt::Display for Report {
                     None => format!("{n} -"),
                 })
                 .collect();
-            writeln!(f, "{what} judged at tick: {}", parts.join(", "))
+            writeln!(f, "{what} fired at tick: {}", parts.join(", "))
         };
         show(f, "timer start", &self.timer)?;
         show(f, "finish", &self.finish)?;

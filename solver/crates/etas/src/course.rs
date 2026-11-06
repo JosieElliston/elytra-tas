@@ -13,8 +13,9 @@ use crate::booster::Booster;
 use crate::state::keys_of;
 
 const FORMAT: &str = "etas-course";
-/// Version 1 is version 2 with no boosters.
-const VERSION: u32 = 2;
+/// why reject older ones? their regions were fitted to "the first pose over the face fires",
+/// so they'd be read with faces that were never true of this rule. Refit with `fit_course.py`.
+const VERSION: u32 = 3;
 
 /// A box over the observed position, `min <= p <= max`; `None` is unbounded.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -27,6 +28,19 @@ impl Bounds {
     pub fn contains(&self, p: [f64; 3]) -> bool {
         (0..3)
             .all(|k| self.min[k].is_none_or(|m| m <= p[k]) && self.max[k].is_none_or(|m| p[k] <= m))
+    }
+
+    /// The first move that starts the timer leaving this box, as an index into the poses:
+    /// [`Rule`]'s `moved` over "not in the box". For callers with poses and no [`Observed`].
+    pub fn exit_move(&self, poses: impl IntoIterator<Item = [f64; 3]>) -> Option<usize> {
+        let mut prev: Option<[f64; 3]> = None;
+        for (i, p) in poses.into_iter().enumerate() {
+            if prev.is_some_and(|q| !self.contains(q) && block_of(q) != block_of(p)) {
+                return Some(i);
+            }
+            prev = Some(p);
+        }
+        None
     }
 
     /// The first parameter `s` in `[0, 1]` at which the segment `a + s (b - a)` is
@@ -58,6 +72,11 @@ impl Bounds {
             Some(0.0)
         }
     }
+}
+
+/// The block a position is in, as the server's move handler compares them.
+pub fn block_of(p: [f64; 3]) -> [i64; 3] {
+    p.map(|v| v.floor() as i64)
 }
 
 /// Which box of a region's bracket a rule is evaluated with.
@@ -124,7 +143,7 @@ pub struct Observed {
 pub struct Rule {
     #[serde(default)]
     pub name: Option<String>,
-    /// `first` or `any`.
+    /// `moved` or `any`; [`Course::fires`] says what they mean.
     pub event: String,
     pub when: Pred,
     pub after: String,
@@ -244,6 +263,9 @@ impl Course {
             .chain(&c.rules.kill)
         {
             c.check_pred(&r.when)?;
+            if r.event != "moved" && r.event != "any" {
+                return Err(format!("{}: unknown rule event {}", file.display(), r.event));
+            }
         }
         for g in &c.ground_allowed {
             c.region(g)?;
@@ -293,6 +315,17 @@ impl Course {
         }
     }
 
+    /// Whether the move from `prev` to `cur` fires `rule`. `moved`: the move changes the
+    /// block and `when` holds at `prev`. `any`: `when` holds at `cur`. why `prev` for
+    /// `moved`? EMC's timer runs on block-changing moves and judges the position before the
+    /// move, so a slow exit runs on past the face (docs/emc-course-rules.md).
+    pub fn fires(&self, rule: &Rule, prev: &Observed, cur: &Observed, v: Variant) -> bool {
+        match rule.event.as_str() {
+            "moved" => block_of(prev.pos) != block_of(cur.pos) && self.eval(&rule.when, prev, v),
+            _ => self.eval(&rule.when, cur, v),
+        }
+    }
+
     pub fn ground_allowed(&self, pos: [f64; 3], v: Variant) -> bool {
         self.ground_allowed
             .iter()
@@ -337,4 +370,24 @@ pub fn rest_state(pos: [f64; 3], yaw: f32, pitch: f32) -> LocalPlayer {
     let mut p = LocalPlayer::new(Vec3::new(pos[0], pos[1], pos[2]), yaw, pitch);
     p.delta_movement = Vec3::new(0.0, (0.0 - 0.08) * 0.98f32 as f64, 0.0);
     p
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A slow exit runs on past the face until a move changes the block from outside; a
+    /// fast one fires a move after the first pose outside.
+    #[test]
+    fn exit_waits_for_a_block_change_from_outside() {
+        let area = Bounds {
+            min: [None, Some(199.0), None],
+            max: [None; 3],
+        };
+        let fall = |ys: &[f64]| area.exit_move(ys.iter().map(|&y| [0.5, y, 0.5]));
+        // inside, then a whole-block crossing that starts inside doesn't fire
+        assert_eq!(fall(&[199.5, 198.9, 198.5, 197.9]), Some(3));
+        assert_eq!(fall(&[200.5, 198.5, 197.5]), Some(2));
+        assert_eq!(fall(&[199.5, 198.9, 198.5]), None);
+    }
 }

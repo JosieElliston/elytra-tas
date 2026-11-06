@@ -127,18 +127,17 @@ gives false contradictions.
   player's client 3-5 on all 5. So `fit_course.py` uses the number from the chat and the blank
   line's tick, not the chat's tick.
 - **Region faces are mostly whole numbers of the feet position, with no hitbox offset.** Refit
-  2026-11-04 22:08 EST: academy y >= 199, z >= 205; burrowed grove x >= -6, finish x <= -35;
-  downtown x < -27, 86 <= y < 99, z < -64; alpine z < -124, finish y <= 186, z >= 208. Offsetting
-  by the 0.3 half-width doesn't fit: x >= -6 is bracketed to [-6.005, -5.955], x < -27 to
-  [-27.149, -26.989]. Not all fit whole: downtown's finish z_max fits [-90.262, -90.152]. These fits assume the first
-  pose over the face fires, which the two rules above replace, so they may shift. `course.json`'s
-  academy finish still says z >= -99.7, a value that compensated for this; the real face is -100.
-  why it matters: at normal exit speed one tick of travel is ~1.5 blocks, so a wrong delay
-  makes a wrong face look just as good. Academy's start also fits y >= 198.56, z >= 203.45 at
-  a delay a tick shorter. It's rejected on the likelihood with +-1 tick per event (about 16
-  nats worse) and on those faces not being round, but only three slow exits (under 0.9
-  blocks/tick) test it directly, and they lean the other way. Slow passes with `deftenvy`
-  would settle it.
+  2026-11-06 with the two rules above: academy y >= 199, z >= 205, finish z >= -100; burrowed grove
+  finish x <= -35; downtown -51 <= x < -27, z < -64, finish z < -91; alpine z < -124, finish
+  y <= 185, z >= 208. Fits under "the first pose over the face fires" had some of these a block off
+  or not whole (academy's finish at -99.7, downtown's finish at -90.2, alpine's finish at y 186). Some
+  faces still don't fit whole, by less than 0.06: burrowed grove x >= [-5.995, -5.955], downtown y in
+  [86.41, 86.99] and [98.945, 98.995]. why it matters: at normal exit speed one tick of travel
+  is ~1.5 blocks, so a wrong delay makes a wrong face look just as good.
+- **Fast runs can leave two whole numbers in a face's bracket, so `fit_course.py` sets those by hand
+  from something else.** academy z >= 205 (slow probes), burrowed grove finish x <= -35 and downtown
+  z < -64. The last two are just what makes each course's one tape come out at its shown time, so
+  that tape doesn't test them. Slow passes with `deftenvy` would.
 - **Start area** is box-like in bulk (canyon x < −266, 168 ≤ y < 177–178, z ≥ 164;
   super classic downtown −52 ≤ x < −27, 86 ≤ y < 99, z < −64) but not one box: near
   canyon's z ≈ 195–199 corner the −x face sits near −265.2, and landing at y = 167

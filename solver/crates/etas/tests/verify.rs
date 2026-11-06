@@ -12,8 +12,8 @@ fn recorded_tape_passes() {
     let r = verify(&c, &w, Plan::Tape(&tape));
     print!("{r}");
     assert!(r.ok(), "{:?}", r.failures);
-    assert_eq!(r.timer_tick(), Some(42));
-    assert_eq!(r.finish_tick(), Some(689));
+    assert_eq!(r.timer_tick(), Some(43));
+    assert_eq!(r.finish_tick(), Some(690));
     let (traj, _) = from_tape(&tape, &w, Some(&c), "test");
     let r = verify(&c, &w, Plan::Trajectory(&traj));
     assert!(r.ok(), "{:?}", r.failures);

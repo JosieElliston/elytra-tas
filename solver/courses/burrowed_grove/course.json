@@ -1,6 +1,6 @@
 {
  "format": "etas-course",
- "version": 1,
+ "version": 3,
  "name": "burrowed_grove",
  "dimension": "minecraft:eburrowedgrove",
  "world": {
@@ -60,16 +60,16 @@
    }
   ],
   "tool": "fit_course.py",
-  "commit": "e3d68b199918984882b69e9b4bd74e5bbef60866",
+  "commit": "64d1e922189d3f8a1c003ebaa95d43cf79e495ce",
   "dirty": true,
-  "fitted_at": "2026-11-03 01:00:38 EST"
+  "fitted_at": "2026-11-06 02:45:04 EST"
  },
  "observation": {
   "tick_chat_lag": [
    2,
    3
   ],
-  "note": "Logged sessions (2026-10-20, ~70-85 ms round trip): a tick-end chat on tape tick C judged the pose of C-3, or C-2 when the server tick started late; replays without a log are fitted with [2, 5]. Kill messages are sent from a packet handler, not at a tick end.",
+  "note": "Logged sessions (2026-10-20, ~70-85 ms round trip): a timer chat on tape tick C answers the move of C-3 or C-2; replays without a log are fitted with [2, 5].",
   "sessions": [
    {
     "session": "2026-10-19T23_03_50.zip",
@@ -99,22 +99,22 @@
    {
     "session": "2026-10-20_01-24-23.tsv.gz",
     "kind": "log",
-    "note": "use_item replies: handler 1 (min 56 ms), tick end 1 (max 146 ms); band 56..206 ms"
+    "note": "use_item replies: handler 1 (min 136 ms), tick end 1 (max 146 ms); band 136..206 ms"
    },
    {
     "session": "2026-10-20_01-41-33.tsv.gz",
     "kind": "log",
-    "note": "use_item replies: handler 12 (min 56 ms), tick end 12 (max 134 ms); band 56..194 ms"
+    "note": "use_item replies: handler 12 (min 88 ms), tick end 12 (max 134 ms); band 88..194 ms"
    },
    {
     "session": "2026-10-20_18-05-35.tsv.gz",
     "kind": "log",
-    "note": "use_item replies: handler 0 (min 56 ms), tick end 2 (max 129 ms); band 56..189 ms"
+    "note": "use_item replies: handler 0 (min 118 ms), tick end 2 (max 129 ms); band 118..189 ms"
    },
    {
     "session": "2026-10-20_18-26-16.tsv.gz",
     "kind": "log",
-    "note": "use_item replies: handler 4 (min 55 ms), tick end 8 (max 125 ms); band 55..185 ms"
+    "note": "use_item replies: handler 4 (min 97 ms), tick end 8 (max 125 ms); band 97..185 ms"
    }
   ]
  },
@@ -246,38 +246,38 @@
   "start_area": {
    "working": {
     "min": [
-     -6.436645438530405,
-     159.44472160571218,
-     53.548131681719205
+     -5.974619850309487,
+     159.66725569687014,
+     53.89295784590793
     ],
     "max": [
-     7.085599083089195,
+     7.078390085510801,
      168.9457965530025,
-     65.7060658885948
+     65.36815320051997
     ]
    },
    "inner": {
     "min": [
-     -6.401645438530406,
-     160.44472160571218,
-     54.548131681719205
+     -5.954619850309488,
+     160.66725569687014,
+     54.89295784590793
     ],
     "max": [
-     6.085599083089195,
+     6.078390085510801,
      167.9457965530025,
-     64.85606588859436
+     64.53815320051955
     ]
    },
    "outer": {
     "min": [
-     -6.4716454385304045,
-     96.44472160572553,
-     -9.451868318278358
+     -5.994619850309487,
+     96.66725569688381,
+     -9.107042154089571
     ],
     "max": [
-     70.08559908308823,
+     70.07839008550984,
      231.9457965529443,
-     66.55606588859523
+     66.1981532005204
     ]
    },
    "faces": {
@@ -289,10 +289,11 @@
     "z_max": "fitted"
    },
    "status": "provisional",
-   "note": "Timer starts on the first observed pose outside. Inside: poses judged before each timer start, and every pose of attempts that never started it; outside: each timer start's latest band pose.",
+   "note": "Timer starts on a move that changes the block from a pose outside. Inside: the poses before block-changing moves before each timer start, and in attempts that never started it; outside: the pose before each timer start's latest block-changing band move.",
    "evidence": {
-    "inside": 9448,
-    "outside": 85
+    "inside": 1356,
+    "outside": 85,
+    "dropped": []
    }
   },
   "finish": {
@@ -300,10 +301,10 @@
     "min": [
      -36.60855656299941,
      -46.28469233650224,
-     72.30333193675648
+     72.81833193675638
     ],
     "max": [
-     -35.38355656299946,
+     -35.0,
      -44.28469233650224,
      84.5883319367612
     ]
@@ -324,33 +325,34 @@
     "min": [
      -99.60855656301197,
      -109.28469233652169,
-     61.01833193675177
+     62.048331936751566
     ],
     "max": [
-     -35.1585565629995,
+     -33.73855656299978,
      18.715307663497452,
      147.5883319367661
     ]
    },
    "faces": {
     "x_min": "assumed",
-    "x_max": "fitted",
+    "x_max": "override",
     "y_min": "assumed",
     "y_max": "assumed",
     "z_min": "fitted",
     "z_max": "assumed"
    },
    "status": "provisional",
-   "note": "Finish on the first observed pose inside, timer running. Inside: each finish's latest band pose (all from one trajectory: the tape and tas_play replays of it), so inner is near a point and the faces the data doesn't reach are assumed; outside: poses judged with the timer running before a finish or attempt end.",
+   "note": "Finish on a move that changes the block from a pose inside, timer running. Inside: the pose before each finish's latest block-changing band move, or its timer-anchored move; runs that all approach one way leave inner small and the faces they don't reach assumed; outside: the poses before block-changing moves with the timer running before a finish or attempt end. x_max is set by hand to -35.0: Of the whole numbers in the bracket, the one that gives the course tape's shown time.",
    "evidence": {
     "inside": 9,
-    "outside": 9400
+    "outside": 8146,
+    "dropped": []
    }
   }
  },
  "rules": {
   "timer_start": {
-   "event": "first",
+   "event": "moved",
    "when": {
     "not": {
      "in": "start_area"
@@ -365,7 +367,7 @@
    }
   },
   "finish": {
-   "event": "first",
+   "event": "moved",
    "when": {
     "in": "finish"
    },
@@ -528,7 +530,7 @@
       }
      ],
      "unknown": 5,
-     "start_area_touches": 136
+     "start_area_touches": 133
     }
    }
   ]

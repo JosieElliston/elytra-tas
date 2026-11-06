@@ -1,6 +1,6 @@
 {
  "format": "etas-course",
- "version": 2,
+ "version": 3,
  "name": "super_classic_downtown",
  "dimension": "minecraft:cesuperclassicdowntown",
  "world": {
@@ -44,16 +44,16 @@
   ],
   "excluded": [],
   "tool": "fit_course.py",
-  "commit": "46583a7d7e5703de4ebb82ba9767a351db4fde45",
+  "commit": "64d1e922189d3f8a1c003ebaa95d43cf79e495ce",
   "dirty": true,
-  "fitted_at": "2026-11-03 16:00:27 EST"
+  "fitted_at": "2026-11-06 02:44:47 EST"
  },
  "observation": {
   "tick_chat_lag": [
    2,
    3
   ],
-  "note": "Logged sessions (2026-10-20, ~70-85 ms round trip): a tick-end chat on tape tick C judged the pose of C-3, or C-2 when the server tick started late; replays without a log are fitted with [2, 5]. Kill messages are sent from a packet handler, not at a tick end.",
+  "note": "Logged sessions (2026-10-20, ~70-85 ms round trip): a timer chat on tape tick C answers the move of C-3 or C-2; replays without a log are fitted with [2, 5].",
   "sessions": [
    {
     "session": "2026-10-19T23_25_42_ebounce.zip",
@@ -63,7 +63,7 @@
    {
     "session": "2026-10-20_01-45-07.tsv.gz",
     "kind": "log",
-    "note": "use_item replies: handler 26 (min 56 ms), tick end 26 (max 143 ms); band 56..203 ms"
+    "note": "use_item replies: handler 26 (min 106 ms), tick end 26 (max 143 ms); band 106..203 ms"
    },
    {
     "session": "2026-10-20_01-50-02.tsv.gz",
@@ -73,7 +73,7 @@
    {
     "session": "2026-10-30_01-58-29.tsv.gz",
     "kind": "log",
-    "note": "use_item replies: handler 1 (min 55 ms), tick end 1 (max 104 ms); band 55..164 ms"
+    "note": "use_item replies: handler 1 (min 94 ms), tick end 1 (max 104 ms); band 94..164 ms"
    },
    {
     "session": "2026-10-31_18-52-03.tsv.gz",
@@ -83,7 +83,7 @@
    {
     "session": "2026-10-31_20-06-39.tsv.gz",
     "kind": "log",
-    "note": "use_item replies: handler 95 (min 53 ms), tick end 96 (max 232 ms); band 53..292 ms"
+    "note": "use_item replies: handler 95 (min 88 ms), tick end 96 (max 232 ms); band 88..292 ms"
    }
   ]
  },
@@ -190,38 +190,38 @@
   "start_area": {
    "working": {
     "min": [
-     -51.6786640275548,
-     85.97435881201474,
+     -51.0,
+     86.69728208750894,
      -93.69999998807907
     ],
     "max": [
-     -27.048552143736746,
-     99.06194261657032,
-     -64.07124206350647
+     -27.0,
+     98.97023256636805,
+     -64.0
     ]
    },
    "inner": {
     "min": [
-     -51.118664027554914,
-     86.52935881201502,
+     -50.917621822073535,
+     86.98728208750909,
      -92.69999998807907
     ],
     "max": [
-     -27.14855214373676,
-     99.0469426165703,
-     -64.55124206350658
+     -27.29035751438858,
+     98.94523256636803,
+     -65.08079239045126
     ]
    },
    "outer": {
     "min": [
-     -52.23866402755469,
-     85.41935881201445,
+     -51.98762182207332,
+     86.40728208750879,
      -156.69999998807103
     ],
     "max": [
-     -26.94855214373673,
-     99.07694261657032,
-     -63.59124206350638
+     -26.97035751438853,
+     98.99523256636806,
+     -63.980792390450716
     ]
    },
    "faces": {
@@ -230,61 +230,51 @@
     "y_min": "fitted",
     "y_max": "fitted",
     "z_min": "assumed",
-    "z_max": "fitted"
+    "z_max": "override"
    },
    "status": "provisional",
-   "note": "Timer starts on the first observed pose outside. Inside: poses judged before each timer start, and every pose of attempts that never started it; outside: each timer start's latest band pose. 1 inside points were dropped as contradicted (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped.",
+   "note": "Timer starts on a move that changes the block from a pose outside. Inside: the poses before block-changing moves before each timer start, and in attempts that never started it; outside: the pose before each timer start's latest block-changing band move. z_max is set by hand to -64.0: Of the whole numbers in the bracket, the one that gives the course tape's shown time.",
    "evidence": {
-    "inside": 21628,
+    "inside": 7107,
     "outside": 97,
-    "dropped": [
-     {
-      "pos": [
-       -41.338,
-       99.119,
-       -91.761
-      ],
-      "source": "2026-10-19T23_25_42_ebounce.zip@11646",
-      "against": "2026-10-20_01-45-07.tsv.gz@1355 (timer chat @1356)"
-     }
-    ]
+    "dropped": []
    }
   },
   "finish": {
    "working": {
     "min": [
-     12.42221688273971,
-     19.0,
-     -101.69999998807907
+     12.61249624489578,
+     18.5,
+     -98.30804374543145
     ],
     "max": [
-     16.649405914482923,
-     24.339533091088555,
-     -90.23743238106442
+     15.699999988079071,
+     23.337474206072365,
+     -91.0
     ]
    },
    "inner": {
     "min": [
-     13.42221688273971,
-     20.0,
-     -100.69999998807907
+     13.61249624489578,
+     19.5,
+     -97.30804374543145
     ],
     "max": [
-     15.649405914482923,
-     23.339533091088555,
-     -90.26243238106443
+     14.699999988079071,
+     22.337474206072365,
+     -91.00311821519477
     ]
    },
    "outer": {
     "min": [
-     -50.577783117258555,
-     -44.00000000000014,
-     -164.69999998805966
+     -50.38750375510252,
+     -44.499999999999964,
+     -161.30804374541685
     ],
     "max": [
-     79.64940591448705,
-     87.33953309109548,
-     -90.2124323810644
+     78.6999999880827,
+     86.33747420607894,
+     -90.96311821519475
     ]
    },
    "faces": {
@@ -296,72 +286,17 @@
     "z_max": "fitted"
    },
    "status": "provisional",
-   "note": "Finish on the first observed pose inside, timer running. Inside: each finish's latest band pose, or its timer-anchored pose; runs that all approach one way leave inner small and the faces they don't reach assumed; outside: poses judged with the timer running before a finish or attempt end. 6 outside points were dropped as contradicted (a chat delayed past its lag band; `drop_contradicted`), listed in evidence.dropped.",
+   "note": "Finish on a move that changes the block from a pose inside, timer running. Inside: the pose before each finish's latest block-changing band move, or its timer-anchored move; runs that all approach one way leave inner small and the faces they don't reach assumed; outside: the poses before block-changing moves with the timer running before a finish or attempt end.",
    "evidence": {
     "inside": 29,
-    "outside": 5088,
-    "dropped": [
-     {
-      "pos": [
-       13.806,
-       22.936,
-       -90.7
-      ],
-      "source": "2026-10-19T23_25_42_ebounce.zip@10976",
-      "against": "the hull of the inside points"
-     },
-     {
-      "pos": [
-       14.057,
-       20.644,
-       -91.563
-      ],
-      "source": "2026-10-31_20-06-39.tsv.gz@8475",
-      "against": "the hull of the inside points"
-     },
-     {
-      "pos": [
-       14.299,
-       20.062,
-       -93.016
-      ],
-      "source": "2026-10-31_20-06-39.tsv.gz@8476",
-      "against": "the hull of the inside points"
-     },
-     {
-      "pos": [
-       14.506,
-       20.062,
-       -94.458
-      ],
-      "source": "2026-10-31_20-06-39.tsv.gz@8477",
-      "against": "the hull of the inside points"
-     },
-     {
-      "pos": [
-       13.553,
-       22.657,
-       -90.64
-      ],
-      "source": "2026-10-19T23_25_42_ebounce.zip@10693 (timer-anchored)",
-      "against": "the hull of the inside points"
-     },
-     {
-      "pos": [
-       13.976,
-       21.776,
-       -90.959
-      ],
-      "source": "2026-10-31_20-06-39.tsv.gz@10213 (timer-anchored)",
-      "against": "the hull of the inside points"
-     }
-    ]
+    "outside": 3700,
+    "dropped": []
    }
   }
  },
  "rules": {
   "timer_start": {
-   "event": "first",
+   "event": "moved",
    "when": {
     "not": {
      "in": "start_area"
@@ -376,7 +311,7 @@
    }
   },
   "finish": {
-   "event": "first",
+   "event": "moved",
    "when": {
     "in": "finish"
    },
@@ -406,7 +341,7 @@
     "after": "timer_start",
     "until": "finish",
     "status": "provisional",
-    "note": "Conservative: any observed ground touch outside the start area kills. Logged touches with the timer running: 7 killed (reset with no item use, arriving with the glide-off), 3 survived; which touches kill isn't pinned down (single-tick bounces survived in some places and killed in others; a kill may need the server to have ended the glide). Touches before the timer start (start area) never killed or started the timer.",
+    "note": "Conservative: any observed ground touch outside the start area kills. Logged touches with the timer running: 7 killed (reset with no item use, arriving with the glide-off), 2 survived; which touches kill isn't pinned down (single-tick bounces survived in some places and killed in others; a kill may need the server to have ended the glide). Touches before the timer start (start area) never killed or started the timer.",
     "evidence": {
      "killed": [
       {
@@ -491,19 +426,10 @@
        ],
        "source": "2026-10-20_01-45-07.tsv.gz@1418",
        "ticks": 1
-      },
-      {
-       "pos": [
-        14.299,
-        20.062,
-        -93.016
-       ],
-       "source": "2026-10-31_20-06-39.tsv.gz@8476",
-       "ticks": 3
       }
      ],
      "unknown": 0,
-     "start_area_touches": 990
+     "start_area_touches": 636
     }
    }
   ]

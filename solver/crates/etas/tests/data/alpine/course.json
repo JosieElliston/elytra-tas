@@ -1,6 +1,6 @@
 {
  "format": "etas-course",
- "version": 2,
+ "version": 3,
  "name": "alpine_events_test",
  "dimension": "minecraft:ealpine",
  "world": {
@@ -5472,7 +5472,7 @@
  },
  "rules": {
   "timer_start": {
-   "event": "first",
+   "event": "moved",
    "when": {
     "not": {
      "in": "start_area"
@@ -5483,7 +5483,7 @@
    "note": "as burrowed_grove"
   },
   "finish": {
-   "event": "first",
+   "event": "moved",
    "when": {
     "in": "finish"
    },

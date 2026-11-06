@@ -4,8 +4,8 @@
 //!
 //! - The prefix: a recorded tape that starts at the reset pose and replays under port with no
 //!   server events before its deploy (`PREFIX`), up to that deploy.
-//! - The join: from the deploy's state to the flight's state `join` ticks past its timer
-//!   start, on the generic kernel, over horizons around the prefix tape's own. Horizons and
+//! - The join: from the deploy's state to the flight's state `join` ticks past the pose before
+//!   its timer start, on the generic kernel, over horizons around the prefix tape's own. Horizons and
 //!   joins are searched for the fewest timed ticks over the whole run. why timed? ticks before
 //!   the timer starts cost nothing, so the least ticks to the join isn't the goal.
 //! - The smoothing: [`smooth_pass`]es over the join and the flight together, whose pinned ends
@@ -123,6 +123,9 @@ fn run() -> Result<bool, String> {
         .zip(r.finish_tick())
         .ok_or("the flight has no timer or finish")?;
     println!("flight: {} timed ticks", b_finish - b_timer);
+    // the pose the timer's move leaves from, which the plan is cut around. why not the timer
+    // tick? the join is sensitive to its seed (a tick's shift finds none, 2026-11-06).
+    let b_outside = b_timer - 1;
 
     // the prefix, from rest
     let tape = Tape::read(&dir.join(prefix))?;
@@ -140,6 +143,7 @@ fn run() -> Result<bool, String> {
     let sr = verify(&course, &world, VPlan::Trajectory(&seed_flight.traj));
     let seed_exit = sr.timer_tick().ok_or("prefix: no timer start")?;
     println!("prefix: deploy at tape tick {deploy}, exit {seed_exit} ticks later");
+    let seed_outside = seed_exit - 1;
 
     let pts: Vec<[f64; 3]> = rest
         .rows
@@ -150,12 +154,13 @@ fn run() -> Result<bool, String> {
     let walls = Walls::around(&world, &pts, 6.0, 1.0);
     let kernel = Generic::default();
     let start_area = course.region("start_area")?.working.clone();
+    let exit_tick = |x: &[X]| start_area.exit_move(x.iter().map(|x| [x[0], x[1], x[2]]));
 
     // the join: per target tick and horizon, the exit tick it comes to
     let found: Vec<(usize, usize, usize, DPlan)> = JOINS
         .par_iter()
         .flat_map_iter(|&j| {
-            let target_tick = b_timer + j;
+            let target_tick = b_outside + j;
             let target: X = flight(state_at(&best, target_tick));
             let pb = Problem {
                 kernel,
@@ -167,7 +172,7 @@ fn run() -> Result<bool, String> {
                 },
                 opts: opts(MARGIN),
             };
-            let seed_n = seed_exit + j;
+            let seed_n = seed_outside + j;
             let seed = controls(
                 &seed_flight.traj,
                 0,
@@ -186,12 +191,7 @@ fn run() -> Result<bool, String> {
                     continue;
                 }
                 u = s.plan.u.clone();
-                let exit = s
-                    .plan
-                    .x
-                    .iter()
-                    .position(|x| !start_area.contains([x[0], x[1], x[2]]))
-                    .unwrap_or(n);
+                let exit = exit_tick(&s.plan.x).unwrap_or(n);
                 // the timed ticks up to the join; the rest is the flight's
                 out.push((n - exit + (b_finish - target_tick), j, n, s.plan));
             }
@@ -201,11 +201,7 @@ fn run() -> Result<bool, String> {
     let mut found = found;
     found.sort_by_key(|f| f.0);
     for f in found.iter().take(8) {
-        let e =
-            f.3.x
-                .iter()
-                .position(|x| !start_area.contains([x[0], x[1], x[2]]))
-                .unwrap_or(0);
+        let e = exit_tick(&f.3.x).unwrap_or(0);
         let v = f.3.x[e];
         println!(
             "join +{} in {} ticks: predicted timed {}, exit tick {e}, speed {:.2}",
@@ -222,8 +218,9 @@ fn run() -> Result<bool, String> {
     println!("join chosen: +{j}, predicted {timed} timed");
 
     // the whole plan, generic: the join, then the flight's rotations as controls
-    let target_tick = b_timer + j;
-    let end = b_finish.min(best.rows.len());
+    let target_tick = b_outside + j;
+    // the firing move comes in the tail. why not in the plan? on academy it hits a wall
+    let end = (b_finish - 1).min(best.rows.len());
     let rest_u = controls(&best, target_tick, end, 90.0);
     let u: Vec<U> = join.u.iter().chain(rest_u.iter()).copied().collect();
     let pb = Problem {
@@ -245,10 +242,7 @@ fn run() -> Result<bool, String> {
     let mut plan = DPlan { u, x };
 
     // smooth, unless the timer would start sooner: the windows keep the ticks, not the exit
-    let exit_of = |p: &DPlan| {
-        p.x.iter()
-            .position(|x| !start_area.contains([x[0], x[1], x[2]]))
-    };
+    let exit_of = |p: &DPlan| exit_tick(&p.x);
     let exit = exit_of(&plan);
     let before = pb.travel(&plan.x, &plan.u);
     let from = Some([
@@ -392,7 +386,7 @@ fn run() -> Result<bool, String> {
     );
     // what the server would do to the flight itself: its copy hitting a wall comes back as
     // a velocity that throws the client off the plan. Not the prefix, whose bounce is planned,
-    // nor from the finish on.
+    // nor from the move before the finish on, as the firing move is out before the answer's back.
     let flown: Vec<X> = traj
         .rows
         .iter()
@@ -405,7 +399,7 @@ fn run() -> Result<bool, String> {
     let hits: Vec<_> = server_hits(&walls, &flown)
         .into_iter()
         .map(|(i, c)| (traj.rows[i].t, c))
-        .filter(|&(t, _)| t > deploy && t < finish)
+        .filter(|&(t, _)| t > deploy && t + 1 < finish)
         .collect();
     println!("server hits flown, deploy to finish: {hits:?}");
     let file = out.join("academy.tas");

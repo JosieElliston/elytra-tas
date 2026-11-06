@@ -83,7 +83,9 @@ struct Run {
     name: String,
     rec: Trajectory,
     timer: usize,
-    finish: usize,
+    /// The first tick past the finish plane. The finish fires a move later, and the timer
+    /// did too, so `gate - (timer - 1)` is the run's timed ticks.
+    gate: usize,
 }
 
 fn goal(course: &Course, cap: usize) -> Result<Goal, String> {
@@ -176,7 +178,7 @@ fn roll(gate: &Problem, u: &[U]) -> DPlan {
 
 /// The plan from the recording: reaches between its states every `FIRST` ticks.
 fn first_plan(run: &Run, walls: &Walls, gate: &Problem) -> Result<DPlan, String> {
-    let (a, f) = (run.timer - 1, run.finish);
+    let (a, f) = (run.timer - 1, run.gate);
     let ctl = |t: usize| {
         let i = &run.rec.rows[t].input;
         control(lead_of(&flight(state_at(&run.rec, t)), i.yaw), i.pitch)
@@ -343,7 +345,7 @@ fn one(
         kernel: Generic::default(),
         walls,
         x0,
-        goal: goal(course, run.finish - a + 80)?,
+        goal: goal(course, run.gate - a + 80)?,
         opts: opts(),
     };
     let mut best = first_plan(run, walls, &gate)?;
@@ -439,7 +441,7 @@ fn one(
     Ok(format!(
         "{name}: recorded {rec} -> {res} {verdict}{why}\n  generic {generic:.2} in {t1:.0} s [{log}]\n  track: {nt} ticks (plan {np}), {rs} re-solves, {rt:.1} s, contacts {c:?}, event {e:?}, port stopped {stopped:?}, secant {sec}",
         name = run.name,
-        rec = run.finish + 1 - run.timer,
+        rec = run.gate + 1 - run.timer,
         res = timed.map_or("-".into(), |t| format!("{t} ({:.2} s)", t as f64 * 0.05)),
         verdict = if r.ok() { "PASS" } else { "FAIL" },
         why = r
@@ -459,16 +461,16 @@ fn one(
     ))
 }
 
-/// The timer start and the finish, by the rows' positions alone: the first tick past the start
-/// area, and the first crossing into the finish.
+/// The timer start and the gate, by the rows' positions alone: the move that starts the timer,
+/// and the first crossing of the finish plane after it.
 fn scan_ticks(course: &Course, rec: &Trajectory) -> Result<Option<(usize, usize)>, String> {
     let start = &course.region("start_area")?.working;
     let at = course.region("finish")?.working.min[2].ok_or("finish has no z_min")?;
     let pos = |t: usize| state_at(rec, t).position;
     let n = rec.rows.len();
-    let timer = (1..n).find(|&t| !start.contains(pos(t)));
-    let finish = timer.and_then(|a| (a..n).find(|&t| pos(t - 1)[2] <= at && pos(t)[2] > at));
-    Ok(timer.zip(finish))
+    let timer = start.exit_move((0..n).map(pos));
+    let gate = timer.and_then(|a| (a..n).find(|&t| pos(t - 1)[2] <= at && pos(t)[2] > at));
+    Ok(timer.zip(gate))
 }
 
 fn run() -> Result<(), String> {
@@ -509,18 +511,18 @@ fn run() -> Result<(), String> {
         }
         let rec = Trajectory::read(&p)?;
         let r = verify(&course, &world, Plan::Trajectory(&rec));
-        // a hybrid's rows don't replay, so verify stops at the splice: its ticks by position
-        let ticks = if hybrids {
+        // a hybrid's rows don't replay, so verify stops at the splice: only the positions count
+        let ticks = if hybrids || r.timer_tick().zip(r.finish_tick()).is_some() {
             scan_ticks(&course, &rec)?
         } else {
-            r.timer_tick().zip(r.finish_tick())
+            None
         };
         match ticks {
-            Some((timer, finish)) => runs.push(Run {
+            Some((timer, gate)) => runs.push(Run {
                 name,
                 rec,
                 timer,
-                finish,
+                gate,
             }),
             None => println!("{name}: no timer or finish in the seed: {:?}", r.failures),
         }
