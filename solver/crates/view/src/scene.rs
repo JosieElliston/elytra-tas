@@ -281,8 +281,15 @@ impl<'a> Tracer<'a> {
 
     #[inline]
     fn kept(&self, x: i32, y: i32, z: i32, st: u16) -> bool {
-        if self.style.barriers.is_none() && self.s.baked[st as usize].barrier {
-            return false;
+        if self.s.baked[st as usize].barrier {
+            if self.style.barriers.is_none() {
+                return false;
+            }
+            if let Some(f) = &self.style.barrier_keep
+                && !f(BlockPos { x, y, z }, self.s.world.info(st as u32))
+            {
+                return false;
+            }
         }
         match &self.style.keep {
             Some(k) => k(BlockPos { x, y, z }, self.s.world.info(st as u32)),
@@ -493,6 +500,9 @@ impl<'a> Tracer<'a> {
                         return Some(t);
                     }
                 } else if self.kept(c[0], c[1], c[2], st) {
+                    if b.barrier && !self.collision && self.style.barriers.is_some_and(|col| col.a >= 0.995) {
+                        return Some(t);
+                    }
                     let quads = if self.collision { &b.boxes } else { &b.quads };
                     if !quads.is_empty() {
                         let lo = self.local(o, d, t, c, st, b);
@@ -726,7 +736,7 @@ impl<'a> Tracer<'a> {
                         in_fluid = false;
                     }
                     if alpha < 0.995 {
-                        // a barrier: its entry face, unless the ray came through a barrier
+                        // a barrier: its entry face, unless the ray came through a drawn barrier
                         if b.barrier && !self.collision {
                             if let Some(col) = style.barriers
                                 && prev_st != st
@@ -739,6 +749,9 @@ impl<'a> Tracer<'a> {
                                 acc[1] += col.g * sh * a;
                                 acc[2] += col.b * sh * a;
                                 alpha += a;
+                                if col.a >= 0.995 && depth.is_infinite() {
+                                    depth = t as f32;
+                                }
                             }
                         } else if !self.collision
                             && b.cube.is_some()
@@ -838,7 +851,8 @@ impl<'a> Tracer<'a> {
                         done = self.tall(o, d, t, tn, c, stb, &mut acc, &mut alpha, &mut depth);
                     }
                 }
-                prev_st = st;
+                // why only drawn? a kept barrier behind a filtered one still needs its face
+                prev_st = if drawn { st } else { UNKNOWN };
             }
             if alpha >= 0.995 {
                 break;

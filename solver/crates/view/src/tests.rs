@@ -1,7 +1,7 @@
 use world::{BlockPos, World};
 
 use crate::color::{RED, WHITE};
-use crate::{Camera, CellMask, Scene, Stroke, WorldStyle, find_jar};
+use crate::{Camera, CellMask, NearMask, Scene, Stroke, WorldStyle, find_jar};
 
 fn p(x: i32, y: i32, z: i32) -> BlockPos {
     BlockPos { x, y, z }
@@ -124,6 +124,46 @@ fn barriers_are_hidden_unless_asked_for() {
         f.finish()
     };
     assert!(top(WorldStyle::new()).rgba == top(WorldStyle::new().keep(|q, _| q.y != 5)).rgba);
+}
+
+#[test]
+fn near_mask_measures_to_the_nearest_part_of_the_cell() {
+    let m = NearMask::new(&[[0.5, 0.5, 0.5]], 10.0);
+    assert!(m.contains(p(0, 0, 0)));
+    assert!(m.contains(p(10, 0, 0)), "its near face is 9.5 away");
+    assert!(!m.contains(p(11, 0, 0)), "10.5 away");
+    assert!(!m.contains(p(8, 8, 8)), "13 away on the diagonal");
+    assert!(!NearMask::new(&[], 10.0).contains(p(0, 0, 0)));
+}
+
+#[test]
+fn solid_barriers_block_only_where_kept() {
+    let mut w = small();
+    w.set(p(0, 2, 0), "minecraft:stone");
+    // a thick stack, as in a hull, whose upper cells are filtered out
+    w.set(p(0, 7, 0), "minecraft:barrier");
+    w.set(p(0, 6, 0), "minecraft:barrier");
+    w.set(p(0, 5, 0), "minecraft:barrier");
+    let s = Scene::with_jar(&w, None).unwrap();
+    let height = |style: &WorldStyle| down(&s, style, 0.5, 0.5).unwrap();
+    let solid = || WorldStyle::new().solid_barriers();
+    assert!((height(&solid()) - 8.0).abs() < 1e-6);
+    assert!((height(&solid().barriers_where(|q, _| q.y < 6)) - 6.0).abs() < 1e-6);
+    assert!((height(&solid().barriers_where(|_, _| false)) - 3.0).abs() < 1e-6);
+    assert!((height(&solid().collision().barriers_where(|q, _| q.y < 6)) - 6.0).abs() < 1e-6);
+    // the trace draws the kept cell's face, though a filtered barrier came before it
+    let top = |style: WorldStyle| {
+        let mut f = s.frame(&Camera::top(&[[-4.0, 0.0, -4.0], [4.0, 0.0, 4.0]]), 64, 64);
+        f.style(style.desaturate(0.0));
+        f.samples(1);
+        f.finish()
+    };
+    let px = |i: &crate::Image| {
+        let at = ((32 * i.w + 32) * 4) as usize;
+        [i.rgba[at], i.rgba[at + 1], i.rgba[at + 2]]
+    };
+    let shown = px(&top(solid().barriers_where(|q, _| q.y < 6)));
+    assert!(shown[0] > 200 && shown[1] < 60, "opaque red, got {shown:?}");
 }
 
 #[test]

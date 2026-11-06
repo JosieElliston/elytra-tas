@@ -90,8 +90,9 @@ enum Cmd {
         /// Draw the collision boxes the physics sees, not the block models.
         #[arg(long)]
         collision: bool,
-        /// Draw barriers. They're hidden by default, and collide either way, so open space
-        /// in the picture isn't proof a run can fly there.
+        /// Draw every barrier, translucent. By default only those within 10 blocks of a run
+        /// are drawn, solid. They collide either way, so open space in the picture isn't
+        /// proof a run can fly there.
         #[arg(long)]
         barriers: bool,
         /// Join ticks with the physics' L-shaped move (y, then the larger horizontal axis,

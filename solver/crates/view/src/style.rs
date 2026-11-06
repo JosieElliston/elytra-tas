@@ -29,6 +29,8 @@ pub struct WorldStyle<'a> {
     /// hull of them, which would tint every view and roof every collision view. Hidden
     /// ones still collide: open space in a picture doesn't mean a run can fly there.
     pub barriers: Option<Color>,
+    /// Of the barriers `barriers` would draw, the ones to draw.
+    pub(crate) barrier_keep: Option<Keep<'a>>,
     pub unknown: Option<Color>,
     pub background: Color,
     /// Distance at which fog is about 63% opaque.
@@ -48,6 +50,7 @@ impl Default for WorldStyle<'_> {
             keep: None,
             tint: None,
             barriers: None,
+            barrier_keep: None,
             unknown: None,
             background: Color::hex(0xB9CAD8),
             fog: None,
@@ -124,6 +127,19 @@ impl<'a> WorldStyle<'a> {
         self.barriers(Some(Color::rgba(0.95, 0.12, 0.18, 0.28)))
     }
 
+    /// Draw barriers opaque, so they hide what's behind them and block
+    /// [`crate::Scene::raycast`] like any block.
+    pub fn solid_barriers(self) -> Self {
+        self.barriers(Some(Color::rgba(0.95, 0.12, 0.18, 1.0)))
+    }
+
+    /// Of the barriers this style draws, only those this returns true for, e.g. with a
+    /// [`NearMask`].
+    pub fn barriers_where(mut self, f: impl Fn(BlockPos, &BlockInfo) -> bool + Sync + 'a) -> Self {
+        self.barrier_keep = Some(Box::new(f));
+        self
+    }
+
     /// Fill unknown space (what `verify` rejects) with this translucent color, per cell.
     pub fn unknown(mut self, c: Color) -> Self {
         self.unknown = Some(c);
@@ -153,6 +169,70 @@ impl<'a> WorldStyle<'a> {
     pub fn hidden(mut self) -> Self {
         self.hidden = true;
         self
+    }
+}
+
+/// The cells within `radius` of any point, measured to the nearest part of the cell.
+pub struct NearMask {
+    min: [i32; 3],
+    dim: [i32; 3],
+    bits: Vec<u64>,
+}
+
+impl NearMask {
+    pub fn new(points: &[[f64; 3]], radius: f64) -> NearMask {
+        let (mut lo, mut hi) = ([i32::MAX; 3], [i32::MIN; 3]);
+        for p in points {
+            for k in 0..3 {
+                lo[k] = lo[k].min((p[k] - radius).floor() as i32);
+                hi[k] = hi[k].max((p[k] + radius).floor() as i32);
+            }
+        }
+        if points.is_empty() {
+            return NearMask {
+                min: [0; 3],
+                dim: [0; 3],
+                bits: Vec::new(),
+            };
+        }
+        let dim = [hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1];
+        let n = dim[0] as usize * dim[1] as usize * dim[2] as usize;
+        let mut bits = vec![0u64; n.div_ceil(64)];
+        let gap = |c: i32, v: f64| (c as f64 - v).max(v - (c as f64 + 1.0)).max(0.0);
+        for p in points {
+            let (x0, x1) = ((p[0] - radius).floor() as i32, (p[0] + radius).floor() as i32);
+            let (y0, y1) = ((p[1] - radius).floor() as i32, (p[1] + radius).floor() as i32);
+            let (z0, z1) = ((p[2] - radius).floor() as i32, (p[2] + radius).floor() as i32);
+            for z in z0..=z1 {
+                let dz = gap(z, p[2]);
+                for y in y0..=y1 {
+                    let dy = gap(y, p[1]);
+                    for x in x0..=x1 {
+                        let dx = gap(x, p[0]);
+                        if dx * dx + dy * dy + dz * dz <= radius * radius {
+                            let i = (z - lo[2]) as usize * dim[1] as usize + (y - lo[1]) as usize;
+                            let i = i * dim[0] as usize + (x - lo[0]) as usize;
+                            bits[i / 64] |= 1 << (i % 64);
+                        }
+                    }
+                }
+            }
+        }
+        NearMask {
+            min: lo,
+            dim,
+            bits,
+        }
+    }
+
+    pub fn contains(&self, p: BlockPos) -> bool {
+        let q = [p.x - self.min[0], p.y - self.min[1], p.z - self.min[2]];
+        if (0..3).any(|k| q[k] < 0 || q[k] >= self.dim[k]) {
+            return false;
+        }
+        let i = q[2] as usize * self.dim[1] as usize + q[1] as usize;
+        let i = i * self.dim[0] as usize + q[0] as usize;
+        self.bits[i / 64] >> (i % 64) & 1 == 1
     }
 }
 

@@ -54,7 +54,7 @@ pub use color::{Color, Ramp};
 pub use frame::{Align, Frame, LabelStyle, Marker, Shape, Stroke, TextStyle};
 pub use image::Image;
 pub use scene::Scene;
-pub use style::{CellMask, Geometry, WorldStyle};
+pub use style::{CellMask, Geometry, NearMask, WorldStyle};
 
 #[cfg(test)]
 mod tests;

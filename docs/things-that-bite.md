@@ -12,11 +12,11 @@ Game and tooling facts that aren't specific to one part of the repo.
   table, so 179.27 and -180.73 don't fly the same (~1e-5 blocks/tick). The extractor
   unwraps from the reset teleport's absolute yaw. why? without it the replay drifts
   off the recording within a few hundred ticks.
-- **Pictures hide barriers, and barriers still collide.** `etas view` and `WorldStyle` leave
-  them out by default, since a hull of them around a map would tint every view (academy
-  has 2.8M cells of one, as of 2026-11-05). Some matter: start gates, walls that block a
-  skip. Before concluding a route is open, check with `etas view --barriers` or `verify`,
-  not by eye.
+- **Pictures leave out most barriers, and barriers still collide.** `etas view` draws only
+  those within 10 blocks of a run, solid, and `WorldStyle` none, since a hull of them around
+  a map would tint every view (academy has 2.8M cells of one, as of 2026-11-05). Some
+  farther ones matter: start gates, walls that block a skip. Before concluding a new route
+  is open, check with `etas view --barriers` or `verify`, not by eye.
 - **Tick order (MC 26.2, Fabric API 0.160):** `START_CLIENT_TICK` → keybinds →
   Minescript's `tick` event (Fabric `START_LEVEL_TICK`, head of `tickEntities`) →
   player physics → `END_CLIENT_TICK`; then per frame: mouse turn → camera → render.
