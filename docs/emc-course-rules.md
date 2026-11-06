@@ -60,8 +60,8 @@ gives false contradictions.
   a wrong rule). "First pose outside" gets 0 of the 153 prompt ones. So a slow exit runs on outside
   the box until the next whole-number crossing on any axis: a fall at x, z fixed fires at y < 198,
   which reads as y >= 198 if you assume the first pose outside. The message comes straight from the
-  move handler, one ping after that move (age within 3 ms of the ping on most, not at a tick
-  end), and repeats of one plan fire on the same move. Flown out of sample at 2026-11-05 23:30 EST:
+  move handler, one ping after that move (age within 3 ms of the ping on most, unless the move
+  lands in tick work, see below; it doesn't wait for the tick-end flush), and repeats of one plan fire on the same move. Flown out of sample at 2026-11-05 23:30 EST:
   14 of 14 new passes fired on the move this picks, up to 6 ticks after the first pose outside
   (5 checked against poses predicted before flying, 9 against the poses they sent). `/etas queue`,
   `tools/probe_timer.py`. It holds at a spoofed ping too (14 of 14 at about 106 ms measured, /pingequalizer
@@ -80,6 +80,20 @@ gives false contradictions.
   50 ms reaches 40 ms. The replies come a median 1.8 ms past the ping (max 8.3), so at this tick phase
   they don't wait for a tick. Most of the difference from whole ticks is the client's send timing:
   sends happen in frames, so they move with frame rate, while the network hardly varied.
+- **A move that lands in tick work has its timer chat held until the work ends, the way a
+  main-thread reply is.** Same session plans, `deftenvy`, 2026-11-06 at about 62 ms: moves 4.6 ms
+  before the tick-end flush got chats a median 6.1 ms late (27 flights, min 2.1), moves 21 ms before
+  it got 1.9 ms (14 flights), and tab-completion probes jumped the same way over the last 9-10 ms of
+  the tick. So chat lateness is the wait plus the usual ~1.5 ms. Handling on the main thread is the
+  plain reading; that the clock reading waits with the chat is inferred, as no finished runs have
+  been compared across phases. If it does, a run with one end just inside that band and the other
+  just outside is off by up to the band's width. `tools/tick_wait.py` places chats and probes in the
+  tick, and its `--ping` shows whether the ping moved, as the phase can't be read while it does.
+- **Timer chat lateness differs by session or account, and phase doesn't explain it.** In 19 logs
+  on `lqmbda` (2026-10-31 to 11-04, hand flown) the median chat is 15-24 ms late at every phase,
+  against 1.4-10.2 ms in 7 logs on `deftenvy` (11-04 to 11-05), one of them between `lqmbda` logs on
+  the same mod. But on 2026-10-20 `deftenvy` shifted about 10 ms within an hour, though those logs
+  have no pings to rule out a ping change. Not settled; don't take a late chat as proof of tick work.
 - **Minecraft's `inactivityFpsLimit: afk` changed that timing during playback before mod 0.5.4, when
   playback didn't count as input, so check it when reading older logs.** `FramerateLimitTracker` (26.2) caps at 30 fps 60 s after the last input and 10 fps after
   600 s, and input means a key, mouse button, scroll, or mouse move in the active window. Moves are

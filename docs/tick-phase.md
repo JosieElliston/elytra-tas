@@ -25,6 +25,11 @@ work, and the tick interval. `/etas phase help` explains each row. The figures c
   windows of that log. The lower-edge fit found the edge in all 89 sliding 20 s windows
   (start 24–30 ms, W 17–26 ms). It needs W ≥ 8 ms; a proxy or plugin that answers
   completions off the main thread shows no jump at all.
+- **EMC's timer chat waits for tick work too, so don't assume a move is handled on arrival.**
+  At 2026-11-06 01:15 EST, moves 4.6 ms before the flush got chats 6.1 ms late, and moves 21 ms before it
+  got 1.9 ms ([emc-course-rules.md](emc-course-rules.md)). `tools/tick_wait.py` measures it. Reading
+  phase from a log also needs a steady ping: it went from 62 to about 150 ms at 00:57 EST that
+  night with no spoof on, was still high after a laptop restart, and drained by 01:10, cause unknown.
 - **Every reply leaves at the end of its tick.** 26.2's `MinecraftServer.tickChildren`
   suspends flushing for every player and flushes once after all levels and players have
   ticked. So `set_health` minus your move's send time minus the round trip is server wait
