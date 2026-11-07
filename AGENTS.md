@@ -11,6 +11,8 @@ scripts that don't take player actions, like the replay grabber, are fine to run
 
 you can use `ssh cif-cluster` for compute.
 
+to look at a run against the world's blocks, use the `view` crate (`solver/crates/view`)
+
 ## emc timer
 
 the emc timer is (server-side) realtime, rounded to 0.02s.
