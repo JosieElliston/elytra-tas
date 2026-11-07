@@ -167,6 +167,9 @@ pub struct Opts {
     /// every sub-tick phase, so a solve here can look for lines the L's can't reach, to carry back by moving `s` to 0. Not
     /// physics: only a plan at `s = 0` flies. None is the L.
     pub relax: Option<Arc<Vec<[f64; 2]>>>,
+    /// Hold every tick clear under each of these `ghost::relaxed_move` weights at once, in place of `relax`: each leg reads its
+    /// worst. why? a plan clear this way has lines of both kinds, so it needs no carrying back to the L. Not physics either.
+    pub joint: Option<Arc<Vec<[f64; 2]>>>,
 }
 
 impl Default for Opts {
@@ -174,6 +177,7 @@ impl Default for Opts {
         Opts {
             defects: None,
             relax: None,
+            joint: None,
             margin: 0.02,
             c0: 100.0,
             grow: 10.0,
@@ -504,9 +508,14 @@ impl<'a> Problem<'a> {
         self.opts.relax.as_ref().and_then(|r| r.get(k).or(r.last()).copied()).unwrap_or([0.0; 2])
     }
 
+    /// Whether legs can run off the axes, so `leg_sdf` isn't exact.
+    fn off_axis(&self) -> bool {
+        self.opts.relax.is_some() || self.opts.joint.is_some()
+    }
+
     /// The clearance of a leg and the nearest box.
     fn leg_clearance(&self, from: [f64; 3], to: [f64; 3]) -> (f64, Option<usize>) {
-        if self.opts.relax.is_some() {
+        if self.off_axis() {
             self.walls.segment_clearance(from, to)
         } else {
             self.walls.clearance(from, to)
@@ -520,14 +529,19 @@ impl<'a> Problem<'a> {
 
     /// The clearance of each leg of tick `k` of `n` from `x` under `u`, and the nearest box.
     fn clearances(&self, k: usize, n: usize, x: &X, u: U) -> [(f64, Option<usize>); NL] {
-        let (_, legs) = tick_legs(&self.kernel, x, u, self.relax_at(k));
-        std::array::from_fn(|l| {
-            if self.leg_held(l, k, n) {
-                self.leg_clearance(legs[l][0], legs[l][1])
-            } else {
-                (f64::INFINITY, None)
+        let one = [self.relax_at(k)];
+        let models = self.opts.joint.as_ref().map_or(&one[..], |j| &j[..]);
+        let mut out = [(f64::INFINITY, None); NL];
+        for &s in models {
+            let (_, legs) = tick_legs(&self.kernel, x, u, s);
+            for l in (0..NL).filter(|&l| self.leg_held(l, k, n)) {
+                let c = self.leg_clearance(legs[l][0], legs[l][1]);
+                if c.0 < out[l].0 {
+                    out[l] = c;
+                }
             }
-        })
+        }
+        out
     }
 
     /// The least clearance over every leg of the plan's moves.
@@ -765,18 +779,27 @@ impl<'a> Problem<'a> {
             DualSVec64::<8>::from_re(v).derivative(i)
         });
         let xd: [DualSVec64<8>; 6] = std::array::from_fn(|i| z[i]);
-        let (next, legs) = tick_legs(&self.kernel, &xd, [z[6], z[7]], self.relax_at(k));
-        let fz = next.map(|d| grad(&d));
+        let one = [self.relax_at(k)];
+        let models = self.opts.joint.as_ref().map_or(&one[..], |j| &j[..]);
+        let sets: Vec<_> = models.iter().map(|&s| tick_legs(&self.kernel, &xd, [z[6], z[7]], s)).collect();
+        let fz = sets[0].0.map(|d| grad(&d));
         let walls = (0..NL)
             .filter(|&l| self.leg_held(l, k, m.walls.len()))
             .map(|l| {
-                let [from, to] = legs[l];
-                let (c, nearest) = self.leg_clearance(from.map(|d| d.re), to.map(|d| d.re));
+                // the model this leg reads worst under, as `clearances` picks it
+                let (mut c, mut nearest, mut leg) = (f64::INFINITY, None, sets[0].1[l]);
+                for (_, legs) in &sets {
+                    let (d, b) = self.leg_clearance(legs[l][0].map(|d| d.re), legs[l][1].map(|d| d.re));
+                    if d < c {
+                        (c, nearest, leg) = (d, b, legs[l]);
+                    }
+                }
+                let [from, to] = leg;
                 let (_, a) = phr(c, m.walls[k][l], m.rho, self.opts.margin);
                 match nearest {
                     Some(b) if a > 0.0 => {
                         let b = &self.walls.boxes[b];
-                        let d = if self.opts.relax.is_some() { segment_sdf(from, to, b) } else { leg_sdf(from, to, b) };
+                        let d = if self.off_axis() { segment_sdf(from, to, b) } else { leg_sdf(from, to, b) };
                         (a, grad(&d))
                     }
                     _ => (0.0, [0.0; 8]),

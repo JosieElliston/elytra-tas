@@ -53,6 +53,8 @@
 //! under L and rounds again. So all three end in the same currency, and the L arm gets the second pass too. Prints `ROW`
 //! lines; writes plans to `runs/secant/triple/`. No carry or smoothing, and nothing is flown: compare plans, not flights.
 //!
+//! `--chain MODEL` is one arm from the recording with every round's plan kept, for where the models' lines come apart.
+//!
 //! `cargo run --release -p academy --bin optimize [--relax | --hybrid] [--plain] [--open-top] [--server] [--margin BLOCKS] [--forbid X0 Y0 Z0 X1 Y1 Z1]... [NAME_SUBSTRING ...]`
 
 use std::path::Path;
@@ -148,7 +150,7 @@ static WALL_MARGIN: OnceLock<f64> = OnceLock::new();
 static MODEL: AtomicUsize = AtomicUsize::new(0);
 /// The L at a wider margin and with shifted windows are `--triple`'s controls: they shake a plan without chords, so what
 /// chords gain can be told from what any shake gains. Stored as name, `s`, margin (0 is the run's) and shift in thirds of a window.
-const MODELS: [(&str, [f64; 2], f64, usize); 7] = [
+const MODELS: [(&str, [f64; 2], f64, usize); 8] = [
     ("L", [0.0, 0.0], 0.0, 0),
     ("xz", [1.0, 0.0], 0.0, 0),
     ("xyz", [1.0, 1.0], 0.0, 0),
@@ -156,6 +158,8 @@ const MODELS: [(&str, [f64; 2], f64, usize); 7] = [
     ("Lm.3", [0.0, 0.0], 0.3, 0),
     ("Lo1", [0.0, 0.0], 0.0, 1),
     ("Lo2", [0.0, 0.0], 0.0, 2),
+    // worst of L, xz and xyz at once; see `joint` in `opts`
+    ("all", [0.0, 0.0], 0.0, 0),
 ];
 
 fn model() -> (&'static str, [f64; 2], f64, usize) {
@@ -178,6 +182,7 @@ fn opts() -> Opts {
             [0.0, 0.0] => None,
             s => Some(Arc::new(vec![s])),
         },
+        joint: (model().0 == "all").then(|| Arc::new(vec![MODELS[0].1, MODELS[1].1, MODELS[2].1])),
         ..Opts::default()
     }
 }
@@ -565,10 +570,14 @@ fn row(dir: &Path, walls: &Walls, gate: &Problem, tag: &str, phase: &str, p: &DP
         gate.worst(&p.x, &p.u),
         p.u.len(),
     );
+    dump(dir, tag, &format!("{}_{phase}", MODELS[m].0), p)
+}
+
+fn dump(dir: &Path, tag: &str, what: &str, p: &DPlan) -> Result<(), String> {
     let out = dir.join("runs/secant/triple");
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
     let rows: Vec<String> = p.u.iter().zip(&p.x).map(|(u, x)| format!("{}\t{}\t{}\t{}\t{}", u[0], u[1], x[0], x[1], x[2])).collect();
-    std::fs::write(out.join(format!("{}_{}_{phase}.tsv", tag.replace('\t', "_"), MODELS[m].0)), rows.join("\n")).map_err(|e| e.to_string())
+    std::fs::write(out.join(format!("{}_{what}.tsv", tag.replace('\t', "_"))), rows.join("\n")).map_err(|e| e.to_string())
 }
 
 /// One arm of a triple: `start` (None: the recording) under the current model, then under L.
@@ -602,7 +611,10 @@ fn arm(dir: &Path, course: &Course, world: &World, walls: &Walls, run: &Run, tag
     let done = back.and_then(|mut b| {
         row(dir, walls, &l, tag, "back_rebuilt", &b, t0.elapsed().as_secs_f64())?;
         let t0 = Instant::now();
-        rounds(walls, &l, &mut b, &mut log, |_, _| {});
+        let mname = MODELS[m].0;
+        rounds(walls, &l, &mut b, &mut log, |r, p| {
+            let _ = dump(dir, tag, &format!("{mname}_backround{r}"), p);
+        });
         row(dir, walls, &l, tag, "back", &b, t0.elapsed().as_secs_f64())?;
         let (rep, traj, _) = fly_plan(course, world, &l, &b, run)?;
         let r = verify(course, world, Plan::Trajectory(&traj));
@@ -807,6 +819,11 @@ fn run() -> Result<(), String> {
     }
     let relaxing = hybrids || only.iter().any(|a| a == "--relax");
     let triples = only.iter().any(|a| a == "--triple");
+    let chain = only.iter().position(|a| a == "--chain").map(|k| {
+        let m = only.remove(k + 1);
+        only.remove(k);
+        MODELS.iter().position(|x| x.0 == m).expect("--chain MODEL")
+    });
     if only.iter().any(|a| a == "--open-top") {
         let start = course.regions.get_mut("start_area").ok_or("no start area")?;
         start.working.max[1] = start.outer.max[1];
@@ -859,6 +876,19 @@ fn run() -> Result<(), String> {
         .flat_map(|r| r.rec.rows.iter().map(|x| x.state.position))
         .collect();
     let walls = Walls::around(&world, &pts, 6.0, 1.0).with_boxes(&forbid);
+    if let Some(m) = chain {
+        for r in &runs {
+            MODEL.store(m, Ordering::Relaxed);
+            let tag = format!("{}\tchain", r.name);
+            let keep = |i: usize, p: &DPlan| {
+                let _ = dump(dir, &tag, &format!("{}_round{i}", MODELS[m].0), p);
+            };
+            if let Err(e) = arm(dir, &course, &world, &walls, r, &tag, None, keep) {
+                println!("FAIL\t{tag}\t{e}");
+            }
+        }
+        return Ok(());
+    }
     if triples {
         for r in &runs {
             triple(dir, &course, &world, &walls, r);
