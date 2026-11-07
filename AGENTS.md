@@ -11,7 +11,7 @@ scripts that don't take player actions, like the replay grabber, are fine to run
 
 you can use `ssh cif-cluster` for compute.
 
-to look at a run against the world's blocks, use the `view` crate (`solver/crates/view`)
+to look at a map or run in its context, use the `etas view` command or the `solver/crates/view` library.
 
 ## emc timer
 
