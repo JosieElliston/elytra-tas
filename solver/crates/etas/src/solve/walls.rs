@@ -18,7 +18,7 @@
 //! fails as a whole on the first unknown cell; for the cells inside the region the
 //! result is a superset of its boxes.
 
-use sim::generic::ghost::{HALF_WIDTH, HEIGHT, leg_sdf};
+use sim::generic::ghost::{HALF_WIDTH, HEIGHT};
 use world::{Aabb, BlockPos, Cell, Effect, World};
 
 /// Obstacle boxes in a region of the world, bucketed by block cell.
@@ -148,11 +148,39 @@ impl Walls {
             (b[i].floor() as i32).min(self.glo[i] + self.dims[i] as i32 - 1)
         });
         let mut best = (self.range, None);
+        // `leg_sdf`, spelled out for this loop: the leg's ends are sorted once, not per box
+        let lo = [-HALF_WIDTH, 0.0, -HALF_WIDTH];
+        let hi = [HALF_WIDTH, HEIGHT, HALF_WIDTH];
+        let near: [f64; 3] = std::array::from_fn(|i| from[i].min(to[i]));
+        let far: [f64; 3] = std::array::from_fn(|i| from[i].max(to[i]));
         for y in ca[1]..=cb[1] {
             for z in ca[2]..=cb[2] {
                 for x in ca[0]..=cb[0] {
                     for &n in &self.cells[index(self.glo, self.dims, [x, y, z])] {
-                        let d = leg_sdf(from, to, &self.boxes[n as usize]);
+                        let b = &self.boxes[n as usize];
+                        let gap: [f64; 3] = std::array::from_fn(|i| {
+                            ((b.min[i] - hi[i]) - far[i]).max(near[i] + (lo[i] - b.max[i]))
+                        });
+                        // a gap past the best is a distance past it, so skip the rest
+                        let widest = gap[0].max(gap[1]).max(gap[2]);
+                        if widest > best.0 {
+                            continue;
+                        }
+                        let mut sqr = 0.0;
+                        let mut outside = 0.0;
+                        let mut n_pos = 0;
+                        for g in gap {
+                            if g > 0.0 {
+                                outside = g;
+                                sqr += g * g;
+                                n_pos += 1;
+                            }
+                        }
+                        let d = match n_pos {
+                            0 => widest,
+                            1 => outside,
+                            _ => f64::sqrt(sqr),
+                        };
                         // ties go to the lower index, so the answer doesn't depend on
                         // which cell saw the box first
                         if d < best.0 || (d == best.0 && best.1.is_some_and(|m| (n as usize) < m)) {
@@ -184,6 +212,7 @@ fn index(glo: [i32; 3], dims: [usize; 3], c: [i32; 3]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sim::generic::ghost::leg_sdf;
 
     fn aabb(min: [f64; 3], max: [f64; 3]) -> Aabb {
         Aabb { min, max }
