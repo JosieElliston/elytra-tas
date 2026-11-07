@@ -24,6 +24,7 @@ use world::{Aabb, BlockPos, Cell, Effect, World};
 /// Obstacle boxes in a region of the world, bucketed by block cell.
 #[derive(Debug, Clone)]
 pub struct Walls {
+    /// All but the deep cubes; [`Walls::obstacle`] reads either.
     pub boxes: Vec<Aabb>,
     /// The cells read, inclusive. A query point is answered exactly only if its
     /// search box stays inside; see [`Walls::covers`].
@@ -35,6 +36,10 @@ pub struct Walls {
     dims: [usize; 3],
     starts: Vec<u32>,
     filed: Vec<u32>,
+    /// A bit per grid cell: a full cube with full cubes on all six sides. why not a box? most of a tunnel map is these
+    /// (burrowed_grove: 94% of its boxes, as of 2026-11-06 20:48 EST), and a sweep outside one is nearer to a cube with an
+    /// open face. why a bit, not nothing? a sweep inside solid still has to read negative.
+    deep: Vec<u64>,
     /// Clearance is capped here: a leg with nothing nearer reads `range`.
     pub range: f64,
 }
@@ -60,50 +65,72 @@ impl Walls {
 
     /// The obstacles in the cells `lo ..= hi`.
     pub fn region(world: &World, lo: [i32; 3], hi: [i32; 3], range: f64) -> Walls {
-        let mut boxes = Vec::new();
-        for y in lo[1]..=hi[1] {
-            for z in lo[2]..=hi[2] {
-                for x in lo[0]..=hi[0] {
-                    let pos = BlockPos { x, y, z };
-                    let c = [x as f64, y as f64, z as f64];
-                    let cube = |g: f64| Aabb {
-                        min: [c[0] - g, c[1] - g, c[2] - g],
-                        max: [c[0] + 1.0 + g, c[1] + 1.0 + g, c[2] + 1.0 + g],
-                    };
-                    let Cell::Known(id) = world.cell(pos) else {
-                        boxes.push(cube(1.0));
-                        continue;
-                    };
-                    boxes.extend(world.boxes_at(id, pos));
-                    let (info, d) = (world.info(id), world.detail(id));
-                    if info.effect == Effect::Climbable {
-                        // the gliding box overlaps this exactly when the position is
-                        // in the cell
-                        boxes.push(Aabb {
-                            min: [c[0] + HALF_WIDTH, c[1] + HEIGHT, c[2] + HALF_WIDTH],
-                            max: [c[0] + 1.0 - HALF_WIDTH, c[1] + 1.0, c[2] + 1.0 - HALF_WIDTH],
-                        });
-                    } else if d.fluid != "-"
-                        || matches!(d.own_effect, Effect::Stuck | Effect::Bounce)
-                    {
-                        boxes.push(cube(0.0));
+        Self::read(world, lo, hi, range, true)
+    }
+
+    fn read(world: &World, lo: [i32; 3], hi: [i32; 3], range: f64, cull: bool) -> Walls {
+        let (glo, dims) = grid(lo, hi);
+        let each = |f: &mut dyn FnMut([i32; 3])| {
+            for y in lo[1]..=hi[1] {
+                for z in lo[2]..=hi[2] {
+                    for x in lo[0]..=hi[0] {
+                        f([x, y, z]);
                     }
                 }
             }
+        };
+        let mut full = no_bits(dims);
+        if cull {
+            // by block state: a full cube has no per-position offset, and reading each cell's boxes is most of the build
+            let mut states = std::collections::HashMap::new();
+            each(&mut |c| {
+                let Cell::Known(id) = world.cell(BlockPos { x: c[0], y: c[1], z: c[2] }) else {
+                    return;
+                };
+                if *states.entry(id).or_insert_with(|| cell_boxes(world, c) == [cube_at(c)]) {
+                    set_bit(&mut full, index(glo, dims, c));
+                }
+            });
         }
-        Self::from_boxes(boxes, lo, hi, range)
+        let mut deep = no_bits(dims);
+        let mut boxes = Vec::new();
+        each(&mut |c| {
+            // the grid has a cell past each side of the region, and no bit set there
+            let enclosed = |d: [i32; 3]| bit(&full, index(glo, dims, [c[0] + d[0], c[1] + d[1], c[2] + d[2]]));
+            let k = index(glo, dims, c);
+            if bit(&full, k) && SIDES.iter().all(|&d| enclosed(d)) {
+                set_bit(&mut deep, k);
+            } else {
+                boxes.extend(cell_boxes(world, c));
+            }
+        });
+        Self::from_boxes(boxes, deep, lo, hi, range)
     }
 
     /// These obstacles and `extra`, for a solve held to one side of something. Boxes outside the cells read don't count.
     pub fn with_boxes(&self, extra: &[Aabb]) -> Walls {
         let mut boxes = self.boxes.clone();
         boxes.extend_from_slice(extra);
-        Self::from_boxes(boxes, self.lo, self.hi, self.range)
+        Self::from_boxes(boxes, self.deep.clone(), self.lo, self.hi, self.range)
     }
 
-    fn from_boxes(boxes: Vec<Aabb>, lo: [i32; 3], hi: [i32; 3], range: f64) -> Walls {
-        let glo = [lo[0] - PAD, lo[1] - PAD, lo[2] - PAD];
-        let dims: [usize; 3] = std::array::from_fn(|i| (hi[i] + PAD - glo[i] + 1) as usize);
+    /// The box `clearance` named: one of `boxes`, or a deep cube.
+    pub fn obstacle(&self, n: usize) -> Aabb {
+        if n < self.boxes.len() {
+            return self.boxes[n];
+        }
+        let k = n - self.boxes.len();
+        let rest = k / self.dims[0];
+        let c = [
+            (k % self.dims[0]) as i32 + self.glo[0],
+            (rest / self.dims[2]) as i32 + self.glo[1],
+            (rest % self.dims[2]) as i32 + self.glo[2],
+        ];
+        cube_at(c)
+    }
+
+    fn from_boxes(boxes: Vec<Aabb>, deep: Vec<u64>, lo: [i32; 3], hi: [i32; 3], range: f64) -> Walls {
+        let (glo, dims) = grid(lo, hi);
         let ranges: Vec<([i32; 3], [i32; 3])> = boxes
             .iter()
             .map(|b| {
@@ -151,6 +178,7 @@ impl Walls {
             dims,
             starts,
             filed,
+            deep,
             range,
         }
     }
@@ -164,7 +192,7 @@ impl Walls {
 
     /// The clearance of the gliding box swept from `from` to `to` (feet; one leg of
     /// the L-shaped move): the least `leg_sdf` over the obstacles, capped at `range`,
-    /// and the box that attains it (none at the cap).
+    /// and the box that attains it, for [`Walls::obstacle`] (none at the cap).
     pub fn clearance(&self, from: [f64; 3], to: [f64; 3]) -> (f64, Option<usize>) {
         let (a, b) = search_box(from, to, self.range);
         let ca: [i32; 3] = std::array::from_fn(|i| (a[i].floor() as i32).max(self.glo[i]));
@@ -188,40 +216,117 @@ impl Walls {
                 let last = index(self.glo, self.dims, [cb[0], y, z]);
                 let row = self.starts[first] as usize..self.starts[last + 1] as usize;
                 for &n in &self.filed[row] {
-                    let b = &self.boxes[n as usize];
-                    let gap: [f64; 3] = std::array::from_fn(|i| {
-                        ((b.min[i] - hi[i]) - far[i]).max(near[i] + (lo[i] - b.max[i]))
-                    });
-                    // a gap past the best is a distance past it, so skip the rest
-                    let widest = gap[0].max(gap[1]).max(gap[2]);
-                    if widest > best.0 {
-                        continue;
-                    }
-                    let mut sqr = 0.0;
-                    let mut outside = 0.0;
-                    let mut n_pos = 0;
-                    for g in gap {
-                        if g > 0.0 {
-                            outside = g;
-                            sqr += g * g;
-                            n_pos += 1;
-                        }
-                    }
-                    let d = match n_pos {
-                        0 => widest,
-                        1 => outside,
-                        _ => f64::sqrt(sqr),
-                    };
-                    // ties go to the lower index, so the answer doesn't depend on
-                    // which cell saw the box first
-                    if d < best.0 || (d == best.0 && best.1.is_some_and(|m| (n as usize) < m)) {
-                        best = (d, Some(n as usize));
+                    measure(near, far, &self.boxes[n as usize], n as usize, &mut best);
+                }
+            }
+        }
+        // The deep cubes the sweep is inside, which nothing else reads. A sweep in one has all its cells deep, its corner's
+        // too, or it reaches a deep cube's neighbor, a box already read at 0 or under.
+        let sa: [i32; 3] = std::array::from_fn(|i| ((near[i] + lo[i]).floor() as i32).max(self.glo[i]));
+        let sb: [i32; 3] = std::array::from_fn(|i| {
+            ((far[i] + hi[i]).floor() as i32).min(self.glo[i] + self.dims[i] as i32 - 1)
+        });
+        if (0..3).any(|i| sa[i] > sb[i]) || (best.0 > 0.0 && !bit(&self.deep, index(self.glo, self.dims, sa))) {
+            return best;
+        }
+        for y in sa[1]..=sb[1] {
+            for z in sa[2]..=sb[2] {
+                for x in sa[0]..=sb[0] {
+                    let k = index(self.glo, self.dims, [x, y, z]);
+                    if bit(&self.deep, k) {
+                        measure(near, far, &cube_at([x, y, z]), self.boxes.len() + k, &mut best);
                     }
                 }
             }
         }
         best
     }
+}
+
+/// `leg_sdf` from the sweep of the feet over `near ..= far` to `b`, into `best` if it's nearer.
+#[inline(always)]
+fn measure(near: [f64; 3], far: [f64; 3], b: &Aabb, n: usize, best: &mut (f64, Option<usize>)) {
+    let lo = [-HALF_WIDTH, 0.0, -HALF_WIDTH];
+    let hi = [HALF_WIDTH, HEIGHT, HALF_WIDTH];
+    let gap: [f64; 3] =
+        std::array::from_fn(|i| ((b.min[i] - hi[i]) - far[i]).max(near[i] + (lo[i] - b.max[i])));
+    // a gap past the best is a distance past it, so skip the rest
+    let widest = gap[0].max(gap[1]).max(gap[2]);
+    if widest > best.0 {
+        return;
+    }
+    let mut sqr = 0.0;
+    let mut outside = 0.0;
+    let mut n_pos = 0;
+    for g in gap {
+        if g > 0.0 {
+            outside = g;
+            sqr += g * g;
+            n_pos += 1;
+        }
+    }
+    let d = match n_pos {
+        0 => widest,
+        1 => outside,
+        _ => f64::sqrt(sqr),
+    };
+    // ties go to the lower index, so the answer doesn't depend on which cell saw the box first
+    if d < best.0 || (d == best.0 && best.1.is_some_and(|m| n < m)) {
+        *best = (d, Some(n));
+    }
+}
+
+const SIDES: [[i32; 3]; 6] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+
+/// The grid over `lo - PAD ..= hi + PAD`: its first cell and size.
+fn grid(lo: [i32; 3], hi: [i32; 3]) -> ([i32; 3], [usize; 3]) {
+    let glo = [lo[0] - PAD, lo[1] - PAD, lo[2] - PAD];
+    let dims = std::array::from_fn(|i| (hi[i] + PAD - glo[i] + 1) as usize);
+    (glo, dims)
+}
+
+fn no_bits(dims: [usize; 3]) -> Vec<u64> {
+    vec![0; (dims[0] * dims[1] * dims[2]) / 64 + 1]
+}
+
+fn bit(bits: &[u64], k: usize) -> bool {
+    bits[k / 64] >> (k % 64) & 1 == 1
+}
+
+fn set_bit(bits: &mut [u64], k: usize) {
+    bits[k / 64] |= 1 << (k % 64);
+}
+
+fn cube_at(c: [i32; 3]) -> Aabb {
+    Aabb {
+        min: c.map(f64::from),
+        max: c.map(|v| f64::from(v) + 1.0),
+    }
+}
+
+/// A cell's obstacles; see the module doc.
+fn cell_boxes(world: &World, c: [i32; 3]) -> Vec<Aabb> {
+    let pos = BlockPos { x: c[0], y: c[1], z: c[2] };
+    let f = c.map(f64::from);
+    let cube = |g: f64| Aabb {
+        min: [f[0] - g, f[1] - g, f[2] - g],
+        max: [f[0] + 1.0 + g, f[1] + 1.0 + g, f[2] + 1.0 + g],
+    };
+    let Cell::Known(id) = world.cell(pos) else {
+        return vec![cube(1.0)];
+    };
+    let mut boxes = world.boxes_at(id, pos);
+    let (info, d) = (world.info(id), world.detail(id));
+    if info.effect == Effect::Climbable {
+        // the gliding box overlaps this exactly when the position is in the cell
+        boxes.push(Aabb {
+            min: [f[0] + HALF_WIDTH, f[1] + HEIGHT, f[2] + HALF_WIDTH],
+            max: [f[0] + 1.0 - HALF_WIDTH, f[1] + 1.0, f[2] + 1.0 - HALF_WIDTH],
+        });
+    } else if d.fluid != "-" || matches!(d.own_effect, Effect::Stuck | Effect::Bounce) {
+        boxes.push(cube(0.0));
+    }
+    boxes
 }
 
 /// The cells within `range` of the gliding box swept from `p` to `q`.
@@ -249,7 +354,8 @@ mod tests {
     }
 
     fn walls(boxes: Vec<Aabb>) -> Walls {
-        Walls::from_boxes(boxes, [-6; 3], [6; 3], 1.0)
+        let (_, dims) = grid([-6; 3], [6; 3]);
+        Walls::from_boxes(boxes, no_bits(dims), [-6; 3], [6; 3], 1.0)
     }
 
     /// A small LCG: deterministic, no dev-dependency.
@@ -406,6 +512,66 @@ mod tests {
                 let mut p = [0.5; 3];
                 p[i] = at;
                 assert_eq!(w.clearance(p, p), (w.range, None), "axis {i} at {at}");
+            }
+        }
+    }
+
+    /// Culling answers as reading every box does, along random legs, in and out of solid, on real worlds.
+    fn culling_keeps_the_answers(course: &str, lo: [i32; 3], hi: [i32; 3]) {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../courses").join(course);
+        let (_, world) = crate::course::Course::load(&dir).unwrap();
+        let (all, culled) = (Walls::read(&world, lo, hi, 1.0, false), Walls::read(&world, lo, hi, 1.0, true));
+        assert!(culled.boxes.len() < all.boxes.len(), "{course}: nothing culled");
+        let mut r = lcg();
+        let mut solid = 0;
+        for _ in 0..200_000 {
+            let p: [f64; 3] = std::array::from_fn(|i| r(lo[i] as f64, hi[i] as f64 + 1.0));
+            let mut q = p;
+            q[(r(0.0, 3.0) as usize).min(2)] += r(-3.0, 3.0);
+            let (want, (got, nearest)) = (all.clearance(p, q).0, culled.clearance(p, q));
+            assert_eq!(got, want, "{course}: {p:?} to {q:?}");
+            if let Some(n) = nearest {
+                assert_eq!(leg_sdf(p, q, &culled.obstacle(n)), got, "{course}: {p:?} to {q:?}");
+            }
+            solid += usize::from(got < 0.0);
+        }
+        assert!(solid > 1000, "{course}: only {solid} legs in solid");
+    }
+
+    #[test]
+    fn culling_keeps_burrowed_grove() {
+        culling_keeps_the_answers("burrowed_grove", [-9, 31, -7], [9, 114, 74]);
+    }
+
+    #[test]
+    fn culling_keeps_academy() {
+        culling_keeps_the_answers("academy", [-44, 190, 192], [-10, 240, 236]);
+    }
+
+    /// In the middle of a deep cube, where no box is in reach: inside solid, by that cube.
+    #[test]
+    fn deep_in_solid_reads_negative() {
+        let (glo, dims) = grid([-6; 3], [6; 3]);
+        let mut deep = no_bits(dims);
+        set_bit(&mut deep, index(glo, dims, [1, 1, 1]));
+        let w = Walls::from_boxes(Vec::new(), deep, [-6; 3], [6; 3], 1.0);
+        let p = [1.5, 1.2, 1.5];
+        let (c, nearest) = w.clearance(p, p);
+        assert!(c < 0.0, "{c}");
+        assert_eq!(w.obstacle(nearest.unwrap()), cube_at([1, 1, 1]));
+        // and kept through `with_boxes`
+        assert_eq!(w.with_boxes(&[]).clearance(p, p), (c, nearest));
+    }
+
+    /// Walking off the grid along each axis, through where the search box is on it and the sweep isn't.
+    #[test]
+    fn clearance_off_the_edge_of_the_grid_answers() {
+        let w = walls(vec![aabb([0.0; 3], [1.0; 3]), aabb([5.0, 5.0, 5.0], [6.0, 6.0, 6.0])]);
+        for i in 0..3 {
+            for k in -200..=200 {
+                let mut p = [0.5; 3];
+                p[i] = k as f64 / 10.0;
+                assert_eq!(w.clearance(p, p), brute(&w, p, p), "axis {i} at {}", p[i]);
             }
         }
     }

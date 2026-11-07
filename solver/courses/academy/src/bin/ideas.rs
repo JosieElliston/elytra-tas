@@ -725,7 +725,7 @@ fn clear(dir: &Path, w: &World, name: &str, below: f64) -> Result<(), String> {
     let first = t.rows.iter().position(|r| r.state.fall_flying).ok_or("no glide")?;
     let mut run: Option<(usize, usize, f64, [f64; 3], usize)> = None;
     let flush = |r: &(usize, usize, f64, [f64; 3], usize)| {
-        let q = walls.boxes[r.4];
+        let q = walls.obstacle(r.4);
         println!(
             "t{}-{}: clearance {:.4}, at {:.2} {:.2} {:.2}, box {:.3} {:.3} {:.3} .. {:.3} {:.3} {:.3}",
             t.rows[r.0].t, t.rows[r.1].t, r.2, r.3[0], r.3[1], r.3[2], q.min[0], q.min[1], q.min[2], q.max[0], q.max[1], q.max[2]

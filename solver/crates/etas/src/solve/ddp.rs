@@ -752,7 +752,7 @@ impl<'a> Problem<'a> {
                 let (c, nearest) = self.walls.clearance(from.map(|d| d.re), to.map(|d| d.re));
                 let (_, a) = phr(c, m.walls[k][l], m.rho, self.opts.margin);
                 match nearest {
-                    Some(b) if a > 0.0 => (a, grad(&leg_sdf(from, to, &self.walls.boxes[b]))),
+                    Some(b) if a > 0.0 => (a, grad(&leg_sdf(from, to, &self.walls.obstacle(b)))),
                     _ => (0.0, [0.0; 8]),
                 }
             })
