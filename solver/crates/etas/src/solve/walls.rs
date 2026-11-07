@@ -105,8 +105,12 @@ impl Walls {
         let mut cells = vec![Vec::new(); dims[0] * dims[1] * dims[2]];
         for (n, b) in boxes.iter().enumerate() {
             let a: [i32; 3] = std::array::from_fn(|i| (b.min[i].floor() as i32).max(glo[i]));
-            let z: [i32; 3] =
-                std::array::from_fn(|i| (b.max[i].floor() as i32).min(glo[i] + dims[i] as i32 - 1));
+            // Closed boxes, open cells: a query meeting a box only at a cell's edge has it at `range`, the cap.
+            // A box with no width overlaps no open cell, so it takes the one above, which any nearer query reads.
+            let z: [i32; 3] = std::array::from_fn(|i| {
+                let top = (b.max[i].ceil() as i32 - 1).max(b.min[i].floor() as i32);
+                top.min(glo[i] + dims[i] as i32 - 1)
+            });
             for y in a[1]..=z[1] {
                 for zz in a[2]..=z[2] {
                     for x in a[0]..=z[0] {
@@ -175,4 +179,100 @@ fn search_box(p: [f64; 3], q: [f64; 3], range: f64) -> ([f64; 3], [f64; 3]) {
 fn index(glo: [i32; 3], dims: [usize; 3], c: [i32; 3]) -> usize {
     let r: [usize; 3] = std::array::from_fn(|i| (c[i] - glo[i]) as usize);
     (r[1] * dims[2] + r[2]) * dims[0] + r[0]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn aabb(min: [f64; 3], max: [f64; 3]) -> Aabb {
+        Aabb { min, max }
+    }
+
+    fn walls(boxes: Vec<Aabb>) -> Walls {
+        Walls::from_boxes(boxes, [-6; 3], [6; 3], 1.0)
+    }
+
+    /// The least `leg_sdf` over every box, capped as `clearance` caps it, ties to the lower index.
+    fn brute(w: &Walls, from: [f64; 3], to: [f64; 3]) -> (f64, Option<usize>) {
+        let mut best = (w.range, None);
+        for (n, b) in w.boxes.iter().enumerate() {
+            let d = leg_sdf(from, to, b);
+            if d < best.0 {
+                best = (d, Some(n));
+            }
+        }
+        best
+    }
+
+    #[test]
+    fn a_box_is_filed_only_in_the_cells_it_overlaps() {
+        let cases = [
+            (aabb([2.0, 3.0, 4.0], [3.0, 4.0, 5.0]), 1),
+            (aabb([-3.0, -3.0, -3.0], [-2.0, -2.0, -2.0]), 1),
+            // a bottom slab
+            (aabb([0.0, 0.0, 0.0], [1.0, 0.5, 1.0]), 1),
+            // a fence, into the cell above
+            (aabb([0.0, 0.0, 0.0], [1.0, 1.5, 1.0]), 2),
+            (aabb([0.5, 0.5, 0.5], [1.5, 1.5, 1.5]), 8),
+            // no thickness, on a cell's face: still somewhere
+            (aabb([1.0, 1.0, 1.0], [1.0, 2.0, 2.0]), 1),
+        ];
+        for (b, cells) in cases {
+            let w = walls(vec![b.clone()]);
+            let filed: usize = w.cells.iter().map(Vec::len).sum();
+            assert_eq!(filed, cells, "{b:?}");
+        }
+    }
+
+    #[test]
+    fn clearance_is_the_least_over_every_box() {
+        // a small LCG: deterministic, no dev-dependency
+        let mut s: u64 = 0x2545F4914F6CDD1D;
+        let mut r = |lo: f64, hi: f64| {
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            lo + (hi - lo) * ((s >> 11) as f64 / (1u64 << 53) as f64)
+        };
+        let mut boxes = Vec::new();
+        for k in 0..60 {
+            let c: [f64; 3] = std::array::from_fn(|_| r(-5.0, 4.0).floor());
+            boxes.push(match k % 3 {
+                // whole cubes, the case filed by its faces
+                0 => aabb(c, c.map(|v| v + 1.0)),
+                // parts of cells, and across them
+                1 => aabb(c, [c[0] + r(0.0, 1.0), c[1] + r(0.0, 1.0), c[2] + r(0.0, 1.0)]),
+                _ => {
+                    let lo: [f64; 3] = std::array::from_fn(|i| c[i] + r(0.0, 1.0));
+                    aabb(lo, std::array::from_fn(|i| lo[i] + r(0.0, 1.5)))
+                }
+            });
+        }
+        let w = walls(boxes);
+        for _ in 0..5000 {
+            let p: [f64; 3] = std::array::from_fn(|_| r(-4.0, 4.0));
+            let mut q = p;
+            q[(r(0.0, 3.0) as usize).min(2)] += r(-2.0, 2.0);
+            assert_eq!(w.clearance(p, q), brute(&w, p, q), "{p:?} to {q:?}");
+        }
+    }
+
+    /// A query whose search box only just meets a cube's face, where the cube is exactly `range` away.
+    #[test]
+    fn clearance_at_the_cap_reads_the_cap() {
+        let (min, max) = ([0.0; 3], [1.0; 3]);
+        let w = walls(vec![aabb(min, max)]);
+        let (lo, hi) = ([-HALF_WIDTH, 0.0, -HALF_WIDTH], [HALF_WIDTH, HEIGHT, HALF_WIDTH]);
+        for i in 0..3 {
+            for at in [max[i] + w.range - lo[i], min[i] - w.range - hi[i]] {
+                let mut p = [0.5, 0.5, 0.5];
+                p[i] = at;
+                assert_eq!(w.clearance(p, p), (w.range, None), "axis {i} at {at}");
+                // and just inside it, the cube counts
+                p[i] = at - at.signum() * 1e-9;
+                assert_eq!(w.clearance(p, p).1, Some(0), "axis {i} just inside {at}");
+            }
+        }
+    }
 }
