@@ -193,6 +193,17 @@ mod tests {
         Walls::from_boxes(boxes, [-6; 3], [6; 3], 1.0)
     }
 
+    /// A small LCG: deterministic, no dev-dependency.
+    fn lcg() -> impl FnMut(f64, f64) -> f64 {
+        let mut s: u64 = 0x2545F4914F6CDD1D;
+        move |lo, hi| {
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            lo + (hi - lo) * ((s >> 11) as f64 / (1u64 << 53) as f64)
+        }
+    }
+
     /// The least `leg_sdf` over every box, capped as `clearance` caps it, ties to the lower index.
     fn brute(w: &Walls, from: [f64; 3], to: [f64; 3]) -> (f64, Option<usize>) {
         let mut best = (w.range, None);
@@ -227,14 +238,7 @@ mod tests {
 
     #[test]
     fn clearance_is_the_least_over_every_box() {
-        // a small LCG: deterministic, no dev-dependency
-        let mut s: u64 = 0x2545F4914F6CDD1D;
-        let mut r = |lo: f64, hi: f64| {
-            s = s
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
-            lo + (hi - lo) * ((s >> 11) as f64 / (1u64 << 53) as f64)
-        };
+        let mut r = lcg();
         let mut boxes = Vec::new();
         for k in 0..60 {
             let c: [f64; 3] = std::array::from_fn(|_| r(-5.0, 4.0).floor());
@@ -256,6 +260,89 @@ mod tests {
             q[(r(0.0, 3.0) as usize).min(2)] += r(-2.0, 2.0);
             assert_eq!(w.clearance(p, q), brute(&w, p, q), "{p:?} to {q:?}");
         }
+    }
+
+    #[test]
+    fn a_box_without_width_is_filed_once() {
+        let at = |x: f64, y: f64, z: f64| [x, y, z];
+        for (min, max, cell) in [
+            // a plane, on a cell's edge and off it
+            (at(1.0, 1.5, 1.5), at(1.0, 1.75, 1.75), [1, 1, 1]),
+            (at(-2.0, 1.5, 1.5), at(-2.0, 1.75, 1.75), [-2, 1, 1]),
+            (at(1.5, 1.5, 1.5), at(1.5, 1.75, 1.75), [1, 1, 1]),
+            // a line, a point
+            (at(1.0, 2.0, 1.5), at(1.0, 2.0, 1.75), [1, 2, 1]),
+            (at(1.0, 2.0, 3.0), at(1.0, 2.0, 3.0), [1, 2, 3]),
+            (at(-1.0, -2.0, -3.0), at(-1.0, -2.0, -3.0), [-1, -2, -3]),
+        ] {
+            let w = walls(vec![aabb(min, max)]);
+            assert_eq!(w.cells.iter().map(Vec::len).sum::<usize>(), 1, "{min:?}");
+            assert_eq!(w.cells[index(w.glo, w.dims, cell)], [0], "{min:?}");
+        }
+    }
+
+    /// A plane spanning a cell's edge along its own axes, across several cells of the others.
+    #[test]
+    fn a_plane_is_filed_in_each_cell_it_crosses() {
+        let w = walls(vec![aabb([1.0, 0.0, 0.5], [1.0, 2.0, 1.5])]);
+        assert_eq!(w.cells.iter().map(Vec::len).sum::<usize>(), 4);
+    }
+
+    #[test]
+    fn clearance_sees_boxes_without_width() {
+        let mut r = lcg();
+        let mut boxes = Vec::new();
+        for k in 0..60 {
+            let c: [f64; 3] = std::array::from_fn(|_| r(-5.0, 4.0).floor());
+            // on a cell's edge in the flat axes, or off it
+            let min: [f64; 3] = std::array::from_fn(|i| c[i] + if k % 2 == 0 { 0.0 } else { r(0.0, 1.0) });
+            let flat = k % 7; // a nonzero mask of flat axes
+            let max = std::array::from_fn(|i| {
+                if (flat + 1) >> i & 1 == 1 { min[i] } else { min[i] + r(0.0, 1.5) }
+            });
+            boxes.push(aabb(min, max));
+        }
+        let w = walls(boxes);
+        for _ in 0..5000 {
+            let p: [f64; 3] = std::array::from_fn(|_| r(-4.0, 4.0));
+            let mut q = p;
+            q[(r(0.0, 3.0) as usize).min(2)] += r(-2.0, 2.0);
+            assert_eq!(w.clearance(p, q), brute(&w, p, q), "{p:?} to {q:?}");
+        }
+    }
+
+    /// A plane on a cell's edge, from both sides: the cap exactly at `range`, seen just inside it.
+    #[test]
+    fn a_plane_at_the_cap_reads_the_cap() {
+        let (lo, hi) = ([-HALF_WIDTH, 0.0, -HALF_WIDTH], [HALF_WIDTH, HEIGHT, HALF_WIDTH]);
+        for i in 0..3 {
+            let (mut min, mut max) = ([-3.0; 3], [3.0; 3]);
+            (min[i], max[i]) = (1.0, 1.0);
+            let w = walls(vec![aabb(min, max)]);
+            for at in [1.0 + w.range - lo[i], 1.0 - w.range - hi[i]] {
+                let mut p = [0.0; 3];
+                p[i] = at;
+                assert_eq!(w.clearance(p, p), (w.range, None), "axis {i} at {at}");
+                p[i] = at - (at - 1.0).signum() * 1e-9;
+                assert_eq!(w.clearance(p, p).1, Some(0), "axis {i} just inside {at}");
+            }
+        }
+    }
+
+    /// A leg can't pass through a plane without reading it, however thin the plane is.
+    #[test]
+    fn a_leg_through_a_plane_reads_inside_it() {
+        let w = walls(vec![aabb([-3.0, -3.0, 1.0], [3.0, 3.0, 1.0])]);
+        let (c, nearest) = w.clearance([0.0, 0.0, -1.0], [0.0, 0.0, 3.0]);
+        assert_eq!(nearest, Some(0));
+        assert!(c <= 0.0, "{c}");
+    }
+
+    /// `--forbid`'s way in.
+    #[test]
+    fn with_boxes_keeps_a_box_without_width() {
+        let w = walls(Vec::new()).with_boxes(&[aabb([1.0, 1.0, 1.0], [1.0, 1.0, 1.0])]);
+        assert_eq!(w.clearance([1.0, 1.0, 1.0], [1.0, 1.0, 1.0]).1, Some(0));
     }
 
     /// A query whose search box only just meets a cube's face, where the cube is exactly `range` away.
