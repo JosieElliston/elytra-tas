@@ -4,3 +4,4 @@ solver/courses/*/runs/
 solver/oracle/cases/
 data/foreign/
 logs/
+.claude/worktrees/

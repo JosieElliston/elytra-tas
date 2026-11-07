@@ -47,12 +47,21 @@
 //! - The finish needs a block-changing move after the first pose past the plane. academy's wall at z -98.3 denies one
 //!   when that pose is past z -99, so a crossing late in a tick reads 529 and verifies at 533 or never finishes.
 //!
+//! `--triple` asks whether chords get stuck less than L's, on `runs/flights/`'s runs, one at a time. An L chain's first plan
+//! and rounds give checkpoints; from the recording and from each checkpoint, a matched triple runs the same procedure under
+//! L, xz (chords, keeping the y leg) and xyz (straight chords): rebuilt clear under that model, rounds, then rebuilt clear
+//! under L and rounds again. So all three end in the same currency, and the L arm gets the second pass too. Prints `ROW`
+//! lines; writes plans to `runs/secant/triple/`. No carry or smoothing, and nothing is flown: compare plans, not flights.
+//!
+//! `--chain MODEL` is one arm from the recording with every round's plan kept, for where the models' lines come apart.
+//!
 //! `cargo run --release -p academy --bin optimize [--relax | --hybrid] [--plain] [--open-top] [--server] [--margin BLOCKS] [--forbid X0 Y0 Z0 X1 Y1 Z1]... [NAME_SUBSTRING ...]`
 
 use std::path::Path;
 use std::process::ExitCode;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Instant;
 
 use etas::course::Course;
@@ -60,7 +69,7 @@ use etas::solve::bounces::{SCALE, flight, fly, state_at};
 use etas::solve::ddp::{
     Goal, Multipliers, Opts, Plan as DPlan, Problem, Rate, U, X, control, lead_of,
 };
-use etas::solve::refly::track;
+use etas::solve::refly::{Repaired, track};
 use etas::solve::smooth::{DELTA, WINDOWS as SMOOTH_WINDOWS, smooth_pass};
 use etas::solve::stretch::resample;
 use etas::solve::walls::Walls;
@@ -136,8 +145,32 @@ static SERVER: AtomicBool = AtomicBool::new(false);
 /// `--margin BLOCKS`, to see what clearance costs; [`MARGIN`] without it.
 static WALL_MARGIN: OnceLock<f64> = OnceLock::new();
 
+/// The collision model every solve runs under, as an index into [`MODELS`]. A process-wide switch, so `--triple` runs its
+/// arms one at a time.
+static MODEL: AtomicUsize = AtomicUsize::new(0);
+/// The L at a wider margin and with shifted windows are `--triple`'s controls: they shake a plan without chords, so what
+/// chords gain can be told from what any shake gains. Stored as name, `s`, margin (0 is the run's) and shift in thirds of a window.
+const MODELS: [(&str, [f64; 2], f64, usize); 8] = [
+    ("L", [0.0, 0.0], 0.0, 0),
+    ("xz", [1.0, 0.0], 0.0, 0),
+    ("xyz", [1.0, 1.0], 0.0, 0),
+    ("Lm.1", [0.0, 0.0], 0.1, 0),
+    ("Lm.3", [0.0, 0.0], 0.3, 0),
+    ("Lo1", [0.0, 0.0], 0.0, 1),
+    ("Lo2", [0.0, 0.0], 0.0, 2),
+    // worst of L, xz and xyz at once; see `joint` in `opts`
+    ("all", [0.0, 0.0], 0.0, 0),
+];
+
+fn model() -> (&'static str, [f64; 2], f64, usize) {
+    MODELS[MODEL.load(Ordering::Relaxed)]
+}
+
 fn wall_margin() -> f64 {
-    *WALL_MARGIN.get().unwrap_or(&MARGIN)
+    match model().2 {
+        0.0 => *WALL_MARGIN.get().unwrap_or(&MARGIN),
+        m => m,
+    }
 }
 
 fn opts() -> Opts {
@@ -145,6 +178,11 @@ fn opts() -> Opts {
         tol: 1e-6,
         margin: wall_margin(),
         server: SERVER.load(Ordering::Relaxed),
+        relax: match model().1 {
+            [0.0, 0.0] => None,
+            s => Some(Arc::new(vec![s])),
+        },
+        joint: (model().0 == "all").then(|| Arc::new(vec![MODELS[0].1, MODELS[1].1, MODELS[2].1])),
         ..Opts::default()
     }
 }
@@ -242,10 +280,22 @@ fn first_plan(run: &Run, walls: &Walls, gate: &Problem) -> Result<DPlan, String>
         t = c + FIRST;
     }
     cuts.push(f);
+    pieces_plan(&cuts, ctl, |t| flight(state_at(&run.rec, t)), walls, gate)
+}
+
+/// A plan through `state` at each of `cuts`, by reaches seeded from `ctl`, the last piece to the gate.
+fn pieces_plan(
+    cuts: &[usize],
+    ctl: impl Fn(usize) -> U + Sync,
+    state: impl Fn(usize) -> X + Sync,
+    walls: &Walls,
+    gate: &Problem,
+) -> Result<DPlan, String> {
+    let f = *cuts.last().ok_or("no cuts")?;
     let piece = |i: usize, j: usize| -> Result<Vec<U>, String> {
         let (from, to) = (cuts[i], cuts[j]);
-        let seed: Vec<U> = (from..to).map(ctl).collect();
-        let x0 = flight(state_at(&run.rec, from));
+        let seed: Vec<U> = (from..to).map(&ctl).collect();
+        let x0 = state(from);
         if to == f {
             let pb = Problem { x0, ..gate.clone() };
             let s = pb.solve(&seed);
@@ -258,7 +308,7 @@ fn first_plan(run: &Run, walls: &Walls, gate: &Problem) -> Result<DPlan, String>
                 pb.worst(&s.plan.x, &s.plan.u)
             ));
         }
-        reach(walls, x0, flight(state_at(&run.rec, to)), &seed, 12)
+        reach(walls, x0, state(to), &seed, 12)
             .map(|p| p.u)
             .ok_or(format!("piece {from}..{to}: no reach"))
     };
@@ -452,6 +502,172 @@ fn smooth(walls: &Walls, gate: &Problem, plan: &mut DPlan, weight: f64, log: &mu
     ));
 }
 
+/// [`ROUNDS`] of window passes and a whole solve, stopping at a round short of [`MIN_GAIN`]. `each` sees every round's plan.
+fn rounds(walls: &Walls, gate: &Problem, best: &mut DPlan, log: &mut Vec<String>, mut each: impl FnMut(usize, &DPlan)) {
+    let stiff = Problem {
+        opts: Opts {
+            c0: 1e3,
+            iters: 300,
+            ..opts()
+        },
+        ..gate.clone()
+    };
+    let mut i = 0;
+    for round in 0..ROUNDS {
+        let before = gate.value(&best.x);
+        for w in WINDOWS {
+            i += 1;
+            let off = (round % 2) * w / 2 + (i % 3) * w / 7 + model().3 * w / 3;
+            let new = roll(gate, &pass(walls, gate, best, w, off));
+            better(gate, new, best);
+        }
+        let windows = gate.value(&best.x);
+        let s = stiff.solve(&best.u);
+        better(gate, s.plan, best);
+        log.push(format!("{windows:.2}>{:.2}", gate.value(&best.x)));
+        each(round, best);
+        if before - gate.value(&best.x) < MIN_GAIN {
+            break;
+        }
+    }
+}
+
+/// `plan` made clear under the current model: as it is if it already is, else reaches through its own states.
+fn rebuilt(plan: &DPlan, walls: &Walls, gate: &Problem) -> Result<DPlan, String> {
+    if solved(gate, plan) {
+        return Ok(plan.clone());
+    }
+    let n = plan.u.len();
+    // a cut must end on a tick clear under this model: a reach can't move the tick that arrives at its target
+    let clear = |k: usize| gate.worst(&plan.x[k - 1..=k], &plan.u[k - 1..k]) >= wall_margin();
+    let mut cuts = vec![0];
+    let mut t = FIRST;
+    while t + FIRST / 2 < n {
+        match (t..n).find(|&c| clear(c)) {
+            Some(c) if c + FIRST / 2 < n => {
+                cuts.push(c);
+                t = c + FIRST;
+            }
+            _ => break,
+        }
+    }
+    cuts.push(n);
+    pieces_plan(&cuts, |t| plan.u[t], |t| plan.x[t], walls, gate)
+}
+
+/// One solve's reading, on stdout and to `runs/secant/triple/`.
+fn row(dir: &Path, walls: &Walls, gate: &Problem, tag: &str, phase: &str, p: &DPlan, secs: f64) -> Result<(), String> {
+    let covered = p.x.iter().all(|x| walls.covers([x[0], x[1], x[2]]));
+    let own = solved(gate, p) && covered;
+    let m = MODEL.swap(0, Ordering::Relaxed);
+    let l = Problem { opts: opts(), ..gate.clone() };
+    let (lw, lok) = (l.worst(&p.x, &p.u), solved(&l, p) && covered);
+    MODEL.store(m, Ordering::Relaxed);
+    println!(
+        "ROW\t{tag}\t{}\t{phase}\t{:.4}\t{:.4}\t{own}\t{lw:.4}\t{lok}\t{}\t{secs:.1}",
+        MODELS[m].0,
+        gate.value(&p.x),
+        gate.worst(&p.x, &p.u),
+        p.u.len(),
+    );
+    dump(dir, tag, &format!("{}_{phase}", MODELS[m].0), p)
+}
+
+fn dump(dir: &Path, tag: &str, what: &str, p: &DPlan) -> Result<(), String> {
+    let out = dir.join("runs/secant/triple");
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    let rows: Vec<String> = p.u.iter().zip(&p.x).map(|(u, x)| format!("{}\t{}\t{}\t{}\t{}", u[0], u[1], x[0], x[1], x[2])).collect();
+    std::fs::write(out.join(format!("{}_{what}.tsv", tag.replace('\t', "_"))), rows.join("\n")).map_err(|e| e.to_string())
+}
+
+/// One arm of a triple: `start` (None: the recording) under the current model, then under L.
+fn arm(dir: &Path, course: &Course, world: &World, walls: &Walls, run: &Run, tag: &str, start: Option<&DPlan>, mut each: impl FnMut(usize, &DPlan)) -> Result<(), String> {
+    let a = run.timer - 1;
+    let problem = || -> Result<Problem, String> {
+        Ok(Problem {
+            kernel: Generic::default(),
+            walls,
+            x0: flight(state_at(&run.rec, a)),
+            goal: goal(course, run.gate - a + 80)?,
+            opts: opts(),
+        })
+    };
+    let gate = problem()?;
+    let t0 = Instant::now();
+    let mut best = match start {
+        Some(p) => rebuilt(p, walls, &gate)?,
+        None => first_plan(run, walls, &gate)?,
+    };
+    row(dir, walls, &gate, tag, "rebuilt", &best, t0.elapsed().as_secs_f64())?;
+    let t0 = Instant::now();
+    let mut log = Vec::new();
+    rounds(walls, &gate, &mut best, &mut log, &mut each);
+    row(dir, walls, &gate, tag, "explored", &best, t0.elapsed().as_secs_f64())?;
+    // the same again under L, for every arm
+    let m = MODEL.swap(0, Ordering::Relaxed);
+    let l = problem()?;
+    let t0 = Instant::now();
+    let back = rebuilt(&best, walls, &l);
+    let done = back.and_then(|mut b| {
+        row(dir, walls, &l, tag, "back_rebuilt", &b, t0.elapsed().as_secs_f64())?;
+        let t0 = Instant::now();
+        let mname = MODELS[m].0;
+        rounds(walls, &l, &mut b, &mut log, |r, p| {
+            let _ = dump(dir, tag, &format!("{mname}_backround{r}"), p);
+        });
+        row(dir, walls, &l, tag, "back", &b, t0.elapsed().as_secs_f64())?;
+        let (rep, traj, _) = fly_plan(course, world, &l, &b, run)?;
+        let r = verify(course, world, Plan::Trajectory(&traj));
+        println!(
+            "FLY\t{tag}\t{}\t{}\t{}\tcontacts {}\tsecant {}",
+            MODELS[m].0,
+            r.timer_tick().zip(r.finish_tick()).map_or("-".into(), |(s, e)| (e - s).to_string()),
+            if r.ok() { "PASS" } else { "FAIL" },
+            rep.contacts.len(),
+            r.secant_seconds().map_or("-".into(), |s| format!("{:.2}", s / 0.05)),
+        );
+        traj.write(&dir.join(format!("runs/secant/triple/{}_{}.traj.jsonl", tag.replace('\t', "_"), MODELS[m].0)))
+    });
+    MODEL.store(m, Ordering::Relaxed);
+    done
+}
+
+fn triple(dir: &Path, course: &Course, world: &World, walls: &Walls, run: &Run) {
+    use std::io::Write;
+    println!("HEAD\trun\tcheckpoint\tmodel\tphase\tvalue\tclear\tvalid\tl_clear\tl_valid\tticks\tsecs");
+    let branch = |tag: &str, start: Option<&DPlan>, first: usize| {
+        for m in first..MODELS.len() {
+            MODEL.store(m, Ordering::Relaxed);
+            if let Err(e) = arm(dir, course, world, walls, run, tag, start, |_, _| {}) {
+                println!("FAIL\t{tag}\t{}\t{e}", MODELS[m].0);
+            }
+            std::io::stdout().flush().ok();
+        }
+        MODEL.store(0, Ordering::Relaxed);
+    };
+    // the chain: the recording's L arm, kept for its checkpoints
+    let mut marks: Vec<(String, DPlan)> = Vec::new();
+    let tag = format!("{}\trec", run.name);
+    let mut last = None;
+    if let Err(e) = arm(dir, course, world, walls, run, &tag, None, |r, p| {
+        if r == 0 || r == 2 {
+            marks.push((format!("r{}", r + 1), p.clone()));
+        }
+        last = Some((format!("r{}", r + 1), p.clone()));
+    }) {
+        println!("FAIL\t{tag}\tL\t{e}");
+    }
+    if let Some((name, p)) = last
+        && !marks.iter().any(|(n, _)| *n == name)
+    {
+        marks.push((format!("end_{name}"), p));
+    }
+    branch(&tag, None, 1);
+    for (name, p) in &marks {
+        branch(&format!("{}\t{name}", run.name), Some(p), 0);
+    }
+}
+
 fn one(
     relaxing: bool,
     dir: &Path,
@@ -481,31 +697,7 @@ fn one(
             smooth(walls, &gate, &mut best, weight, &mut log);
         }
     }
-    let stiff = Problem {
-        opts: Opts {
-            c0: 1e3,
-            iters: 300,
-            ..opts()
-        },
-        ..gate.clone()
-    };
-    let mut i = 0;
-    for round in 0..ROUNDS {
-        let before = gate.value(&best.x);
-        for w in WINDOWS {
-            i += 1;
-            let off = (round % 2) * w / 2 + (i % 3) * w / 7;
-            let new = roll(&gate, &pass(walls, &gate, &best, w, off));
-            better(&gate, new, &mut best);
-        }
-        let windows = gate.value(&best.x);
-        let s = stiff.solve(&best.u);
-        better(&gate, s.plan, &mut best);
-        log.push(format!("{windows:.2}>{:.2}", gate.value(&best.x)));
-        if before - gate.value(&best.x) < MIN_GAIN {
-            break;
-        }
-    }
+    rounds(walls, &gate, &mut best, &mut log, |_, _| {});
     for (w, off) in CARRY {
         let new = roll(&gate, &carry(walls, &gate, &best, w, off, &mut log));
         better(&gate, new, &mut best);
@@ -517,6 +709,42 @@ fn one(
     let generic = gate.value(&best.x);
     let t1 = t0.elapsed().as_secs_f64();
 
+    let (rep, traj, stopped) = fly_plan(course, world, &gate, &best, run)?;
+    let out = dir.join(if relaxing {
+        "runs/relax"
+    } else {
+        "runs/optimize"
+    });
+    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
+    traj.write(&out.join(format!("{}.traj.jsonl", run.name)))?;
+    let r = verify(course, world, Plan::Trajectory(&traj));
+    let timed = r.timer_tick().zip(r.finish_tick()).map(|(s, e)| e - s);
+    Ok(format!(
+        "{name}: recorded {rec} -> {res} {verdict}{why}\n  generic {generic:.2} in {t1:.0} s [{log}]\n  track: {nt} ticks (plan {np}), {rs} re-solves, {rt:.1} s, contacts {c:?}, event {e:?}, port stopped {stopped:?}, secant {sec}",
+        name = run.name,
+        rec = run.gate + 1 - run.timer,
+        res = timed.map_or("-".into(), |t| format!("{t} ({:.2} s)", t as f64 * 0.05)),
+        verdict = if r.ok() { "PASS" } else { "FAIL" },
+        why = r
+            .failures
+            .first()
+            .map_or(String::new(), |e| format!(": {e}")),
+        log = log.join(" "),
+        nt = rep.inputs.len(),
+        np = best.u.len(),
+        rs = rep.resolves,
+        rt = rep.secs,
+        c = &rep.contacts[..rep.contacts.len().min(8)],
+        e = rep.event,
+        sec = r
+            .secant_seconds()
+            .map_or("-".into(), |s| format!("{:.2}", s / 0.05)),
+    ))
+}
+
+/// A plan tracked under the faithful kernel and flown with port from the recording's prefix.
+fn fly_plan(course: &Course, world: &World, gate: &Problem, best: &DPlan, run: &Run) -> Result<(Repaired, Trajectory, Option<(usize, port::Unsupported)>), String> {
+    let a = run.timer - 1;
     let yaw_from = state_at(&run.rec, a).y_rot;
     let tracker = Problem {
         opts: Opts {
@@ -556,36 +784,7 @@ fn one(
         .copied()
         .collect();
     let (traj, stopped) = fly(&run.rec.initial, &inputs, &arrivals, world, h);
-    let out = dir.join(if relaxing {
-        "runs/relax"
-    } else {
-        "runs/optimize"
-    });
-    std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
-    traj.write(&out.join(format!("{}.traj.jsonl", run.name)))?;
-    let r = verify(course, world, Plan::Trajectory(&traj));
-    let timed = r.timer_tick().zip(r.finish_tick()).map(|(s, e)| e - s);
-    Ok(format!(
-        "{name}: recorded {rec} -> {res} {verdict}{why}\n  generic {generic:.2} in {t1:.0} s [{log}]\n  track: {nt} ticks (plan {np}), {rs} re-solves, {rt:.1} s, contacts {c:?}, event {e:?}, port stopped {stopped:?}, secant {sec}",
-        name = run.name,
-        rec = run.gate + 1 - run.timer,
-        res = timed.map_or("-".into(), |t| format!("{t} ({:.2} s)", t as f64 * 0.05)),
-        verdict = if r.ok() { "PASS" } else { "FAIL" },
-        why = r
-            .failures
-            .first()
-            .map_or(String::new(), |e| format!(": {e}")),
-        log = log.join(" "),
-        nt = rep.inputs.len(),
-        np = best.u.len(),
-        rs = rep.resolves,
-        rt = rep.secs,
-        c = &rep.contacts[..rep.contacts.len().min(8)],
-        e = rep.event,
-        sec = r
-            .secant_seconds()
-            .map_or("-".into(), |s| format!("{:.2}", s / 0.05)),
-    ))
+    Ok((rep, traj, stopped))
 }
 
 /// The timer start and the gate, by the rows' positions alone: the move that starts the timer,
@@ -619,11 +818,17 @@ fn run() -> Result<(), String> {
         only.drain(k..k + 7);
     }
     let relaxing = hybrids || only.iter().any(|a| a == "--relax");
+    let triples = only.iter().any(|a| a == "--triple");
+    let chain = only.iter().position(|a| a == "--chain").map(|k| {
+        let m = only.remove(k + 1);
+        only.remove(k);
+        MODELS.iter().position(|x| x.0 == m).expect("--chain MODEL")
+    });
     if only.iter().any(|a| a == "--open-top") {
         let start = course.regions.get_mut("start_area").ok_or("no start area")?;
         start.working.max[1] = start.outer.max[1];
     }
-    only.retain(|a| a != "--relax" && a != "--hybrid" && a != "--open-top" && a != "--plain");
+    only.retain(|a| a != "--relax" && a != "--hybrid" && a != "--open-top" && a != "--plain" && a != "--triple");
     let mut runs = Vec::new();
     let seeds = if hybrids {
         "runs/hybrid"
@@ -671,6 +876,25 @@ fn run() -> Result<(), String> {
         .flat_map(|r| r.rec.rows.iter().map(|x| x.state.position))
         .collect();
     let walls = Walls::around(&world, &pts, 6.0, 1.0).with_boxes(&forbid);
+    if let Some(m) = chain {
+        for r in &runs {
+            MODEL.store(m, Ordering::Relaxed);
+            let tag = format!("{}\tchain", r.name);
+            let keep = |i: usize, p: &DPlan| {
+                let _ = dump(dir, &tag, &format!("{}_round{i}", MODELS[m].0), p);
+            };
+            if let Err(e) = arm(dir, &course, &world, &walls, r, &tag, None, keep) {
+                println!("FAIL\t{tag}\t{e}");
+            }
+        }
+        return Ok(());
+    }
+    if triples {
+        for r in &runs {
+            triple(dir, &course, &world, &walls, r);
+        }
+        return Ok(());
+    }
     runs.par_iter()
         .for_each(|r| match one(relaxing, dir, &course, &world, &walls, r) {
             Ok(s) => println!("{s}"),

@@ -18,7 +18,7 @@
 //! fails as a whole on the first unknown cell; for the cells inside the region the
 //! result is a superset of its boxes.
 
-use sim::generic::ghost::{HALF_WIDTH, HEIGHT};
+use sim::generic::ghost::{HALF_WIDTH, HEIGHT, leg_sdf, segment_sdf};
 use world::{Aabb, BlockPos, Cell, Effect, World};
 
 /// Obstacle boxes in a region of the world, bucketed by block cell.
@@ -241,6 +241,65 @@ impl Walls {
         }
         best
     }
+
+    /// [`Walls::clearance`] by `segment_sdf`, for a move off the axes.
+    pub fn segment_clearance(&self, from: [f64; 3], to: [f64; 3]) -> (f64, Option<usize>) {
+        let (a, b) = search_box(from, to, self.range);
+        let ca: [i32; 3] = std::array::from_fn(|i| (a[i].floor() as i32).max(self.glo[i]));
+        let cb: [i32; 3] = std::array::from_fn(|i| {
+            (b[i].floor() as i32).min(self.glo[i] + self.dims[i] as i32 - 1)
+        });
+        let mut best = (self.range, None);
+        if ca[0] > cb[0] {
+            return best;
+        }
+        for y in ca[1]..=cb[1] {
+            for z in ca[2]..=cb[2] {
+                let first = index(self.glo, self.dims, [ca[0], y, z]);
+                let last = index(self.glo, self.dims, [cb[0], y, z]);
+                let row = self.starts[first] as usize..self.starts[last + 1] as usize;
+                for &n in &self.filed[row] {
+                    measure_segment(from, to, &self.boxes[n as usize], n as usize, &mut best);
+                }
+            }
+        }
+        // As in `clearance`, but the sweep's own start, since a corner of its bounding box needn't be on it. Not quite 0:
+        // `segment_sdf` searches for its distance, so a sweep just touching a box can read a hair over.
+        const TOUCHING: f64 = 1e-6;
+        let (lo, hi) = ([-HALF_WIDTH, 0.0, -HALF_WIDTH], [HALF_WIDTH, HEIGHT, HALF_WIDTH]);
+        let start: [i32; 3] = std::array::from_fn(|i| (from[i] + lo[i]).floor() as i32);
+        let on_grid = (0..3).all(|i| start[i] >= self.glo[i] && start[i] < self.glo[i] + self.dims[i] as i32);
+        if best.0 > TOUCHING && !(on_grid && bit(&self.deep, index(self.glo, self.dims, start))) {
+            return best;
+        }
+        let sa: [i32; 3] = std::array::from_fn(|i| ((from[i].min(to[i]) + lo[i]).floor() as i32).max(self.glo[i]));
+        let sb: [i32; 3] = std::array::from_fn(|i| {
+            ((from[i].max(to[i]) + hi[i]).floor() as i32).min(self.glo[i] + self.dims[i] as i32 - 1)
+        });
+        for y in sa[1]..=sb[1] {
+            for z in sa[2]..=sb[2] {
+                for x in sa[0]..=sb[0] {
+                    let k = index(self.glo, self.dims, [x, y, z]);
+                    if bit(&self.deep, k) {
+                        measure_segment(from, to, &cube_at([x, y, z]), self.boxes.len() + k, &mut best);
+                    }
+                }
+            }
+        }
+        best
+    }
+}
+
+/// `segment_sdf` from the gliding box swept from `from` to `to` to `b`, into `best` if it's nearer.
+fn measure_segment(from: [f64; 3], to: [f64; 3], b: &Aabb, n: usize, best: &mut (f64, Option<usize>)) {
+    // the sweep's bounding box is a lower bound, and skips most boxes
+    if leg_sdf(from, to, b) > best.0 {
+        return;
+    }
+    let d = segment_sdf(from, to, b);
+    if d < best.0 || (d == best.0 && best.1.is_some_and(|m| n < m)) {
+        *best = (d, Some(n));
+    }
 }
 
 /// `leg_sdf` from the sweep of the feet over `near ..= far` to `b`, into `best` if it's nearer.
@@ -347,7 +406,6 @@ fn index(glo: [i32; 3], dims: [usize; 3], c: [i32; 3]) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sim::generic::ghost::leg_sdf;
 
     fn aabb(min: [f64; 3], max: [f64; 3]) -> Aabb {
         Aabb { min, max }
@@ -536,6 +594,19 @@ mod tests {
             solid += usize::from(got < 0.0);
         }
         assert!(solid > 1000, "{course}: only {solid} legs in solid");
+        // and chords, off the axes
+        let mut solid = 0;
+        for _ in 0..50_000 {
+            let p: [f64; 3] = std::array::from_fn(|i| r(lo[i] as f64, hi[i] as f64 + 1.0));
+            let q: [f64; 3] = std::array::from_fn(|i| p[i] + r(-3.0, 3.0));
+            let (want, (got, nearest)) = (all.segment_clearance(p, q).0, culled.segment_clearance(p, q));
+            assert_eq!(got, want, "{course}: {p:?} to {q:?}");
+            if let Some(n) = nearest {
+                assert_eq!(segment_sdf(p, q, &culled.obstacle(n)), got, "{course}: {p:?} to {q:?}");
+            }
+            solid += usize::from(got < 0.0);
+        }
+        assert!(solid > 1000, "{course}: only {solid} chords in solid");
     }
 
     #[test]
@@ -574,6 +645,59 @@ mod tests {
                 assert_eq!(w.clearance(p, p), brute(&w, p, p), "axis {i} at {}", p[i]);
             }
         }
+    }
+
+    /// `segment_clearance` against every box, with and without width, and off the grid's edge.
+    #[test]
+    fn segment_clearance_is_the_least_over_every_box() {
+        let mut r = lcg();
+        let mut boxes = Vec::new();
+        for k in 0..60 {
+            let c: [f64; 3] = std::array::from_fn(|_| r(-5.0, 4.0).floor());
+            boxes.push(match k % 3 {
+                0 => aabb(c, c.map(|v| v + 1.0)),
+                1 => aabb(c, [c[0], c[1] + r(0.0, 1.0), c[2] + r(0.0, 1.0)]),
+                _ => aabb(c, [c[0] + r(0.0, 1.5), c[1] + r(0.0, 1.5), c[2] + r(0.0, 1.5)]),
+            });
+        }
+        let w = walls(boxes);
+        let brute = |p, q| {
+            let mut best = (w.range, None);
+            for (n, b) in w.boxes.iter().enumerate() {
+                let d = segment_sdf(p, q, b);
+                if d < best.0 {
+                    best = (d, Some(n));
+                }
+            }
+            best
+        };
+        for _ in 0..5000 {
+            let p: [f64; 3] = std::array::from_fn(|_| r(-4.0, 4.0));
+            let q: [f64; 3] = std::array::from_fn(|i| p[i] + r(-2.0, 2.0));
+            assert_eq!(w.segment_clearance(p, q), brute(p, q), "{p:?} to {q:?}");
+        }
+        for i in 0..3 {
+            for k in -200..=200 {
+                let mut p = [0.5; 3];
+                p[i] = k as f64 / 10.0;
+                let q = [p[0] + 0.25, p[1] + 0.25, p[2] + 0.25];
+                assert_eq!(w.segment_clearance(p, q), brute(p, q), "axis {i} at {}", p[i]);
+            }
+        }
+    }
+
+    /// In the middle of a deep cube, by chord: inside solid, by that cube, and kept through `with_boxes`.
+    #[test]
+    fn a_chord_deep_in_solid_reads_negative() {
+        let (glo, dims) = grid([-6; 3], [6; 3]);
+        let mut deep = no_bits(dims);
+        set_bit(&mut deep, index(glo, dims, [1, 1, 1]));
+        let w = Walls::from_boxes(Vec::new(), deep, [-6; 3], [6; 3], 1.0);
+        let (p, q) = ([1.4, 1.1, 1.4], [1.6, 1.3, 1.6]);
+        let (c, nearest) = w.segment_clearance(p, q);
+        assert!(c < 0.0, "{c}");
+        assert_eq!(w.obstacle(nearest.unwrap()), cube_at([1, 1, 1]));
+        assert_eq!(w.with_boxes(&[]).segment_clearance(p, q), (c, nearest));
     }
 
     /// `--forbid`'s way in.

@@ -347,3 +347,96 @@ fn vector_duals_and_f32_duals_run() {
     });
     assert!(((f(&k, d32)[4].eps as f64) - grad[7]).abs() < 1e-5 * (1.0 + grad[7].abs()));
 }
+
+mod relaxed {
+    use sim::generic::ghost::{HALF_WIDTH, box_sdf, l_move, leg_sdf, relaxed_move, segment_sdf};
+    use world::Aabb;
+
+    fn cube() -> Aabb {
+        Aabb { min: [0.0, 0.0, 0.0], max: [1.0, 1.0, 1.0] }
+    }
+
+    /// Off the axes, the least distance over many points along the segment.
+    #[test]
+    fn segment_sdf_is_the_least_over_the_segment() {
+        let cases = [
+            ([-2.0, 0.2, 1.8], [1.9, 0.2, 2.2]),
+            ([-1.5, 0.3, 0.5], [0.5, 0.3, 2.5]),
+            ([-3.0, -2.0, 2.0], [0.0, 3.0, 4.0]),
+        ];
+        for (p, q) in cases {
+            let brute = (0..=20000)
+                .map(|i| {
+                    let t = i as f64 / 20000.0;
+                    box_sdf::<f64>(std::array::from_fn(|k| p[k] + (q[k] - p[k]) * t), &cube())
+                })
+                .fold(f64::INFINITY, f64::min);
+            // the grid can only sit above the least, by up to a step's worth at a kink inside
+            let d = segment_sdf::<f64>(p, q, &cube());
+            assert!(d <= brute + 1e-9 && brute - d < 1e-3, "{p:?} {q:?}: {d} {brute}");
+        }
+    }
+
+    /// The chord past a corner clears where the sweep's bounding box says it doesn't.
+    #[test]
+    fn segment_sdf_sees_past_the_bounding_box() {
+        let (p, q) = ([-2.0, 0.2, 1.0], [1.0, 0.2, 4.0]);
+        assert!(leg_sdf::<f64>(p, q, &cube()) < 0.0);
+        assert!(segment_sdf::<f64>(p, q, &cube()) > 0.0);
+    }
+
+    /// Overlapping, it's how far the whole segment must move, at least the deepest point's depth.
+    #[test]
+    fn segment_sdf_overlapping_is_the_segments_depth() {
+        let (p, q) = ([-1.0, -2.0, -1.0], [2.0, 3.0, 3.0]);
+        let deepest = (0..=20000)
+            .map(|i| {
+                let t = i as f64 / 20000.0;
+                box_sdf::<f64>(std::array::from_fn(|k| p[k] + (q[k] - p[k]) * t), &cube())
+            })
+            .fold(f64::INFINITY, f64::min);
+        let d = segment_sdf::<f64>(p, q, &cube());
+        assert!(d < 0.0 && d <= deepest, "{d} {deepest}");
+    }
+
+    /// Deep inside the box, the derivatives are the depth's, where a held parameter's would not be.
+    /// Off `from[i] == to[i]`, which is a kink.
+    #[test]
+    fn segment_sdf_derivative_matches_inside() {
+        use sim::generic::num_dual::DualSVec64;
+        let (p, q) = ([-1.0, 0.1, 0.4], [1.3, 0.35, 0.9]);
+        let z: [DualSVec64<6>; 6] = std::array::from_fn(|i| DualSVec64::<6>::from_re(if i < 3 { p[i] } else { q[i - 3] }).derivative(i));
+        let d = segment_sdf([z[0], z[1], z[2]], [z[3], z[4], z[5]], &cube());
+        let g = d.eps.0.unwrap();
+        for i in 0..6 {
+            let h = 1e-6;
+            let mut a = [p, q];
+            a[i / 3][i % 3] += h;
+            let up = segment_sdf::<f64>(a[0], a[1], &cube());
+            a[i / 3][i % 3] -= 2.0 * h;
+            let dn = segment_sdf::<f64>(a[0], a[1], &cube());
+            assert!(((up - dn) / (2.0 * h) - g[i]).abs() < 1e-5, "{i}: {} {}", (up - dn) / (2.0 * h), g[i]);
+        }
+    }
+
+    #[test]
+    fn segment_sdf_on_an_axis_is_the_leg() {
+        let (p, q) = ([-2.0, 0.2, 1.0 + HALF_WIDTH + 0.1], [3.0, 0.2, 1.0 + HALF_WIDTH + 0.1]);
+        assert_eq!(segment_sdf::<f64>(p, q, &cube()), leg_sdf::<f64>(p, q, &cube()));
+    }
+
+    #[test]
+    fn relaxed_move_ends_the_l_and_the_straight_line() {
+        let (p, v) = ([1.0, 2.0, 3.0], [0.9, -0.3, 1.5]);
+        assert_eq!(relaxed_move::<f64>(p, v, [0.0, 0.0]), l_move::<f64>(p, v));
+        let [a, b, e] = relaxed_move::<f64>(p, v, [1.0, 1.0]);
+        for k in 0..3 {
+            assert!((a[k] - (p[k] + v[k] / 3.0)).abs() < 1e-12);
+            assert!((b[k] - (p[k] + v[k] * 2.0 / 3.0)).abs() < 1e-12);
+            assert!((e[k] - (p[k] + v[k])).abs() < 1e-12);
+        }
+        let [a, b, e] = relaxed_move::<f64>(p, v, [1.0, 0.0]);
+        assert_eq!(a, [p[0], p[1] + v[1], p[2]]);
+        assert!(b[1] == a[1] && (b[0] - (a[0] + e[0]) / 2.0).abs() < 1e-12 && (b[2] - (a[2] + e[2]) / 2.0).abs() < 1e-12);
+    }
+}

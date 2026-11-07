@@ -7,6 +7,7 @@
 - quantize rot to the sin table, so rather than checking approx equal, you check if they land in the same bucket
 - consider wall touches
 - partial ticks
+- have agents read docs rather than the entire code for context management
 
 ## tasing strats / rules of thumb (move + collect the rest)
 
