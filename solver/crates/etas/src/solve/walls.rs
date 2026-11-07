@@ -29,10 +29,12 @@ pub struct Walls {
     /// search box stays inside; see [`Walls::covers`].
     pub lo: [i32; 3],
     pub hi: [i32; 3],
-    /// Bucket grid over `lo - PAD ..= hi + PAD`: indices into `boxes` per cell.
+    /// Bucket grid over `lo - PAD ..= hi + PAD`: cell `k`'s indices into `boxes` are
+    /// `filed[starts[k]..starts[k + 1]]`. why flat? a row of cells along x is then one slice, and most cells are empty.
     glo: [i32; 3],
     dims: [usize; 3],
-    cells: Vec<Vec<u32>>,
+    starts: Vec<u32>,
+    filed: Vec<u32>,
     /// Clearance is capped here: a leg with nothing nearer reads `range`.
     pub range: f64,
 }
@@ -102,23 +104,44 @@ impl Walls {
     fn from_boxes(boxes: Vec<Aabb>, lo: [i32; 3], hi: [i32; 3], range: f64) -> Walls {
         let glo = [lo[0] - PAD, lo[1] - PAD, lo[2] - PAD];
         let dims: [usize; 3] = std::array::from_fn(|i| (hi[i] + PAD - glo[i] + 1) as usize);
-        let mut cells = vec![Vec::new(); dims[0] * dims[1] * dims[2]];
-        for (n, b) in boxes.iter().enumerate() {
-            let a: [i32; 3] = std::array::from_fn(|i| (b.min[i].floor() as i32).max(glo[i]));
-            // Closed boxes, open cells: a query meeting a box only at a cell's edge has it at `range`, the cap.
-            // A box with no width overlaps no open cell, so it takes the one above, which any nearer query reads.
-            let z: [i32; 3] = std::array::from_fn(|i| {
-                let top = (b.max[i].ceil() as i32 - 1).max(b.min[i].floor() as i32);
-                top.min(glo[i] + dims[i] as i32 - 1)
-            });
+        let ranges: Vec<([i32; 3], [i32; 3])> = boxes
+            .iter()
+            .map(|b| {
+                let a = std::array::from_fn(|i| (b.min[i].floor() as i32).max(glo[i]));
+                // Closed boxes, open cells: a query meeting a box only at a cell's edge has it at `range`, the cap.
+                // A box with no width overlaps no open cell, so it takes the one above, which any nearer query reads.
+                let z = std::array::from_fn(|i| {
+                    let top = (b.max[i].ceil() as i32 - 1).max(b.min[i].floor() as i32);
+                    top.min(glo[i] + dims[i] as i32 - 1)
+                });
+                (a, z)
+            })
+            .collect();
+        let each_cell = |(a, z): &([i32; 3], [i32; 3]), f: &mut dyn FnMut(usize)| {
             for y in a[1]..=z[1] {
                 for zz in a[2]..=z[2] {
                     for x in a[0]..=z[0] {
-                        let k = index(glo, dims, [x, y, zz]);
-                        cells[k].push(n as u32);
+                        f(index(glo, dims, [x, y, zz]));
                     }
                 }
             }
+        };
+        // count, sum to each cell's end, then fill from the ends down, so a cell's boxes stay in index order
+        let mut starts = vec![0u32; dims[0] * dims[1] * dims[2] + 1];
+        for r in &ranges {
+            each_cell(r, &mut |k| starts[k] += 1);
+        }
+        let mut sum = 0;
+        for s in &mut starts {
+            sum += *s;
+            *s = sum;
+        }
+        let mut filed = vec![0u32; sum as usize];
+        for (n, r) in ranges.iter().enumerate().rev() {
+            each_cell(r, &mut |k| {
+                starts[k] -= 1;
+                filed[starts[k] as usize] = n as u32;
+            });
         }
         Walls {
             boxes,
@@ -126,7 +149,8 @@ impl Walls {
             hi,
             glo,
             dims,
-            cells,
+            starts,
+            filed,
             range,
         }
     }
@@ -153,39 +177,45 @@ impl Walls {
         let hi = [HALF_WIDTH, HEIGHT, HALF_WIDTH];
         let near: [f64; 3] = std::array::from_fn(|i| from[i].min(to[i]));
         let far: [f64; 3] = std::array::from_fn(|i| from[i].max(to[i]));
+        // past the grid along x: `y` and `z` have their own empty ranges, but a slice of the row would panic
+        if ca[0] > cb[0] {
+            return best;
+        }
         for y in ca[1]..=cb[1] {
             for z in ca[2]..=cb[2] {
-                for x in ca[0]..=cb[0] {
-                    for &n in &self.cells[index(self.glo, self.dims, [x, y, z])] {
-                        let b = &self.boxes[n as usize];
-                        let gap: [f64; 3] = std::array::from_fn(|i| {
-                            ((b.min[i] - hi[i]) - far[i]).max(near[i] + (lo[i] - b.max[i]))
-                        });
-                        // a gap past the best is a distance past it, so skip the rest
-                        let widest = gap[0].max(gap[1]).max(gap[2]);
-                        if widest > best.0 {
-                            continue;
+                // cells along x are adjacent, so the whole row is one slice
+                let first = index(self.glo, self.dims, [ca[0], y, z]);
+                let last = index(self.glo, self.dims, [cb[0], y, z]);
+                let row = self.starts[first] as usize..self.starts[last + 1] as usize;
+                for &n in &self.filed[row] {
+                    let b = &self.boxes[n as usize];
+                    let gap: [f64; 3] = std::array::from_fn(|i| {
+                        ((b.min[i] - hi[i]) - far[i]).max(near[i] + (lo[i] - b.max[i]))
+                    });
+                    // a gap past the best is a distance past it, so skip the rest
+                    let widest = gap[0].max(gap[1]).max(gap[2]);
+                    if widest > best.0 {
+                        continue;
+                    }
+                    let mut sqr = 0.0;
+                    let mut outside = 0.0;
+                    let mut n_pos = 0;
+                    for g in gap {
+                        if g > 0.0 {
+                            outside = g;
+                            sqr += g * g;
+                            n_pos += 1;
                         }
-                        let mut sqr = 0.0;
-                        let mut outside = 0.0;
-                        let mut n_pos = 0;
-                        for g in gap {
-                            if g > 0.0 {
-                                outside = g;
-                                sqr += g * g;
-                                n_pos += 1;
-                            }
-                        }
-                        let d = match n_pos {
-                            0 => widest,
-                            1 => outside,
-                            _ => f64::sqrt(sqr),
-                        };
-                        // ties go to the lower index, so the answer doesn't depend on
-                        // which cell saw the box first
-                        if d < best.0 || (d == best.0 && best.1.is_some_and(|m| (n as usize) < m)) {
-                            best = (d, Some(n as usize));
-                        }
+                    }
+                    let d = match n_pos {
+                        0 => widest,
+                        1 => outside,
+                        _ => f64::sqrt(sqr),
+                    };
+                    // ties go to the lower index, so the answer doesn't depend on
+                    // which cell saw the box first
+                    if d < best.0 || (d == best.0 && best.1.is_some_and(|m| (n as usize) < m)) {
+                        best = (d, Some(n as usize));
                     }
                 }
             }
@@ -260,8 +290,7 @@ mod tests {
         ];
         for (b, cells) in cases {
             let w = walls(vec![b.clone()]);
-            let filed: usize = w.cells.iter().map(Vec::len).sum();
-            assert_eq!(filed, cells, "{b:?}");
+            assert_eq!(w.filed.len(), cells, "{b:?}");
         }
     }
 
@@ -305,8 +334,9 @@ mod tests {
             (at(-1.0, -2.0, -3.0), at(-1.0, -2.0, -3.0), [-1, -2, -3]),
         ] {
             let w = walls(vec![aabb(min, max)]);
-            assert_eq!(w.cells.iter().map(Vec::len).sum::<usize>(), 1, "{min:?}");
-            assert_eq!(w.cells[index(w.glo, w.dims, cell)], [0], "{min:?}");
+            assert_eq!(w.filed.len(), 1, "{min:?}");
+            let k = index(w.glo, w.dims, cell);
+            assert_eq!(w.filed[w.starts[k] as usize..w.starts[k + 1] as usize], [0], "{min:?}");
         }
     }
 
@@ -314,7 +344,7 @@ mod tests {
     #[test]
     fn a_plane_is_filed_in_each_cell_it_crosses() {
         let w = walls(vec![aabb([1.0, 0.0, 0.5], [1.0, 2.0, 1.5])]);
-        assert_eq!(w.cells.iter().map(Vec::len).sum::<usize>(), 4);
+        assert_eq!(w.filed.len(), 4);
     }
 
     #[test]
@@ -365,6 +395,19 @@ mod tests {
         let (c, nearest) = w.clearance([0.0, 0.0, -1.0], [0.0, 0.0, 3.0]);
         assert_eq!(nearest, Some(0));
         assert!(c <= 0.0, "{c}");
+    }
+
+    /// Off the grid on every side, along each axis: nothing there, and no panic.
+    #[test]
+    fn clearance_off_the_grid_reads_the_cap() {
+        let w = walls(vec![aabb([0.0; 3], [1.0; 3])]);
+        for i in 0..3 {
+            for at in [-100.0, 100.0] {
+                let mut p = [0.5; 3];
+                p[i] = at;
+                assert_eq!(w.clearance(p, p), (w.range, None), "axis {i} at {at}");
+            }
+        }
     }
 
     /// `--forbid`'s way in.
